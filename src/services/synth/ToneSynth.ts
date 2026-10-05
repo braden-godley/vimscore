@@ -4,9 +4,9 @@ import { Synth } from './Synth';
 const ATTACK_SECONDS = 0.005;
 const RELEASE_SECONDS = 0.03;
 
-/** Pitch 0 is A0 */
+/** Pitch is a MIDI note number, where 69 is A4 */
 function pitchToFrequency(pitch: number): number {
-    return 27.5 * 2 ** (pitch / 12);
+    return 440 * 2 ** ((pitch - 69) / 12);
 }
 
 /**

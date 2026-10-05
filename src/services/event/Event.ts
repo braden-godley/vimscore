@@ -1,0 +1,57 @@
+/**
+ * Events are the things that take up time in a voice. They're stored in order, back to back,
+ * so an event's position is the sum of the lengths before it.
+ */
+
+import { Duration, durationValue } from '../duration/Duration';
+import { Fraction, ONE, ZERO, add, fraction, mul } from '../fraction/Fraction';
+import { Note } from '../note/Note';
+
+/** One or more notes sounding together. A single note is a one-note chord */
+export interface Chord {
+    kind: 'chord';
+    duration: Duration;
+    notes: Note[];
+}
+
+export interface Rest {
+    kind: 'rest';
+    duration: Duration;
+}
+
+/**
+ * Plays `actual` notes in the time of `normal`, scaling everything inside by normal/actual.
+ * Triplet is 3:2, quintuplet 5:4, sextuplet 6:4. Tuplets can nest.
+ */
+export interface Tuplet {
+    kind: 'tuplet';
+    actual: number;
+    normal: number;
+    events: Event[];
+}
+
+export type Event = Chord | Rest | Tuplet;
+
+/** A chord or rest with its length after all enclosing tuplets are applied */
+export interface Leaf {
+    event: Chord | Rest;
+    length: Fraction;
+}
+
+/** Flattens tuplets away, yielding every chord and rest in order with its sounding length */
+export function* leaves(events: Event[], scale: Fraction = ONE): Generator<Leaf> {
+    for (const event of events) {
+        if (event.kind === 'tuplet') {
+            yield* leaves(event.events, mul(scale, fraction(event.normal, event.actual)));
+        } else {
+            yield { event, length: mul(scale, durationValue(event.duration)) };
+        }
+    }
+}
+
+/** Total length of the events in whole notes */
+export function eventsLength(events: Event[]): Fraction {
+    let total = ZERO;
+    for (const { length } of leaves(events)) total = add(total, length);
+    return total;
+}

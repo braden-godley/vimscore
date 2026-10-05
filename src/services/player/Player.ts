@@ -1,9 +1,6 @@
 import { Composition } from "../composition/Composition";
-import { Note } from "../note/Note";
 import { Synth } from "../synth/Synth";
-
-/** Measures are assumed to be 4/4 until compositions carry a time signature */
-const SIXTY_FOURTHS_PER_MEASURE = 64;
+import { TimedNote, timeline } from "../timeline/timeline";
 
 /**
  * How often the scheduler wakes up. Lateness here doesn't affect note timing, because notes
@@ -14,18 +11,6 @@ const LOOKAHEAD_SECONDS = 0.1;
 
 /** Delay before the first note so it isn't already late when it gets scheduled */
 const START_DELAY_SECONDS = 0.05;
-
-/** A note with its timing resolved to seconds from the start of the composition */
-interface TimedNote {
-    pitch: number;
-    start: number;
-    duration: number;
-}
-
-export function noteLengthIn64ths(note: Note): number {
-    const length = note.duration === 7 ? 96 : 2 ** note.duration;
-    return note.dotted ? length * 1.5 : length;
-}
 
 export class Player {
     private notes: TimedNote[] = [];
@@ -38,7 +23,6 @@ export class Player {
     constructor(
         private ctx: AudioContext,
         private synth: Synth,
-        private bpm = 120,
     ) {}
 
     get playing(): boolean {
@@ -53,25 +37,7 @@ export class Player {
     setComposition(composition: Composition) {
         this.stop();
 
-        // A quarter note is 16 64ths
-        const secondsPer64th = 60 / this.bpm / 16;
-
-        this.notes = composition.instruments
-            .flatMap((instrument) =>
-                instrument.measures.flatMap((measure, measureIndex) =>
-                    measure.notes.map((note) => {
-                        const length = noteLengthIn64ths(note);
-                        const start = measureIndex * SIXTY_FOURTHS_PER_MEASURE + note.startsAt;
-                        return {
-                            pitch: note.pitch,
-                            start: start * secondsPer64th,
-                            duration: (note.stacatto ? length / 2 : length) * secondsPer64th,
-                        };
-                    }),
-                ),
-            )
-            .sort((a, b) => a.start - b.start);
-
+        this.notes = timeline(composition);
         this.endTime = Math.max(0, ...this.notes.map((note) => note.start + note.duration));
     }
 

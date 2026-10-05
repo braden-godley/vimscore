@@ -1,15 +1,18 @@
 /**
  * A composition is the top-level data structure. It has the following attributes:
  * - Title
- * - Instruments
+ * - Measures, holding what all parts share: time signature and tempo
+ * - Parts, each holding its own contents for every measure
  * - Soundfont
  */
 
-import { Instrument } from "../instrument/Instrument";
-import { Soundfont } from "../soundfont/Soundfont";
+import { MeasureInfo } from '../measure/Measure';
+import { Part } from '../part/Part';
+import { Soundfont } from '../soundfont/Soundfont';
 
 export interface Composition {
     title: string;
-    instruments: Instrument[];
+    measures: MeasureInfo[];
+    parts: Part[];
     soundfont: Soundfont;
 }
