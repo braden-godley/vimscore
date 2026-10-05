@@ -12,12 +12,19 @@ const LOOKAHEAD_SECONDS = 0.1;
 /** Delay before the first note so it isn't already late when it gets scheduled */
 const START_DELAY_SECONDS = 0.05;
 
+/** How long a preview sounds: long enough to hear the pitches, short enough to nudge again */
+const PREVIEW_SECONDS = 0.35;
+
 export class Player {
     private notes: TimedNote[] = [];
+    /** What's left to play from the start point, in composition time */
+    private queue: TimedNote[] = [];
     private endTime = 0;
     private nextNoteIndex = 0;
-    /** AudioContext time at which the composition started */
+    /** AudioContext time at which the composition's time zero is, before the start point */
     private startTime = 0;
+    /** Where playback started, in seconds into the composition */
+    private from = 0;
     private timer?: ReturnType<typeof setInterval>;
 
     constructor(
@@ -31,7 +38,8 @@ export class Player {
 
     /** Seconds since the start of the composition, for drawing a playhead */
     get position(): number {
-        return this.playing ? Math.max(0, this.ctx.currentTime - this.startTime) : 0;
+        // Clamped so the start delay doesn't read as being before the start point
+        return this.playing ? Math.max(this.from, this.ctx.currentTime - this.startTime) : 0;
     }
 
     setComposition(composition: Composition) {
@@ -41,16 +49,37 @@ export class Player {
         this.endTime = Math.max(0, ...this.notes.map((note) => note.start + note.duration));
     }
 
-    play() {
-        if (this.playing || this.notes.length === 0) return;
+    /**
+     * Plays from `from` seconds into the composition. Notes already sounding at that point play
+     * for whatever is left of them, so a held chord isn't silent until its next change.
+     */
+    play(from = 0) {
+        if (this.playing) return;
+
+        this.queue = this.notes
+            .filter((note) => note.start + note.duration > from)
+            .map((note) => {
+                const start = Math.max(note.start, from);
+                return { ...note, start, duration: note.start + note.duration - start };
+            });
+        if (this.queue.length === 0) return;
 
         // Autoplay policy can leave the context suspended; its clock just waits until it resumes
         void this.ctx.resume();
 
-        this.startTime = this.ctx.currentTime + START_DELAY_SECONDS;
+        this.from = from;
+        this.startTime = this.ctx.currentTime + START_DELAY_SECONDS - from;
         this.nextNoteIndex = 0;
         this.timer = setInterval(() => this.schedule(), SCHEDULER_INTERVAL_MS);
         this.schedule();
+    }
+
+    /** Sounds pitches together right away, cutting off any earlier preview. Ignored while playing */
+    preview(pitches: number[]) {
+        if (this.playing) return;
+        void this.ctx.resume();
+        this.synth.stopAll();
+        for (const pitch of pitches) this.synth.playNote(pitch, this.ctx.currentTime, PREVIEW_SECONDS);
     }
 
     stop() {
@@ -64,8 +93,8 @@ export class Player {
     private schedule() {
         const horizon = this.ctx.currentTime + LOOKAHEAD_SECONDS;
 
-        while (this.nextNoteIndex < this.notes.length) {
-            const note = this.notes[this.nextNoteIndex]!;
+        while (this.nextNoteIndex < this.queue.length) {
+            const note = this.queue[this.nextNoteIndex]!;
             const when = this.startTime + note.start;
             if (when > horizon) break;
 
@@ -73,7 +102,7 @@ export class Player {
             this.nextNoteIndex++;
         }
 
-        if (this.nextNoteIndex === this.notes.length && this.ctx.currentTime > this.startTime + this.endTime) {
+        if (this.nextNoteIndex === this.queue.length && this.ctx.currentTime > this.startTime + this.endTime) {
             this.stop();
         }
     }

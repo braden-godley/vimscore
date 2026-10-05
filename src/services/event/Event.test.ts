@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Duration, durationValue } from '../duration/Duration';
+import { Duration, durationValue, durationsFilling } from '../duration/Duration';
 import { fraction } from '../fraction/Fraction';
 import { Event, eventsLength, leaves } from './Event';
 
@@ -42,5 +42,24 @@ describe('eventsLength', () => {
             ...Array(5).fill(fraction(1, 30)),
         ]);
         expect(eventsLength([outer])).toEqual(fraction(1, 3));
+    });
+});
+
+describe('durationsFilling', () => {
+    const fill = (num: number, den: number) => durationsFilling(fraction(num, den));
+
+    it('uses one value where it can', () => {
+        expect(fill(1, 1)).toEqual([{ base: 1, dots: 0 }]);
+        expect(fill(3, 4)).toEqual([{ base: 2, dots: 1 }]);
+        expect(fill(7, 8)).toEqual([{ base: 2, dots: 2 }]);
+    });
+
+    it('splits lengths no single value covers', () => {
+        expect(fill(5, 4)).toEqual([{ base: 1, dots: 0 }, { base: 4, dots: 0 }]);
+        expect(fill(9, 8)).toEqual([{ base: 1, dots: 0 }, { base: 8, dots: 0 }]);
+    });
+
+    it('rejects lengths that note values cannot reach', () => {
+        expect(() => fill(1, 3)).toThrow(RangeError);
     });
 });

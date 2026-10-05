@@ -4,8 +4,10 @@
   "description": "vimscore desktop app",
   "main": "./out/main/index.js",
   "scripts": {
+    "predev": "node scripts/set-dev-bundle-id.mjs",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "prestart": "node scripts/set-dev-bundle-id.mjs",
     "start": "electron-vite preview",
     "typecheck": "tsc",
     "test": "vitest run",

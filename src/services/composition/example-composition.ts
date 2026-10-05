@@ -57,6 +57,7 @@ const melody: Part = {
 
 const bass: Part = {
     name: 'Bass',
+    clef: 'bass',
     program: 0,
     measures: [
         { voices: [{ events: [chord(whole, 48)] }] },

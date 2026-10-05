@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fraction } from '../fraction/Fraction';
-import { DEFAULT_TEMPO, DEFAULT_TIME_SIGNATURE, resolveMeasures, secondsPerWholeNote } from './Measure';
+import { DEFAULT_TEMPO, DEFAULT_TIME_SIGNATURE, measureAtTime, resolveMeasures, secondsPerWholeNote } from './Measure';
 
 describe('secondsPerWholeNote', () => {
     it('accounts for the beat unit', () => {
@@ -37,5 +37,13 @@ describe('resolveMeasures', () => {
         ]);
         // 4 beats at 120, 3 at 120, 3 at 60
         expect(measures.map((m) => m.startSeconds)).toEqual([0, 2, 3.5, 6.5]);
+    });
+});
+
+describe('measureAtTime', () => {
+    it('finds the measure containing a time, clamping at both ends', () => {
+        // Each 4/4 measure lasts 2s at the default tempo
+        const measures = resolveMeasures([{}, {}, {}]);
+        expect([-1, 0, 1.99, 2, 5, 100].map((t) => measureAtTime(measures, t))).toEqual([0, 0, 0, 1, 2, 2]);
     });
 });

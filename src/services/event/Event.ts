@@ -55,3 +55,11 @@ export function eventsLength(events: Event[]): Fraction {
     for (const { length } of leaves(events)) total = add(total, length);
     return total;
 }
+
+/** Replaces chords and rests by their index in `leaves`, keeping tuplets around them */
+export function mapLeaves(events: Event[], fn: (event: Chord | Rest, index: number) => Chord | Rest): Event[] {
+    let index = 0;
+    const map = (events: Event[]): Event[] =>
+        events.map((event) => (event.kind === 'tuplet' ? { ...event, events: map(event.events) } : fn(event, index++)));
+    return map(events);
+}

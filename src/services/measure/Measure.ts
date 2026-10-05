@@ -74,3 +74,10 @@ export function resolveMeasures(measures: MeasureInfo[]): ResolvedMeasure[] {
         return resolved;
     });
 }
+
+/** Index of the measure sounding at `seconds`, clamped to the first and last measure */
+export function measureAtTime(measures: ResolvedMeasure[], seconds: number): number {
+    let index = 0;
+    while (index + 1 < measures.length && measures[index + 1]!.startSeconds <= seconds) index++;
+    return index;
+}
