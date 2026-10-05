@@ -46,10 +46,14 @@ export function stepScale(phantom: Phantom, key: KeySignature, steps: number): P
     return { ...phantom, pitch: scaleStep(phantom.pitch, key, steps) };
 }
 
+/** A new value starts plain: no dot and no staccato */
+export function setDuration(phantom: Phantom, base: Duration['base']): Phantom {
+    return { ...phantom, duration: { base, dots: 0 }, staccato: false };
+}
+
 export function stepDuration(phantom: Phantom, steps: number): Phantom {
     const index = BASES.indexOf(phantom.duration.base);
-    const base = BASES[Math.max(0, Math.min(BASES.length - 1, index + steps))]!;
-    return { ...phantom, duration: { ...phantom.duration, base } };
+    return setDuration(phantom, BASES[Math.max(0, Math.min(BASES.length - 1, index + steps))]!);
 }
 
 export function toggleDot(phantom: Phantom): Phantom {

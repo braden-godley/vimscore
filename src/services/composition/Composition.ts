@@ -19,6 +19,23 @@ export interface Composition {
     soundfont: Soundfont;
 }
 
+/**
+ * A blank score to start from: a treble and a bass stave, each with nothing in it yet. With no
+ * measures of its own it takes the defaults, 4/4 at quarter = 120 in C, and `startSession` gives
+ * it its first empty measure.
+ */
+export function newComposition(): Composition {
+    return {
+        title: 'Untitled',
+        measures: [],
+        parts: [
+            { name: 'Treble', clef: 'treble', program: 0, measures: [] },
+            { name: 'Bass', clef: 'bass', program: 0, measures: [] },
+        ],
+        soundfont: { filePath: '' },
+    };
+}
+
 /** True when nothing sounds in the measure: every voice of every part is rests, or empty */
 function isEmptyMeasure(composition: Composition, measure: number): boolean {
     return composition.parts.every((part) =>

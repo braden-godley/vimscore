@@ -38,6 +38,8 @@ const NOTE_STRETCH = 1.6;
 const MIN_NOTES_WIDTH = 80;
 /** Gap between the last note and the barline */
 const END_PADDING = 20;
+/** How far above the top stave line tempo marks sit, in VexFlow's offset from the stave */
+const TEMPO_Y = -10;
 
 /** Maps a time within a measure to the x where it's drawn */
 export interface Anchor {
@@ -185,9 +187,10 @@ export function renderScore(container: HTMLElement, composition: Composition): S
     const boxes: MeasureBox[] = [];
     let x = LEFT_MARGIN;
 
-    resolved.forEach(({ timeSignature, keySignature, length }, m) => {
+    resolved.forEach(({ timeSignature, keySignature, tempo, length }, m) => {
         const showTimeSignature = m === 0 || composition.measures[m]?.timeSignature !== undefined;
         const showKeySignature = m === 0 || composition.measures[m]?.keySignature !== undefined;
+        const showTempo = m === 0 || composition.measures[m]?.tempo !== undefined;
 
         const column = composition.parts.map((part, p) => {
             const voices = part.measures[m]?.voices ?? [];
@@ -203,6 +206,10 @@ export function renderScore(container: HTMLElement, composition: Composition): S
             const previousKey = resolved[m - 1]?.keySignature;
             if (showKeySignature) stave.addKeySignature(keySpec(keySignature), previousKey && keySpec(previousKey));
             if (showTimeSignature) stave.addTimeSignature(`${timeSignature.beats}/${timeSignature.beatValue}`);
+            // A metronome mark over the top stave, like ♩ = 120
+            if (showTempo && p === 0) {
+                stave.setTempo({ duration: durationCode(tempo.beat), dots: tempo.beat.dots, bpm: tempo.bpm }, TEMPO_Y);
+            }
             return stave;
         });
 

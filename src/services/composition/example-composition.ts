@@ -1,3 +1,9 @@
+/**
+ * A short piece that exercises most of what the score can hold: chords, every kind of tuplet,
+ * ties, staccato, rests, and time signature and tempo changes. The app starts blank, but tests
+ * use this, and it's handy to load by hand when trying out rendering or playback.
+ */
+
 import { Duration } from '../duration/Duration';
 import { Chord, Event, Rest, Tuplet } from '../event/Event';
 import { Note } from '../note/Note';

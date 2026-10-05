@@ -5,7 +5,8 @@ import { cursorPitch } from '../cursor/Cursor';
 import { Duration } from '../duration/Duration';
 import { Event, leaves } from '../event/Event';
 import { Phantom } from '../phantom/Phantom';
-import { deleteNote, deleteSelection, placeNote, transposeNote, transposeSelection } from './Edit';
+import { deleteNote, deleteSelection, placeNote, setLeafDuration, transposeNote, transposeSelection } from './Edit';
+import { written } from './written';
 
 /** Every pitch in a part's measure, chord by chord, with null for rests */
 function pitches(composition: Composition, part: number, measure: number) {
@@ -40,22 +41,6 @@ describe('transposeSelection', () => {
         expect(transposeSelection(exampleComposition, selection, 60)).toBe(exampleComposition);
     });
 });
-
-/** A voice's events in short form: `60,64/q` for a chord, `r/8.` for a rest, tuplets in brackets */
-function written(composition: Composition, part: number, measure: number): string {
-    const value = ({ base, dots }: { base: number; dots: number }) => `${base === 4 ? 'q' : base === 2 ? 'h' : base === 1 ? 'w' : base}${'.'.repeat(dots)}`;
-    const show = (events: Event[]): string =>
-        events
-            .map((event) =>
-                event.kind === 'tuplet'
-                    ? `[${show(event.events)}]`
-                    : event.kind === 'rest'
-                      ? `r/${value(event.duration)}`
-                      : `${event.notes.map((n) => `${n.pitch}${n.tie ? '~' : ''}${n.staccato ? '!' : ''}`).join(',')}/${value(event.duration)}`,
-            )
-            .join(' ');
-    return show(composition.parts[part]!.measures[measure]!.voices[0]!.events);
-}
 
 const phantom = (pitch: number, base: Duration['base'], dots: Duration['dots'] = 0, staccato = false): Phantom => ({
     pitch,
@@ -202,5 +187,33 @@ describe('deleteNote', () => {
 
     it('does nothing on a rest', () => {
         expect(deleteNote(exampleComposition, note(0, 2, 3, 0))).toBeUndefined();
+    });
+});
+
+describe('setLeafDuration', () => {
+    const quarter = { base: 4, dots: 0 } as const;
+
+    it('changes the whole chord, writing over or leaving rests', () => {
+        expect(written(setLeafDuration(exampleComposition, at(0, 0, 0), { base: 2, dots: 0 })!, 0, 0)).toBe(
+            '60,64,67/h 60,64,67/h',
+        );
+        expect(written(setLeafDuration(exampleComposition, at(0, 0, 0), { base: 8, dots: 0 })!, 0, 0)).toBe(
+            '60,64,67/8 r/8 55,59,62/q 60,64,67/h',
+        );
+    });
+
+    it('drops the dot, keeping ties and staccato', () => {
+        expect(written(setLeafDuration(exampleComposition, at(0, 2, 0), quarter)!, 0, 2)).toBe('72~/q r/8 72/8 72!/8 r/8');
+    });
+
+    it('changes rests too', () => {
+        expect(written(setLeafDuration(exampleComposition, at(0, 2, 3), { base: 16, dots: 0 })!, 0, 2)).toBe(
+            '72~/q. 72/8 72!/8 r/16 r/16',
+        );
+    });
+
+    it('does nothing for the same value or one that does not fit', () => {
+        expect(setLeafDuration(exampleComposition, at(0, 0, 0), quarter)).toBeUndefined();
+        expect(setLeafDuration(exampleComposition, at(0, 0, 2), { base: 1, dots: 0 })).toBeUndefined();
     });
 });

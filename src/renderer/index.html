@@ -107,6 +107,19 @@
       body[data-state="playing"] #mode {
         color: var(--playhead);
       }
+      body[data-state="prompt"] #mode {
+        display: none;
+      }
+      #prompt .prompt-text::after {
+        content: "▏";
+      }
+      #prompt .prompt-hint {
+        color: #999;
+      }
+      #prompt .prompt-error {
+        margin-left: 1ch;
+        color: var(--playhead);
+      }
       #keys {
         margin-left: auto;
         color: #666;
@@ -117,6 +130,7 @@
     <div id="viewport"></div>
     <div id="status">
       <span id="mode"></span>
+      <span id="prompt" hidden></span>
       <span id="keys"></span>
       <span id="position"></span>
     </div>

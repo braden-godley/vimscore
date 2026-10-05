@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { exampleComposition } from '../composition/example-composition';
-import { Phantom, phantomAt, shiftPitch, stepDuration, stepScale, toggleDot, toggleStaccato } from './Phantom';
+import {
+    Phantom,
+    phantomAt,
+    setDuration,
+    shiftPitch,
+    stepDuration,
+    stepScale,
+    toggleDot,
+    toggleStaccato,
+} from './Phantom';
 
 const at = (part: number, measure: number, leaf: number, note = 0) => ({ part, measure, voice: 0, leaf, note });
 const quarterC: Phantom = { pitch: 60, duration: { base: 4, dots: 0 }, staccato: false };
@@ -31,11 +40,17 @@ describe('adjusting', () => {
         expect(stepScale({ ...quarterC, pitch: 64 }, { fifths: 1 }, 1).pitch).toBe(66);
     });
 
-    it('lengthens and shortens through note values, keeping dots', () => {
+    it('lengthens and shortens through note values, dropping the dot and staccato', () => {
         expect(stepDuration(quarterC, 1).duration).toEqual({ base: 2, dots: 0 });
-        expect(stepDuration(toggleDot(quarterC), -1).duration).toEqual({ base: 8, dots: 1 });
+        expect(stepDuration(toggleStaccato(toggleDot(quarterC)), -1)).toEqual({ ...quarterC, duration: { base: 8, dots: 0 } });
         expect(stepDuration(stepDuration(quarterC, 2), 1).duration.base).toBe(1);
         expect(stepDuration({ ...quarterC, duration: { base: 64, dots: 0 } }, -1).duration.base).toBe(64);
+    });
+
+    it('sets a value outright, plain', () => {
+        expect(setDuration(toggleStaccato(toggleDot(quarterC)), 2)).toEqual({ ...quarterC, duration: { base: 2, dots: 0 } });
+        // Even the same value: it's a quick way to clear the dot and staccato
+        expect(setDuration(toggleDot(quarterC), 4)).toEqual(quarterC);
     });
 
     it('toggles the dot and staccato', () => {

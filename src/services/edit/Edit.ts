@@ -127,6 +127,21 @@ function overwrite(list: Event[], index: number, replacement: Chord | Rest, capa
 }
 
 /**
+ * Puts a chord or rest in place of the cursor's, writing over what follows or leaving rests if
+ * its value changed (see `overwrite`). Undefined if it doesn't fit.
+ */
+function replaceLeaf(composition: Composition, cursor: Cursor, replacement: Chord | Rest): Composition | undefined {
+    const events = composition.parts[cursor.part]?.measures[cursor.measure]?.voices[cursor.voice]?.events;
+    const measureLength = resolveMeasures(composition.measures)[cursor.measure]?.length;
+    if (!events || !measureLength) return undefined;
+
+    const newEvents = rewriteAroundLeaf(events, cursor.leaf, (list, index, inTuplet) =>
+        overwrite(list, index, replacement, inTuplet ? eventsLength(list) : measureLength),
+    );
+    return newEvents && withVoiceEvents(composition, cursor, newEvents);
+}
+
+/**
  * Insert mode's place command, at the cursor's chord or rest:
  * - the phantom's pitch is already there, with the same value and articulation: it's removed,
  *   leaving a rest if it was the only note
@@ -140,11 +155,8 @@ export function placeNote(
     cursor: Cursor,
     phantom: Phantom,
 ): { composition: Composition; cursor: Cursor; placed?: Chord } | undefined {
-    const { part, measure, voice, leaf } = cursor;
-    const event = voiceLeaves(composition, part, measure, voice)[leaf]?.event;
-    const events = composition.parts[part]?.measures[measure]?.voices[voice]?.events;
-    const measureLength = resolveMeasures(composition.measures)[measure]?.length;
-    if (!event || !events || !measureLength) return undefined;
+    const event = voiceLeaves(composition, cursor.part, cursor.measure, cursor.voice)[cursor.leaf]?.event;
+    if (!event) return undefined;
 
     const notes = event.kind === 'chord' ? event.notes : [];
     const existing = notes.find(({ pitch }) => pitch === phantom.pitch);
@@ -164,12 +176,8 @@ export function placeNote(
         replacement = { kind: 'chord', duration: phantom.duration, notes: sorted };
     }
 
-    const newEvents = rewriteAroundLeaf(events, leaf, (list, index, inTuplet) =>
-        overwrite(list, index, replacement, inTuplet ? eventsLength(list) : measureLength),
-    );
-    if (!newEvents) return undefined;
-
-    const edited = withVoiceEvents(composition, cursor, newEvents);
+    const edited = replaceLeaf(composition, cursor, replacement);
+    if (!edited) return undefined;
     const placed =
         replacement.kind === 'chord' && replacement.notes.some(({ pitch }) => pitch === phantom.pitch)
             ? replacement
@@ -222,7 +230,7 @@ function restsFor(length: Fraction): Rest[] | undefined {
  * Tidies rests: a tuplet of nothing but rests becomes plain rests, runs of rests become the
  * fewest rests on the beat, and a measure of only rests becomes one rest where one value fits.
  */
-function mergeRests(list: Event[], top = true): Event[] {
+export function mergeRests(list: Event[], top = true): Event[] {
     const simplified = list.flatMap((event): Event[] => {
         if (event.kind !== 'tuplet') return [event];
         const events = mergeRests(event.events, false);
@@ -325,4 +333,15 @@ export function deleteNote(
     // Merging rests can renumber the leaves, so find the rest by time
     const offset = cursorOffset(composition, cursor);
     return { composition: edited, cursor: cursorAtOffset(edited, part, measure, offset, voice) };
+}
+
+/**
+ * Gives the cursor's chord (every note in it) or rest a new value, with no dots. A longer value
+ * writes over what follows; a shorter one leaves rests. Undefined if it doesn't fit before the
+ * end of the measure or tuplet, or nothing would change.
+ */
+export function setLeafDuration(composition: Composition, cursor: Cursor, duration: Duration): Composition | undefined {
+    const event = voiceLeaves(composition, cursor.part, cursor.measure, cursor.voice)[cursor.leaf]?.event;
+    if (!event || sameDuration(event.duration, duration)) return undefined;
+    return replaceLeaf(composition, cursor, { ...event, duration });
 }

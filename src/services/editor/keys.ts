@@ -1,6 +1,8 @@
 /** The parts of a KeyboardEvent we look at */
 export interface KeyPress {
     key: string;
+    /** The physical key, like `Digit1`, whatever the layout prints on it */
+    code?: string;
     ctrlKey: boolean;
     shiftKey: boolean;
     metaKey: boolean;
@@ -16,11 +18,14 @@ const NAMED: Record<string, string> = {
 };
 
 /**
- * Converts a key press to vim notation: `h`, `G`, `<C-w>`, `<C-D>`, `<Esc>`. Returns undefined for
+ * Converts a key press to vim notation: `h`, `G`, `<C-w>`, `<C-D>`, `<S-4>`, `<Esc>`. Returns undefined for
  * presses the editor shouldn't see, like bare modifiers and Cmd shortcuts, which belong to the app.
  */
-export function keyName({ key, ctrlKey, shiftKey, metaKey, altKey }: KeyPress): string | undefined {
+export function keyName({ key, code, ctrlKey, shiftKey, metaKey, altKey }: KeyPress): string | undefined {
     if (metaKey || altKey) return undefined;
+    // Shifted digits print as symbols that differ by layout (`!` or `+`), so go by the key itself
+    const digit = code?.match(/^Digit([0-9])$/)?.[1];
+    if (shiftKey && !ctrlKey && digit !== undefined) return `<S-${digit}>`;
     const name = NAMED[key] ?? (key.length === 1 ? key : undefined);
     if (name === undefined) return undefined;
     if (ctrlKey) {

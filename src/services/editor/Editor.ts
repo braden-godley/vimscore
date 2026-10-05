@@ -5,7 +5,8 @@
  */
 
 import { Composition, withTrailingEmptyMeasure } from '../composition/Composition';
-import { deleteNote, deleteSelection, placeNote, transposeNote, transposeSelection } from '../edit/Edit';
+import { deleteNote, deleteSelection, placeNote, setLeafDuration, transposeNote, transposeSelection } from '../edit/Edit';
+import { Duration } from '../duration/Duration';
 import { ZERO } from '../fraction/Fraction';
 import { KeySignature } from '../key/KeySignature';
 import { resolveMeasures } from '../measure/Measure';
@@ -21,15 +22,26 @@ import {
     moveNote,
     movePart,
     startCursor,
+    voiceLeaves,
 } from '../cursor/Cursor';
-import { Phantom, phantomAt, shiftPitch, stepDuration, stepScale, toggleDot, toggleStaccato } from '../phantom/Phantom';
+import {
+    Phantom,
+    phantomAt,
+    setDuration,
+    shiftPitch,
+    stepDuration,
+    stepScale,
+    toggleDot,
+    toggleStaccato,
+} from '../phantom/Phantom';
 import { Selection, VisualKind, selectedChordPitches, visualSelection } from '../selection/Selection';
+import { Prompt, PromptKind, applyPrompt } from './Prompt';
 
 /**
  * `normal` navigates; the insert modes enter notes, `insertMelody` moving on after each one; the
- * visual modes select from an anchor to the cursor
+ * visual modes select from an anchor to the cursor; `prompt` reads a value typed in
  */
-export type EditMode = 'normal' | InsertKind | VisualKind;
+export type EditMode = 'normal' | InsertKind | VisualKind | 'prompt';
 
 export type InsertKind = 'insert' | 'insertMelody';
 
@@ -40,6 +52,8 @@ export interface EditorState {
     anchor?: Cursor;
     /** The note an insert mode will place; set only in the insert modes */
     phantom?: Phantom;
+    /** What's being typed for a change to every part; set only in prompt mode */
+    prompt?: Prompt;
     /** Keys of a command still being typed, like a count or `<C-w>` */
     pending: string;
 }
@@ -55,6 +69,8 @@ export interface KeyResult {
     effect?: EditorEffect;
     /** The edited composition, when the key changed it */
     composition?: Composition;
+    /** Asks to go back or forward through the edit history, which the editor doesn't keep */
+    history?: { direction: 'undo' | 'redo'; count: number };
 }
 
 export function initialEditorState(composition: Composition): EditorState {
@@ -133,13 +149,31 @@ const transposeCursorNote =
         };
     };
 
+function openPrompt(kind: PromptKind): Action {
+    return (state) => ({ state: { ...state, mode: 'prompt', prompt: { kind, measure: state.cursor.measure, text: '' } } });
+}
+
 /** The phantom starts as a copy of the selected note */
 function enterInsert(mode: InsertKind): Action {
     return (state, composition) => ({ state: { ...state, mode, phantom: phantomAt(composition, state.cursor) } });
 }
 
+/** Gives the cursor's chord or rest a new value, and plays the chord */
+function changeDuration(base: Duration['base']): Action {
+    return (state, composition) => {
+        const { cursor } = state;
+        const edited = setLeafDuration(composition, cursor, { base, dots: 0 });
+        if (!edited) return { state };
+        const event = voiceLeaves(edited, cursor.part, cursor.measure, cursor.voice)[cursor.leaf]?.event;
+        const pitches = event?.kind === 'chord' ? event.notes.map(({ pitch }) => pitch) : undefined;
+        return { state, composition: edited, effect: pitches && { kind: 'preview', pitches } };
+    };
+}
+
 const NORMAL_ACTIONS: Record<string, Action> = {
     ...SHARED_ACTIONS,
+    u: (state, _, count = 1) => ({ state, history: { direction: 'undo', count } }),
+    U: (state, _, count = 1) => ({ state, history: { direction: 'redo', count } }),
     // Just the note under the cursor. A lone `d` waits, left free to become an operator
     dd: (state, composition) => {
         const deleted = deleteNote(composition, state.cursor);
@@ -150,6 +184,10 @@ const NORMAL_ACTIONS: Record<string, Action> = {
     K: transposeCursorNote(1),
     i: enterInsert('insert'),
     a: enterInsert('insertMelody'),
+    // Changes for every part, from the cursor's measure on
+    mt: openPrompt('timeSignature'),
+    mT: openPrompt('tempo'),
+    mk: openPrompt('keySignature'),
 };
 
 /** Like vim, deleting leaves visual mode with the cursor at the start of what was deleted */
@@ -272,17 +310,29 @@ function commandKey(composition: Composition, state: EditorState, key: string, a
 }
 
 /** Insert mode's keys shape the phantom note, and <Space> places it; it doesn't take counts */
-const PHANTOM_KEYS: Record<string, (phantom: Phantom, key: KeySignature) => Phantom> = {
+/** Shapes the phantom; moves take a count, like `3k` for three scale steps up */
+type PhantomKey = (phantom: Phantom, key: KeySignature, count: number) => Phantom;
+
+const PHANTOM_KEYS: Record<string, PhantomKey> = {
     // Plain j and k walk the scale; Shift steps chromatically
-    j: (phantom, key) => stepScale(phantom, key, -1),
-    k: (phantom, key) => stepScale(phantom, key, 1),
-    J: (phantom) => shiftPitch(phantom, -1),
-    K: (phantom) => shiftPitch(phantom, 1),
-    h: (phantom) => stepDuration(phantom, -1),
-    l: (phantom) => stepDuration(phantom, 1),
+    j: (phantom, key, count) => stepScale(phantom, key, -count),
+    k: (phantom, key, count) => stepScale(phantom, key, count),
+    J: (phantom, _, count) => shiftPitch(phantom, -count),
+    K: (phantom, _, count) => shiftPitch(phantom, count),
+    h: (phantom, _, count) => stepDuration(phantom, -count),
+    l: (phantom, _, count) => stepDuration(phantom, count),
     w: toggleDot,
     s: toggleStaccato,
 };
+
+// Shifted number keys pick a value outright, counting up from 4 for a quarter: 1 is a 32nd and
+// 6 a whole. 7 would be a double whole, which durations can't hold yet. Plain digits are counts.
+// In normal mode they change the selected chord or rest instead
+const NUMBERED_VALUES: Duration['base'][] = [32, 16, 8, 4, 2, 1];
+NUMBERED_VALUES.forEach((base, i) => {
+    PHANTOM_KEYS[`<S-${i + 1}>`] = (phantom) => setDuration(phantom, base);
+    NORMAL_ACTIONS[`<S-${i + 1}>`] = changeDuration(base);
+});
 
 /**
  * Places the phantom and plays the chord it joined. Melody mode then moves on to the next chord
@@ -304,17 +354,51 @@ function place(composition: Composition, state: EditorState, phantom: Phantom): 
 }
 
 function insertKey(composition: Composition, state: EditorState, key: string): KeyResult {
-    if (key === '<Esc>') return { state: { ...state, mode: 'normal', phantom: undefined } };
-    if (key === '<Space>' && state.phantom) return place(composition, state, state.phantom);
-    const adjust = PHANTOM_KEYS[key];
+    if (key === '<Esc>') return { state: { ...state, mode: 'normal', phantom: undefined, pending: '' } };
+
+    const typed = state.pending + key;
+    const [, digits, command = ''] = COUNTED.exec(typed)!;
+    if (command === '') return { state: { ...state, pending: typed } };
+    const count = digits === undefined ? 1 : Number(digits);
+    const cleared = { ...state, pending: '' };
+
+    if (command === '<Space>' && state.phantom) return place(composition, cleared, state.phantom);
+    const adjust = PHANTOM_KEYS[command];
     const keySignature = resolveMeasures(composition.measures)[state.cursor.measure]?.keySignature;
     if (adjust && state.phantom && keySignature) {
-        return { state: { ...state, phantom: adjust(state.phantom, keySignature) } };
+        return { state: { ...cleared, phantom: adjust(state.phantom, keySignature, count) } };
     }
-    return { state };
+    return { state: cleared };
 }
 
-export function handleKey(composition: Composition, state: EditorState, key: string): KeyResult {
+/**
+ * Typing into a prompt: `<CR>` applies it, `<Esc>` (or backspacing past the start) cancels.
+ * `text` is the character the key typed, which for shifted keys only the keyboard knows.
+ */
+function promptKey(composition: Composition, state: EditorState, key: string, text: string | undefined): KeyResult {
+    const { prompt } = state;
+    const closed: EditorState = { ...state, mode: 'normal', prompt: undefined };
+    if (!prompt || key === '<Esc>') return { state: closed };
+
+    if (key === '<CR>') {
+        const result = applyPrompt(composition, prompt);
+        if ('error' in result) return { state: { ...state, prompt: { ...prompt, error: result.error } } };
+        // The measures may have been re-barred, so land on the first beat of the changed one
+        const cursor = cursorAtOffset(result, state.cursor.part, prompt.measure, ZERO);
+        return { state: { ...closed, cursor }, composition: result };
+    }
+
+    if (key === '<BS>') {
+        if (prompt.text === '') return { state: closed };
+        return { state: { ...state, prompt: { ...prompt, text: prompt.text.slice(0, -1), error: undefined } } };
+    }
+
+    const typed = key === '<Space>' ? ' ' : (text ?? (key.length === 1 ? key : undefined));
+    if (typed === undefined) return { state };
+    return { state: { ...state, prompt: { ...prompt, text: prompt.text + typed, error: undefined } } };
+}
+
+export function handleKey(composition: Composition, state: EditorState, key: string, text?: string): KeyResult {
     switch (state.mode) {
         case 'normal':
             return commandKey(composition, state, key, NORMAL_ACTIONS);
@@ -324,6 +408,8 @@ export function handleKey(composition: Composition, state: EditorState, key: str
         case 'insert':
         case 'insertMelody':
             return insertKey(composition, state, key);
+        case 'prompt':
+            return promptKey(composition, state, key, text);
     }
 }
 

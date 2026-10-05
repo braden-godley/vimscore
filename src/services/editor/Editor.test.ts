@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { exampleComposition } from '../composition/example-composition';
 import { Cursor } from '../cursor/Cursor';
 import { EditorState, KeyResult, editorSelection, handleKey, initialEditorState } from './Editor';
-import { keyName } from './keys';
+import { KeyPress, keyName } from './keys';
 
 /** Feeds keys one at a time, returning the final result */
 function type(keys: string[], state: EditorState = initialEditorState(exampleComposition)): KeyResult {
@@ -123,7 +123,7 @@ describe('insert mode', () => {
 });
 
 describe('keyName', () => {
-    const press = (key: string, mods: Partial<Record<'ctrlKey' | 'shiftKey' | 'metaKey' | 'altKey', boolean>> = {}) =>
+    const press = (key: string, mods: Partial<Omit<KeyPress, 'key'>> = {}) =>
         keyName({ key, ctrlKey: false, shiftKey: false, metaKey: false, altKey: false, ...mods });
 
     it('uses vim notation', () => {
@@ -136,6 +136,11 @@ describe('keyName', () => {
         expect(press('D', { ctrlKey: true, shiftKey: true })).toBe('<C-D>');
         // Caps Lock reports a capital without Shift
         expect(press('D', { ctrlKey: true })).toBe('<C-d>');
+    });
+
+    it('names shifted digits by key, whatever the layout prints', () => {
+        expect(press('!', { shiftKey: true, code: 'Digit1' })).toBe('<S-1>');
+        expect(press('4', { code: 'Digit4' })).toBe('4');
     });
 
     it('ignores modifiers on their own and Cmd shortcuts', () => {
@@ -363,5 +368,56 @@ describe('d with a motion', () => {
 
     it('is only an operator in normal mode', () => {
         expect(type(['V', 'd']).state.mode).toBe('normal');
+    });
+});
+
+describe('number keys in insert mode', () => {
+    it('set the value with Shift, counting from 4 for a quarter, and clear the dot and staccato', () => {
+        const value = (keys: string[]) => type(['i', ...keys]).state.phantom?.duration;
+        expect(value(['<S-5>'])).toEqual({ base: 2, dots: 0 });
+        expect(value(['<S-6>'])).toEqual({ base: 1, dots: 0 });
+        expect(value(['<S-3>'])).toEqual({ base: 8, dots: 0 });
+        expect(value(['<S-1>'])).toEqual({ base: 32, dots: 0 });
+        expect(type(['i', 'w', 's', '<S-4>']).state.phantom).toMatchObject({
+            duration: { base: 4, dots: 0 },
+            staccato: false,
+        });
+        // No double whole yet
+        expect(value(['<S-7>'])).toEqual({ base: 4, dots: 0 });
+    });
+
+    it('are counts without Shift', () => {
+        // From G4: three scale steps up is C5, two half steps down is F4
+        expect(type(['i', '3', 'k']).state.phantom?.pitch).toBe(72);
+        expect(type(['i', '2', 'J']).state.phantom?.pitch).toBe(65);
+        expect(type(['i', '1', '2', 'K']).state.phantom?.pitch).toBe(79);
+        expect(type(['i', '2', 'j']).state.phantom?.pitch).toBe(64);
+        expect(type(['i', '2', 'l']).state.phantom?.duration.base).toBe(1);
+    });
+
+    it('wait in pending until the command, and escape drops them', () => {
+        expect(type(['i', '1', '2']).state.pending).toBe('12');
+        const escaped = type(['i', '3', '<Esc>']);
+        expect(escaped.state.pending).toBe('');
+        expect(escaped.state.mode).toBe('normal');
+        // A count before something that doesn't take one is dropped
+        expect(type(['i', '3', 'w', 'k']).state.phantom?.pitch).toBe(69);
+    });
+});
+
+describe('number keys in normal mode', () => {
+    it('change the selected chord with Shift, and play it', () => {
+        const half = type(['<S-5>']);
+        expect(half.composition?.parts[0]!.measures[0]!.voices[0]!.events).toEqual([
+            { kind: 'chord', duration: { base: 2, dots: 0 }, notes: [{ pitch: 60 }, { pitch: 64 }, { pitch: 67 }] },
+            { kind: 'chord', duration: { base: 2, dots: 0 }, notes: [{ pitch: 60 }, { pitch: 64 }, { pitch: 67 }] },
+        ]);
+        expect(half.effect).toEqual({ kind: 'preview', pitches: [60, 64, 67] });
+        expect(half.state.cursor).toEqual(type([]).state.cursor);
+    });
+
+    it('do nothing without Shift, where they are counts', () => {
+        expect(type(['5']).composition).toBeUndefined();
+        expect(type(['5']).state.pending).toBe('5');
     });
 });
