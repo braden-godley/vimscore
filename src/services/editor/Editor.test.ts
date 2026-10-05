@@ -83,6 +83,43 @@ describe('insert mode', () => {
         expect(where(type(['l'], inserting.state).state.cursor)).toEqual(at(0, 1));
         expect(type(['<Esc>'], inserting.state).state.mode).toBe('normal');
     });
+
+    it('starts the phantom as the selected note and shapes it', () => {
+        // The top note of the first chord: a quarter G4
+        expect(type(['i']).state.phantom).toEqual({ pitch: 67, duration: { base: 4, dots: 0 }, staccato: false });
+        expect(type(['i', 'K', 'K', 'J', 'l', 'w', 's']).state.phantom).toEqual({
+            pitch: 68,
+            duration: { base: 2, dots: 1 },
+            staccato: true,
+        });
+        expect(type(['i', 'h', 'h']).state.phantom?.duration).toEqual({ base: 16, dots: 0 });
+    });
+
+    it('places the phantom with <Space>, staying in insert mode', () => {
+        // Raising the top G to A and placing adds A to the chord, and selects it
+        const placed = type(['i', 'k', '<Space>']);
+        expect(placed.state.mode).toBe('insert');
+        expect(placed.composition?.parts[0]!.measures[0]!.voices[0]!.events[0]).toMatchObject({
+            notes: [{ pitch: 60 }, { pitch: 64 }, { pitch: 67 }, { pitch: 69 }],
+        });
+        expect(placed.state.cursor.note).toBe(3);
+        // A place that doesn't fit changes nothing
+        expect(type(['l', 'l', 'i', 'l', 'l', '<Space>']).composition).toBeUndefined();
+    });
+
+    it('steps the phantom through the scale with j and k, and by half steps with J and K', () => {
+        // From G4 in C major
+        expect(type(['i', 'k']).state.phantom?.pitch).toBe(69);
+        expect(type(['i', 'j']).state.phantom?.pitch).toBe(65);
+        expect(type(['i', 'K']).state.phantom?.pitch).toBe(68);
+        expect(type(['i', 'J']).state.phantom?.pitch).toBe(66);
+        // From off the scale, back onto it
+        expect(type(['i', 'K', 'k']).state.phantom?.pitch).toBe(69);
+    });
+
+    it('drops the phantom on leaving', () => {
+        expect(type(['i', '<Esc>']).state.phantom).toBeUndefined();
+    });
 });
 
 describe('keyName', () => {
@@ -113,7 +150,13 @@ describe('visual modes', () => {
         expect(state.mode).toBe('visual');
         expect(where(state.anchor!)).toEqual(at(0, 1));
         expect(where(state.cursor)).toEqual(at(1, 1));
-        expect(editorSelection(exampleComposition, state)).toEqual({ kind: 'measures', first: 0, last: 1 });
+        expect(editorSelection(exampleComposition, state)).toEqual({
+            kind: 'measures',
+            firstPart: 0,
+            lastPart: 0,
+            first: 0,
+            last: 1,
+        });
     });
 
     it('swaps ends with o', () => {
@@ -143,7 +186,7 @@ describe('visual modes', () => {
 
 describe('transposing in visual modes', () => {
     it('moves the selection by half steps, counted, and stays in visual mode', () => {
-        const down = type(['V', 'J']);
+        const down = type(['V', '<C-j>', 'J']);
         expect(down.state.mode).toBe('visual');
         expect(down.composition?.parts[1]!.measures[0]!.voices[0]!.events[0]).toMatchObject({ notes: [{ pitch: 47 }] });
 
@@ -152,10 +195,6 @@ describe('transposing in visual modes', () => {
             notes: [{ pitch: 63 }, { pitch: 67 }, { pitch: 70 }],
         });
         expect(up.composition?.parts[1]!.measures[0]).toBe(exampleComposition.parts[1]!.measures[0]);
-    });
-
-    it('does nothing in normal mode', () => {
-        expect(type(['J']).composition).toBeUndefined();
     });
 });
 
@@ -174,5 +213,155 @@ describe('previewing transposed notes', () => {
 
     it('stays quiet when nothing moved', () => {
         expect(type(['<C-v>', '9', '9', 'K']).effect).toBeUndefined();
+    });
+});
+
+describe('transposing in normal mode', () => {
+    it('moves the cursor note by half steps, counted, and plays it', () => {
+        const up = type(['K']);
+        expect(up.state.mode).toBe('normal');
+        expect(up.composition?.parts[0]!.measures[0]!.voices[0]!.events[0]).toMatchObject({
+            notes: [{ pitch: 60 }, { pitch: 64 }, { pitch: 68 }],
+        });
+        expect(up.effect).toEqual({ kind: 'preview', pitches: [68] });
+        expect(type(['2', 'J']).effect).toEqual({ kind: 'preview', pitches: [65] });
+    });
+
+    it('does nothing onto a pitch the chord already has', () => {
+        const blocked = type(['3', 'J']);
+        expect(blocked.composition).toBeUndefined();
+        expect(blocked.effect).toBeUndefined();
+    });
+});
+
+describe('placing notes', () => {
+    it('plays the chord the note joined', () => {
+        expect(type(['i', 'k', '<Space>']).effect).toEqual({ kind: 'preview', pitches: [60, 64, 67, 69] });
+    });
+
+    it('stays put and plays nothing when removing', () => {
+        // The phantom starts as the selected G, so placing it takes the G away
+        const removed = type(['a', '<Space>']);
+        expect(removed.effect).toBeUndefined();
+        expect(where(removed.state.cursor)).toEqual(at(0, 0));
+    });
+
+    it('moves on to the next chord or rest in melody mode, keeping the phantom', () => {
+        const placed = type(['a', 'k', '<Space>']);
+        expect(placed.state.mode).toBe('insertMelody');
+        expect(where(placed.state.cursor)).toEqual(at(0, 1));
+        expect(placed.state.phantom?.pitch).toBe(69);
+        // Plain insert mode stays on the note
+        expect(where(type(['i', 'k', '<Space>']).state.cursor)).toEqual(at(0, 0));
+    });
+
+    it('moves into a new empty measure after the last one', () => {
+        // The last melody event is an eighth rest
+        const placed = type(['G', 'l', 'l', 'l', 'a', '<Space>']);
+        expect(placed.composition?.measures).toHaveLength(4);
+        expect(where(placed.state.cursor)).toEqual(at(3, 0));
+    });
+});
+
+describe('deleting in visual modes', () => {
+    it('deletes the selection and goes back to normal mode at its start', () => {
+        const deleted = type(['}', 'V', '<C-j>', '{', 'd']);
+        expect(deleted.state.mode).toBe('normal');
+        expect(deleted.state.anchor).toBeUndefined();
+        expect(where(deleted.state.cursor)).toEqual(at(0, 0));
+        expect(deleted.composition?.parts[1]!.measures[1]!.voices[0]!.events).toEqual([
+            { kind: 'rest', duration: { base: 2, dots: 1 } },
+        ]);
+    });
+
+    it('lands on the top left of a block', () => {
+        const deleted = type(['l', '<C-v>', 'l', '<C-j>', 'd']);
+        expect(where(deleted.state.cursor)).toEqual(at(0, 0));
+        expect(deleted.composition?.parts[1]!.measures[0]!.voices[0]!.events).toEqual([
+            { kind: 'rest', duration: { base: 1, dots: 0 } },
+        ]);
+    });
+});
+
+describe('dd', () => {
+    it('deletes the note under the cursor', () => {
+        expect(type(['d']).state.pending).toBe('d');
+        const deleted = type(['d', 'd']);
+        expect(deleted.state.pending).toBe('');
+        expect(deleted.composition?.parts[0]!.measures[0]!.voices[0]!.events[0]).toMatchObject({
+            notes: [{ pitch: 60 }, { pitch: 64 }],
+        });
+        // On to the nearest note left, the E
+        expect(type(['d', 'd']).state.cursor.note).toBe(1);
+    });
+
+    it('does nothing on a rest', () => {
+        expect(type(['G', 'l', 'l', 'l', 'd', 'd']).composition).toBeUndefined();
+    });
+});
+
+describe('d with a motion', () => {
+    /** The melody's (or another part's) events in a measure, as pitches per chord and null for rests */
+    const pitches = (result: KeyResult, measure: number, part = 0) =>
+        result.composition?.parts[part]!.measures[measure]!.voices[0]!.events.map((event) =>
+            event.kind === 'chord' ? event.notes.map(({ pitch }) => pitch) : event.kind === 'rest' ? null : 'tuplet',
+        );
+
+    // Melody measure 1 (4/4): C-E-G quarter, G-B-D quarter, C-E-G half
+    it('dl deletes the chord under the cursor, and counts take more', () => {
+        expect(pitches(type(['d', 'l']), 0)).toEqual([null, [55, 59, 62], [60, 64, 67]]);
+        expect(pitches(type(['2', 'd', 'l']), 0)).toEqual([null, [60, 64, 67]]);
+        expect(pitches(type(['d', '2', 'l']), 0)).toEqual([null, [60, 64, 67]]);
+        // 2d3l is six chords: all of measure 1 and the triplet, which becomes a plain rest
+        expect(pitches(type(['2', 'd', '3', 'l']), 1)).toEqual([null, 'tuplet', 'tuplet']);
+    });
+
+    it('dh deletes the chords before the cursor and moves back', () => {
+        const deleted = type(['l', 'l', 'd', 'h']);
+        expect(pitches(deleted, 0)).toEqual([[60, 64, 67], null, [60, 64, 67]]);
+        expect(where(deleted.state.cursor)).toEqual(at(0, 1));
+        expect(type(['d', 'h']).composition).toBeUndefined();
+    });
+
+    it('d} deletes to the end of the measure, d{ back to its start', () => {
+        expect(pitches(type(['l', 'd', '}']), 0)).toEqual([[60, 64, 67], null, null]);
+        expect(pitches(type(['l', '2', 'd', '}']), 1)).toEqual([null]);
+
+        const back = type(['l', 'l', 'd', '{']);
+        expect(pitches(back, 0)).toEqual([null, [60, 64, 67]]);
+        expect(where(back.state.cursor)).toEqual(at(0, 0));
+        // From the first beat, d{ takes the whole measure before
+        expect(pitches(type(['}', 'd', '{']), 0)).toEqual([null]);
+        expect(type(['d', '{']).composition).toBeUndefined();
+    });
+
+    it('d<C-j> deletes this time in this part and the one below', () => {
+        const deleted = type(['}', '}', 'l', 'd', '<C-j>']);
+        // The bass's dotted half covers the whole 6/8 measure, so the block grows to all of it
+        expect(pitches(deleted, 2, 1)).toEqual([null]);
+        expect(pitches(deleted, 2)).toEqual([null]);
+        expect(pitches(type(['d', '<C-w>', 'j']), 0, 1)).toEqual([null]);
+    });
+
+    it('dG and dgg delete whole measures of this part', () => {
+        const toEnd = type(['}', 'd', 'G']);
+        expect(pitches(toEnd, 1)).toEqual([null]);
+        expect(pitches(toEnd, 2)).toEqual([null]);
+        expect(pitches(toEnd, 0)).toEqual([[60, 64, 67], [55, 59, 62], [60, 64, 67]]);
+        expect(pitches(toEnd, 2, 1)).toEqual([[48]]);
+        expect(pitches(type(['<C-j>', '}', 'd', 'g', 'g']), 0, 1)).toEqual([null]);
+    });
+
+    it('waits for the motion and drops unknown ones', () => {
+        for (const keys of [['d'], ['d', '2'], ['d', 'g'], ['d', '<C-w>']]) {
+            expect(type(keys).state.pending).toBe(keys.join(''));
+        }
+        const unknown = type(['d', 'z']);
+        expect(unknown.state.pending).toBe('');
+        expect(unknown.composition).toBeUndefined();
+    });
+
+    it('is only an operator in normal mode', () => {
+        expect(type(['V', 'd']).state.mode).toBe('normal');
     });
 });

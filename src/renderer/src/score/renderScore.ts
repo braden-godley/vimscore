@@ -10,6 +10,7 @@ import {
     Beam,
     Dot,
     Formatter,
+    Modifier,
     Renderer,
     Stave,
     StaveConnector,
@@ -20,12 +21,13 @@ import {
     Voice,
 } from 'vexflow/bravura';
 import { Composition } from '../../../services/composition/Composition';
+import { KeySignature } from '../../../services/key/KeySignature';
 import { Cursor } from '../../../services/cursor/Cursor';
 import { Chord, Event, Rest, leaves } from '../../../services/event/Event';
 import { ZERO, add, toNumber } from '../../../services/fraction/Fraction';
 import { TimeSignature, resolveMeasures } from '../../../services/measure/Measure';
 import { Clef } from '../../../services/part/Part';
-import { REST_KEYS, durationCode, pitchKey } from './notation';
+import { REST_KEYS, durationCode, keySpec, pitchKey } from './notation';
 
 const LEFT_MARGIN = 30;
 const RIGHT_MARGIN = 30;
@@ -55,8 +57,10 @@ export interface ScoreLayout {
     width: number;
     height: number;
     measures: MeasureBox[];
-    /** Where each part's stave lines are, top line to bottom line */
-    parts: { top: number; bottom: number }[];
+    /** Where each part's stave is: its y for VexFlow, and its top and bottom lines */
+    parts: { y: number; top: number; bottom: number }[];
+    /** Where each chord or rest is drawn, by `leafElementId` */
+    leafX: Map<string, number>;
 }
 
 /** The id VexFlow gets for a notehead; it prefixes `vf-` to make the DOM id */
@@ -69,9 +73,20 @@ export function noteElementId(cursor: Cursor): string {
     return `vf-${noteheadId(cursor)}`;
 }
 
+/** The DOM id of the SVG group for a whole chord or rest, stem and all */
+export function leafElementId({ part, measure, voice, leaf }: Omit<Cursor, 'note'>): string {
+    return `vf-leaf-${part}-${measure}-${voice}-${leaf}`;
+}
+
 /** What the DOM ids of every notehead in a chord, or its rest, start with */
 export function leafElementIdPrefix({ part, measure, voice, leaf }: Omit<Cursor, 'note'>): string {
     return `vf-note-${part}-${measure}-${voice}-${leaf}-`;
+}
+
+/** Puts articulations on the notehead side, away from the stem, once the stem direction is final */
+export function placeArticulations(note: StaveNote) {
+    const position = note.getStemDirection() === Stem.UP ? Modifier.Position.BELOW : Modifier.Position.ABOVE;
+    for (const modifier of note.getModifiersByType(Articulation.CATEGORY)) modifier.setPosition(position);
 }
 
 /** One voice of one part in one measure, ready to format */
@@ -85,10 +100,10 @@ interface BuiltVoice {
     beams: Beam[];
 }
 
-function makeNote(event: Chord | Rest, clef: Clef, stemDirection: number | undefined): StaveNote {
+function makeNote(event: Chord | Rest, clef: Clef, key: KeySignature, stemDirection: number | undefined): StaveNote {
     const { duration } = event;
     const note = new StaveNote({
-        keys: event.kind === 'chord' ? event.notes.map(({ pitch }) => pitchKey(pitch)) : [REST_KEYS[clef]],
+        keys: event.kind === 'chord' ? event.notes.map(({ pitch }) => pitchKey(pitch, key)) : [REST_KEYS[clef]],
         duration: durationCode(duration) + (event.kind === 'rest' ? 'r' : ''),
         dots: duration.dots,
         clef,
@@ -103,6 +118,7 @@ function makeNote(event: Chord | Rest, clef: Clef, stemDirection: number | undef
 function buildVoice(
     events: Event[],
     clef: Clef,
+    key: KeySignature,
     { beats, beatValue }: TimeSignature,
     stemDirection: number | undefined,
 ): BuiltVoice {
@@ -126,7 +142,7 @@ function buildVoice(
                 }
                 return notes;
             }
-            const note = makeNote(event, clef, stemDirection);
+            const note = makeNote(event, clef, key, stemDirection);
             built.notes.push(note);
             built.events.push(event);
             return [note];
@@ -169,19 +185,23 @@ export function renderScore(container: HTMLElement, composition: Composition): S
     const boxes: MeasureBox[] = [];
     let x = LEFT_MARGIN;
 
-    resolved.forEach(({ timeSignature, length }, m) => {
+    resolved.forEach(({ timeSignature, keySignature, length }, m) => {
         const showTimeSignature = m === 0 || composition.measures[m]?.timeSignature !== undefined;
+        const showKeySignature = m === 0 || composition.measures[m]?.keySignature !== undefined;
 
         const column = composition.parts.map((part, p) => {
             const voices = part.measures[m]?.voices ?? [];
             return voices.map((voice, v) =>
-                buildVoice(voice.events, clefs[p]!, timeSignature, stemDirectionFor(v, voices.length)),
+                buildVoice(voice.events, clefs[p]!, keySignature, timeSignature, stemDirectionFor(v, voices.length)),
             );
         });
 
         const columnStaves = composition.parts.map((_, p) => {
             const stave = new Stave(x, TOP_MARGIN + p * PART_SPACING, 0);
             if (m === 0) stave.addClef(clefs[p]!);
+            // A key change cancels the old key's sharps or flats with naturals
+            const previousKey = resolved[m - 1]?.keySignature;
+            if (showKeySignature) stave.addKeySignature(keySpec(keySignature), previousKey && keySpec(previousKey));
             if (showTimeSignature) stave.addTimeSignature(`${timeSignature.beats}/${timeSignature.beatValue}`);
             return stave;
         });
@@ -193,7 +213,7 @@ export function renderScore(container: HTMLElement, composition: Composition): S
             for (const { notes } of voices) for (const note of notes) note.setStave(columnStaves[p]!);
             const vfVoices = voices.filter(hasNotes).map(({ voice }) => voice);
             if (vfVoices.length === 0) return;
-            Accidental.applyAccidentals(vfVoices, 'C');
+            Accidental.applyAccidentals(vfVoices, keySpec(keySignature));
             formatter.joinVoices(vfVoices);
         });
         const allVoices = column.flat().filter(hasNotes).map(({ voice }) => voice);
@@ -234,8 +254,22 @@ export function renderScore(container: HTMLElement, composition: Composition): S
         width: x + RIGHT_MARGIN,
         height: TOP_MARGIN * 2 + composition.parts.length * PART_SPACING,
         measures: boxes,
-        parts: (staves[0] ?? []).map((stave) => ({ top: stave.getYForLine(0), bottom: stave.getYForLine(4) })),
+        parts: (staves[0] ?? []).map((stave) => ({
+            y: stave.getY(),
+            top: stave.getYForLine(0),
+            bottom: stave.getYForLine(4),
+        })),
+        leafX: new Map(),
     };
+    built.forEach((column, measure) =>
+        column.forEach((voices, part) =>
+            voices.forEach(({ notes }, voice) =>
+                notes.forEach((note, leaf) =>
+                    layout.leafX.set(leafElementId({ part, measure, voice, leaf }), note.getAbsoluteX()),
+                ),
+            ),
+        ),
+    );
 
     container.replaceChildren();
     const renderer = new Renderer(container as HTMLDivElement, Renderer.Backends.SVG);
@@ -255,13 +289,17 @@ export function renderScore(container: HTMLElement, composition: Composition): S
     built.forEach((column, m) =>
         column.forEach((voices, p) => {
             voices.forEach(({ notes }, v) =>
-                notes.forEach((staveNote, leaf) =>
+                notes.forEach((staveNote, leaf) => {
+                    // Beaming can flip stems, so this waits until now
+                    placeArticulations(staveNote);
+                    // VexFlow prefixes `vf-` itself
+                    staveNote.setAttribute('id', leafElementId({ part: p, measure: m, voice: v, leaf }).slice(3));
                     // Ids go on just before drawing, because setting a stem direction rebuilds the noteheads.
                     // The model's note order is VexFlow's key order, so the indexes line up
                     staveNote.noteHeads.forEach((head, note) =>
                         head.setAttribute('id', noteheadId({ part: p, measure: m, voice: v, leaf, note })),
-                    ),
-                ),
+                    );
+                }),
             );
             for (const { voice, beams, tuplets } of voices.filter(hasNotes)) {
                 voice.draw(ctx, staves[m]![p]!);

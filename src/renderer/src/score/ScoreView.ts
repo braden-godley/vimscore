@@ -6,8 +6,12 @@
 import { Composition } from '../../../services/composition/Composition';
 import { Cursor } from '../../../services/cursor/Cursor';
 import { toNumber } from '../../../services/fraction/Fraction';
+import { C_MAJOR } from '../../../services/key/KeySignature';
+import { resolveMeasures } from '../../../services/measure/Measure';
+import { Phantom } from '../../../services/phantom/Phantom';
 import { Selection, TimePoint, selectedLeaves } from '../../../services/selection/Selection';
-import { Anchor, ScoreLayout, leafElementIdPrefix, noteElementId, renderScore } from './renderScore';
+import { drawPhantom } from './drawPhantom';
+import { Anchor, ScoreLayout, leafElementId, leafElementIdPrefix, noteElementId, renderScore } from './renderScore';
 
 /** How far a block selection's shading reaches either side of its notes and staves */
 const SELECTION_PADDING = 10;
@@ -19,6 +23,7 @@ export class ScoreView {
     private readonly score: HTMLDivElement;
     private readonly playhead: HTMLDivElement;
     private readonly selectionBox: HTMLDivElement;
+    private readonly phantomLayer: HTMLDivElement;
     private centeredMeasure = 0;
 
     constructor(private readonly viewport: HTMLElement) {
@@ -31,8 +36,10 @@ export class ScoreView {
         this.selectionBox = document.createElement('div');
         this.selectionBox.className = 'selection-box';
         this.selectionBox.hidden = true;
+        this.phantomLayer = document.createElement('div');
+        this.phantomLayer.className = 'phantom';
         // The shading goes first so the notes draw over it
-        this.strip.append(this.selectionBox, this.score, this.playhead);
+        this.strip.append(this.selectionBox, this.score, this.phantomLayer, this.playhead);
         viewport.append(this.strip);
 
         new ResizeObserver(() => this.applyScroll(false)).observe(viewport);
@@ -78,30 +85,47 @@ export class ScoreView {
         const layout = this.layout;
         if (!layout) return undefined;
 
+        const top = layout.parts[selection.firstPart];
+        const bottom = layout.parts[selection.lastPart];
+        if (!top || !bottom) return undefined;
+        const vertical = { top: top.top - 2 * SELECTION_PADDING, bottom: bottom.bottom + 2 * SELECTION_PADDING };
+
         if (selection.kind === 'measures') {
             const first = layout.measures[selection.first];
             const last = layout.measures[selection.last];
             if (!first || !last) return undefined;
-            return { left: first.x, right: last.x + last.width, top: 0, bottom: layout.height };
+            return { left: first.x, right: last.x + last.width, ...vertical };
         }
 
-        const top = layout.parts[selection.firstPart];
-        const bottom = layout.parts[selection.lastPart];
         const left = this.xAt(selection.start);
         const right = this.xAt(selection.end);
-        if (!top || !bottom || left === undefined || right === undefined) return undefined;
-        return {
-            left: left - SELECTION_PADDING,
-            right: right - SELECTION_PADDING,
-            top: top.top - 2 * SELECTION_PADDING,
-            bottom: bottom.bottom + 2 * SELECTION_PADDING,
-        };
+        if (left === undefined || right === undefined) return undefined;
+        return { left: left - SELECTION_PADDING, right: right - SELECTION_PADDING, ...vertical };
     }
 
     /** Where a moment in a measure is drawn */
     private xAt({ measure, offset }: TimePoint): number | undefined {
         const anchors = this.layout?.measures[measure]?.anchors;
         return anchors?.length ? interpolate(anchors, toNumber(offset)) : undefined;
+    }
+
+    /** Draws insert mode's phantom note in place of the cursor's chord or rest; undefined clears it */
+    setPhantom(phantom: Phantom | undefined, cursor: Cursor) {
+        this.score.querySelector('.replacing')?.classList.remove('replacing');
+        const x = this.layout?.leafX.get(leafElementId(cursor));
+        if (!phantom || !this.layout || !this.composition || x === undefined) {
+            this.phantomLayer.replaceChildren();
+            return;
+        }
+
+        this.score.querySelector(`#${leafElementId(cursor)}`)?.classList.add('replacing');
+        drawPhantom(this.phantomLayer, this.layout, phantom, {
+            part: cursor.part,
+            measure: cursor.measure,
+            x,
+            clef: this.composition.parts[cursor.part]?.clef ?? 'treble',
+            keySignature: resolveMeasures(this.composition.measures)[cursor.measure]?.keySignature ?? C_MAJOR,
+        });
     }
 
     centerOn(measure: number) {

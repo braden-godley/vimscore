@@ -7,6 +7,7 @@ import { measureAtTime, resolveMeasures, secondsPerWholeNote } from '../../servi
 import { Player } from '../../services/player/Player';
 import { ToneSynth } from '../../services/synth/ToneSynth';
 import { ScoreView } from './score/ScoreView';
+import { describePhantom } from './score/notation';
 
 let composition = withTrailingEmptyMeasure(exampleComposition);
 let measures = resolveMeasures(composition.measures);
@@ -23,6 +24,7 @@ const positionLabel = document.querySelector<HTMLElement>('#position')!;
 const MODE_LABELS: Record<EditMode, string> = {
     normal: '',
     insert: '-- INSERT --',
+    insertMelody: '-- INSERT MELODY --',
     visual: '-- VISUAL --',
     visualBlock: '-- VISUAL BLOCK --',
 };
@@ -34,11 +36,14 @@ function showEditing() {
     const { mode, cursor } = editor;
     document.body.dataset['state'] = mode;
     modeLabel.textContent = MODE_LABELS[mode];
-    positionLabel.textContent = `${composition.parts[cursor.part]?.name ?? ''}  m${cursor.measure + 1}`;
+    const place = `${composition.parts[cursor.part]?.name ?? ''}  m${cursor.measure + 1}`;
+    const key = measures[cursor.measure]?.keySignature;
+    positionLabel.textContent = editor.phantom ? `${describePhantom(editor.phantom, key)}  ${place}` : place;
 
     view.setPlayhead(undefined);
     view.select(cursor);
     view.setSelection(editorSelection(composition, editor));
+    view.setPhantom(editor.phantom, cursor);
     view.centerOn(cursor.measure);
 }
 
@@ -63,6 +68,7 @@ function startPlayback() {
     modeLabel.textContent = '-- PLAYING --';
     view.select(undefined);
     view.setSelection(undefined);
+    view.setPhantom(undefined, editor.cursor);
     requestAnimationFrame(followPlayback);
 }
 

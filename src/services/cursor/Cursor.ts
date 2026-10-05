@@ -48,7 +48,7 @@ type NoteChoice = number | 'top' | 'bottom';
  * Picks the note to select in the cursor's chord. Following a pitch keeps stepping through
  * chords to the same line; on a tie, the higher note wins.
  */
-function withNote(composition: Composition, cursor: Cursor, choice: NoteChoice): Cursor {
+export function withNote(composition: Composition, cursor: Cursor, choice: NoteChoice): Cursor {
     const event = cursorLeaf(composition, cursor)?.event;
     if (event?.kind !== 'chord' || event.notes.length === 0) return { ...cursor, note: 0 };
 
@@ -195,4 +195,16 @@ export function movePart(composition: Composition, cursor: Cursor, delta: number
     const leaf = leafAtOffset(voiceLeaves(composition, part, cursor.measure, 0), offset);
     const target = clampCursor(composition, { part, measure: cursor.measure, voice: 0, leaf, note: 0 });
     return withNote(composition, target, land);
+}
+
+/** The chord or rest sounding `offset` whole notes into a measure, on its top note */
+export function cursorAtOffset(
+    composition: Composition,
+    part: number,
+    measure: number,
+    offset: Fraction,
+    voice = 0,
+): Cursor {
+    const leaf = leafAtOffset(voiceLeaves(composition, part, measure, voice), offset);
+    return withNote(composition, clampCursor(composition, { part, measure, voice, leaf, note: 0 }), 'top');
 }

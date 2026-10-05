@@ -49,6 +49,21 @@
         background: var(--visual-shade);
         border-radius: 4px;
       }
+      .phantom {
+        position: absolute;
+        top: 0;
+        left: 0;
+        pointer-events: none;
+        opacity: 0.75;
+      }
+      .phantom svg * {
+        fill: var(--insert);
+        stroke: var(--insert);
+      }
+      /* The chord or rest the phantom stands in for fades back */
+      .vf-stavenote.replacing {
+        opacity: 0.25;
+      }
       .playhead {
         position: absolute;
         top: 0;
@@ -58,15 +73,11 @@
         opacity: 0.6;
       }
       /* VexFlow sets fill and stroke as attributes, which CSS overrides */
-      .vf-notehead.selected,
-      .vf-notehead.selected * {
+      /* In the insert modes the phantom marks the cursor instead */
+      body:not([data-state^="insert"]) .vf-notehead.selected,
+      body:not([data-state^="insert"]) .vf-notehead.selected * {
         fill: var(--selected);
         stroke: var(--selected);
-      }
-      body[data-state="insert"] .vf-notehead.selected,
-      body[data-state="insert"] .vf-notehead.selected * {
-        fill: var(--insert);
-        stroke: var(--insert);
       }
       /* The cursor keeps its own color inside the selection */
       .vf-notehead.in-selection:not(.selected),
@@ -86,7 +97,7 @@
         font-weight: bold;
         min-width: 10ch;
       }
-      body[data-state="insert"] #mode {
+      body[data-state^="insert"] #mode {
         color: var(--insert);
       }
       body[data-state="visual"] #mode,

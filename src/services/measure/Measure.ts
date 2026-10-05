@@ -1,6 +1,7 @@
 import { Duration, durationValue } from '../duration/Duration';
 import { Event } from '../event/Event';
 import { Fraction, ZERO, add, fraction, toNumber } from '../fraction/Fraction';
+import { C_MAJOR, KeySignature } from '../key/KeySignature';
 
 /** 6/8 is { beats: 6, beatValue: 8 } */
 export interface TimeSignature {
@@ -21,6 +22,7 @@ export interface Tempo {
 export interface MeasureInfo {
     timeSignature?: TimeSignature;
     tempo?: Tempo;
+    keySignature?: KeySignature;
 }
 
 /** A sequence of events. Voice N continues into voice N of the next measure */
@@ -41,6 +43,7 @@ export const DEFAULT_TEMPO: Tempo = { bpm: 120, beat: { base: 4, dots: 0 } };
 export interface ResolvedMeasure {
     timeSignature: TimeSignature;
     tempo: Tempo;
+    keySignature: KeySignature;
     /** Start in whole notes from the beginning of the composition */
     start: Fraction;
     /** Length in whole notes */
@@ -60,14 +63,16 @@ export function secondsPerWholeNote({ bpm, beat }: Tempo): number {
 export function resolveMeasures(measures: MeasureInfo[]): ResolvedMeasure[] {
     let timeSignature = DEFAULT_TIME_SIGNATURE;
     let tempo = DEFAULT_TEMPO;
+    let keySignature = C_MAJOR;
     let start = ZERO;
     let startSeconds = 0;
 
     return measures.map((info) => {
         timeSignature = info.timeSignature ?? timeSignature;
         tempo = info.tempo ?? tempo;
+        keySignature = info.keySignature ?? keySignature;
         const length = measureLength(timeSignature);
-        const resolved = { timeSignature, tempo, start, length, startSeconds };
+        const resolved = { timeSignature, tempo, keySignature, start, length, startSeconds };
 
         start = add(start, length);
         startSeconds += toNumber(length) * secondsPerWholeNote(tempo);

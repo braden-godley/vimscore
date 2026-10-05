@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Duration, durationValue, durationsFilling } from '../duration/Duration';
+import { Duration, durationValue, durationsFilling, restsFilling } from '../duration/Duration';
 import { fraction } from '../fraction/Fraction';
 import { Event, eventsLength, leaves } from './Event';
 
@@ -61,5 +61,20 @@ describe('durationsFilling', () => {
 
     it('rejects lengths that note values cannot reach', () => {
         expect(() => fill(1, 3)).toThrow(RangeError);
+    });
+});
+
+describe('restsFilling', () => {
+    const bases = (start: [number, number], length: [number, number]) =>
+        restsFilling(fraction(...start), fraction(...length)).map(({ base }) => base);
+
+    it('lays rests on the beat, short ones first when starting off it', () => {
+        expect(bases([1, 8], [7, 8])).toEqual([8, 4, 2]);
+        expect(bases([0, 1], [3, 4])).toEqual([2, 4]);
+        expect(bases([3, 8], [1, 8])).toEqual([8]);
+    });
+
+    it('throws for lengths rests cannot write', () => {
+        expect(() => restsFilling(fraction(0), fraction(1, 3))).toThrow(RangeError);
     });
 });

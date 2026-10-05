@@ -9,10 +9,15 @@ const leaf = (measure: number, leaf: number, part = 0) => ({ part, measure, voic
 
 // Melody: 3 chords (4/4) | 14 tuplet notes (3/4) | 4 events (6/8). Bass: one note per measure.
 describe('visual', () => {
-    it('selects whole measures in every part, whichever way it was made', () => {
+    it('selects whole measures of the parts between its ends, whichever way it was made', () => {
         const selection = visualSelection(exampleComposition, 'visual', at(2, 1), at(1, 5, 1));
-        expect(selection).toEqual({ kind: 'measures', first: 1, last: 2 });
+        expect(selection).toEqual({ kind: 'measures', firstPart: 0, lastPart: 1, first: 1, last: 2 });
         expect(selectedLeaves(exampleComposition, selection)).toHaveLength(14 + 4 + 2);
+    });
+
+    it('keeps to one part when both ends are in it', () => {
+        const selection = visualSelection(exampleComposition, 'visual', at(0, 2), at(1, 0));
+        expect(selectedLeaves(exampleComposition, selection)).toHaveLength(3 + 14);
     });
 });
 

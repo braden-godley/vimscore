@@ -1,7 +1,6 @@
 /**
  * What visual mode selects, worked out from where it started (the anchor) and the cursor.
- * Visual mode takes whole measures in every part; visual block takes a span of time across a
- * range of parts.
+ * Both take a range of parts: visual mode whole measures of them, visual block a span of time.
  */
 
 import { Composition } from '../composition/Composition';
@@ -15,7 +14,8 @@ export interface TimePoint {
 }
 
 export type Selection =
-    | { kind: 'measures'; first: number; last: number }
+    /** Measures `first`..`last` of parts `firstPart`..`lastPart` */
+    | { kind: 'measures'; firstPart: number; lastPart: number; first: number; last: number }
     /** Every chord or rest in parts `firstPart`..`lastPart` starting at or after `start` and before `end` */
     | { kind: 'block'; firstPart: number; lastPart: number; start: TimePoint; end: TimePoint };
 
@@ -39,9 +39,11 @@ function leafEnd(composition: Composition, cursor: Cursor): TimePoint {
 }
 
 export function visualSelection(composition: Composition, kind: VisualKind, anchor: Cursor, cursor: Cursor): Selection {
+    const parts = { firstPart: Math.min(anchor.part, cursor.part), lastPart: Math.max(anchor.part, cursor.part) };
     if (kind === 'visual') {
         return {
             kind: 'measures',
+            ...parts,
             first: Math.min(anchor.measure, cursor.measure),
             last: Math.max(anchor.measure, cursor.measure),
         };
@@ -49,21 +51,16 @@ export function visualSelection(composition: Composition, kind: VisualKind, anch
 
     const starts = [leafStart(composition, anchor), leafStart(composition, cursor)].sort(compareTime);
     const ends = [leafEnd(composition, anchor), leafEnd(composition, cursor)].sort(compareTime);
-    return {
-        kind: 'block',
-        firstPart: Math.min(anchor.part, cursor.part),
-        lastPart: Math.max(anchor.part, cursor.part),
-        start: starts[0]!,
-        end: ends[1]!,
-    };
+    return { kind: 'block', ...parts, start: starts[0]!, end: ends[1]! };
 }
 
 /** Every chord and rest a selection covers, in part, measure, voice, leaf order */
 export function selectedLeaves(composition: Composition, selection: Selection): LeafRef[] {
-    const [firstPart, lastPart, firstMeasure, lastMeasure] =
+    const { firstPart, lastPart } = selection;
+    const [firstMeasure, lastMeasure] =
         selection.kind === 'measures'
-            ? [0, composition.parts.length - 1, selection.first, selection.last]
-            : [selection.firstPart, selection.lastPart, selection.start.measure, selection.end.measure];
+            ? [selection.first, selection.last]
+            : [selection.start.measure, selection.end.measure];
 
     const result: LeafRef[] = [];
     for (let part = firstPart; part <= lastPart; part++) {
