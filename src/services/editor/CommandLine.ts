@@ -26,6 +26,8 @@ export type Command =
     | { name: 'addPart'; query: string }
     | { name: 'deletePart' }
     | { name: 'rename'; text: string }
+    /** `:title Aqua Game` names the whole score */
+    | { name: 'title'; text: string }
     | { name: 'clef'; clef: Clef }
     /** `:time 3/4`, `:key Eb`, `:tempo q=90`: from the cursor's measure on, in every part */
     | { name: 'timeSignature'; value: TimeSignature }
@@ -49,6 +51,7 @@ const EDIT_COMMANDS = [
     'addPart',
     'deletePart',
     'rename',
+    'title',
     'clef',
     'timeSignature',
     'keySignature',
@@ -85,6 +88,7 @@ const NAMES: Record<string, Command['name']> = {
     addpart: 'addPart',
     delpart: 'deletePart',
     rename: 'rename',
+    title: 'title',
     clef: 'clef',
     time: 'timeSignature',
     key: 'keySignature',
@@ -118,6 +122,8 @@ export function parseCommand(text: string): Command | { error: string } {
             return { name, query: args };
         case 'rename':
             return args ? { name, text: args } : { error: 'Rename to what? :rename Violin I' };
+        case 'title':
+            return args ? { name, text: args } : { error: 'Title it what? :title Aqua Game' };
         case 'clef':
             return CLEFS.includes(args as Clef) ? { name, clef: args as Clef } : { error: `Expected :clef ${CLEFS.join(' or ')}` };
         case 'timeSignature': {

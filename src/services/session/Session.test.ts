@@ -201,6 +201,11 @@ describe('parts and instruments', () => {
         expect(names(type([...command('rename Lead'), 'u']))).toEqual(['Melody', 'Bass']);
     });
 
+    it('retitles the score, undoably', () => {
+        expect(type(command('title Aqua Game')).composition.title).toBe('Aqua Game');
+        expect(type([...command('title Aqua Game'), 'u']).composition.title).toBe('Example');
+    });
+
     it('hands :soundfont to the app, which loads the file', () => {
         const opened = type([':', ...'sf ~/a.sf2']);
         expect(sessionKey(opened, '<CR>').effect).toEqual({ kind: 'command', command: { name: 'soundfont', path: '~/a.sf2' } });

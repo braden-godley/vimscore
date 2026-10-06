@@ -509,6 +509,8 @@ describe('parseCommand for parts', () => {
         expect(parseCommand('rename Violin I')).toEqual({ name: 'rename', text: 'Violin I' });
         expect(parseCommand('clef alto')).toEqual({ error: 'Expected :clef treble or bass' });
         expect(parseCommand('rename')).toEqual({ error: 'Rename to what? :rename Violin I' });
+        expect(parseCommand('title Aqua Game')).toEqual({ name: 'title', text: 'Aqua Game' });
+        expect(parseCommand('title')).toEqual({ error: 'Title it what? :title Aqua Game' });
         expect(parseCommand('soundfont')).toEqual({ name: 'soundfont', path: undefined });
     });
 });

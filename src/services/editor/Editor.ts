@@ -544,6 +544,8 @@ function runEditCommand(composition: Composition, state: EditorState, command: E
         }
         case 'rename':
             return { state, composition: renamePart(composition, part, command.text) };
+        case 'title':
+            return { state, composition: { ...composition, title: command.text } };
         case 'clef':
             return { state, composition: setClef(composition, part, command.clef) };
         case 'keySignature':
