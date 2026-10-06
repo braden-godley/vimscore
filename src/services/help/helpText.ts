@@ -87,6 +87,7 @@ EDITING IN NORMAL MODE
     y{motion}         Copy, with the same motions as d
     p  P              Put what was deleted or copied after the cursor's chord, or at it
     z                 Show every staff at once, or back to the normal size
+    m                 Open the mixer on the cursor's part (see VOLUME)
     i                 Insert mode, staying on the chord
     a                 Melody insert mode, moving on after each note
     V                 Visual mode, selecting whole measures
@@ -215,7 +216,7 @@ VOLUME
     :volume 60      The cursor's part plays at 60% from its beat on (also :vol)
     :v 80           The mixer's volume for the cursor's whole part, up to 127
     :gv 80          The mixer's master volume, over every part, up to 100
-    :mixer          Open the mixer (also :mix)
+    :mixer          Open the mixer (also :mix, or m in normal mode)
 
     In the mixer:
     j  k            The next or previous part, then the master

@@ -131,8 +131,8 @@ describe('changes for every part', () => {
         expect(type([':', '<BS>']).editor.mode).toBe('normal');
     });
 
-    it('no longer uses m chords', () => {
-        expect(type(['m', 't']).editor.mode).toBe('normal');
+    it('no longer uses m chords: m opens the mixer straight away', () => {
+        expect(type(['m']).editor.mode).toBe('mixer');
     });
 
     it('can be undone', () => {
@@ -417,6 +417,14 @@ describe('the mixer', () => {
         const mixed = type(['h', 'h', 'H', 'j', 'l', 'j', 'h', 'k', '=', 'k', 'k', '<Esc>'], open);
         expect(volumes(mixed)).toEqual([89, undefined, 95]);
         expect(mixed.editor).toMatchObject({ mode: 'normal', mixer: undefined });
+        expect(volumes(type(['u'], mixed))).toEqual([undefined, undefined, undefined]);
+    });
+
+    it('opens with m in normal mode, on the cursor part, one undo for the visit', () => {
+        const open = type(['<C-j>', 'm']);
+        expect(open.editor).toMatchObject({ mode: 'mixer', mixer: { selected: 1 } });
+        const mixed = type(['l', '<Esc>'], open);
+        expect(volumes(mixed)).toEqual([undefined, 105, undefined]);
         expect(volumes(type(['u'], mixed))).toEqual([undefined, undefined, undefined]);
     });
 

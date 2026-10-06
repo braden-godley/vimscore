@@ -383,6 +383,7 @@ const NORMAL_ACTIONS: Record<string, Action> = {
     K: transposeCursorNote(1),
     i: enterInsert('insert'),
     a: enterInsert('insertMelody'),
+    m: (state) => ({ state: openMixer(state) }),
     ':': (state) => ({ state: { ...state, mode: 'command', commandLine: { text: '' } } }),
 };
 
@@ -813,7 +814,7 @@ function recentPickerKey(state: EditorState, closed: EditorState, key: string, i
     return { state: closed, effect: { kind: 'command', command: { name: 'edit', path: outcome.chosen, force: false } } };
 }
 
-/** Opens the mixer on the cursor's part: `:mixer`, or `m` while playing */
+/** Opens the mixer on the cursor's part: `:mixer`, or `m` in normal mode and while playing */
 export const openMixer = (state: EditorState): EditorState => ({ ...state, mode: 'mixer', mixer: { selected: state.cursor.part } });
 
 function mixerModeKey(composition: Composition, state: EditorState, key: string): KeyResult {
