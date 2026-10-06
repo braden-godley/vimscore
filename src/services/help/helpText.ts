@@ -100,6 +100,21 @@ VISUAL MODES
     <  >              A crescendo or diminuendo over the selection
     <Esc>             Back to normal mode
 
+THE COMMAND LINE
+    :                 Start a command, typed in the status bar
+    <CR>              Run it. One it can't read stays open with the error, to fix
+    <Esc>             Cancel (backspacing past the start does too)
+    <Up>  <Down>      Go back or forward through the commands entered before. With something
+                      typed, only the ones that start with it. The last 100 are kept between
+                      runs
+    <Tab>  <S-Tab>    Fill in a file name. With several that match, they're listed and the
+                      first is filled in; <Tab> again goes to the next, <S-Tab> back, and past
+                      the last comes back to what was typed. Type to keep the one shown; with
+                      a folder, <Tab> then completes inside it. Offers folders, and the files
+                      the command takes: scores for :w and :e, soundfonts for :soundfont and
+                      :addsf, the format's files for :export. Names are from the score's
+                      folder (or home), ~ is home
+
 FILES
     :w [file]         Save, asking where if the score has never been saved. A name without an
                       extension gets .vimscore. :w! file writes over a file that's there

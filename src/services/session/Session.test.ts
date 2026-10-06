@@ -104,6 +104,28 @@ describe('changes for every part', () => {
         expect(fixed.editor.commandLine).toEqual({ text: 'time 3/4' });
     });
 
+    it('goes back through the commands entered before with the arrows', () => {
+        const commandHistory = ['tempo 90', 'time 3/4', 'tempo 120'];
+        const keys = (keys: string[], session: Session) =>
+            keys.reduce((current, key) => sessionKey(current, key, { commandHistory }).session, session);
+        const text = (session: Session) => session.editor.commandLine?.text;
+
+        const opened = type([':']);
+        expect(text(keys(['<Up>'], opened))).toBe('tempo 90');
+        expect(text(keys(['<Up>', '<Up>'], opened))).toBe('time 3/4');
+        // Past the oldest it stays there, and past the newest it's what was typed
+        expect(text(keys(['<Up>', '<Up>', '<Up>', '<Up>'], opened))).toBe('tempo 120');
+        expect(text(keys(['<Up>', '<Down>'], opened))).toBe('');
+        // Only the commands that start with what's typed
+        const typedTe = type(['t', 'e'], opened);
+        expect(text(keys(['<Up>', '<Up>'], typedTe))).toBe('tempo 120');
+        expect(text(keys(['<Up>', '<Up>', '<Down>', '<Down>'], typedTe))).toBe('te');
+        // Typing edits the recalled command, and the arrows start again from it
+        expect(text(keys(['<Up>', '<BS>', '<BS>', '1', '<Up>'], opened))).toBe('tempo 120');
+        // Entering a recalled command runs it
+        expect(keys(['<Up>', '<Up>', '<CR>'], opened).composition.measures[0]?.timeSignature).toEqual({ beats: 3, beatValue: 4 });
+    });
+
     it('cancels with escape, or backspacing past the start', () => {
         expect(type([':', 't', '<Esc>']).editor).toMatchObject({ mode: 'normal', commandLine: undefined });
         expect(type([':', '<BS>']).editor.mode).toBe('normal');

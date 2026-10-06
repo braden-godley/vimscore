@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { FileHost } from '../../services/file/Commands';
+import { FolderEntry } from '../../services/editor/Completion';
 
 /** Kept between runs, in the app's data folder */
 export interface Settings {
@@ -9,6 +10,8 @@ export interface Settings {
   soundfont?: string;
   /** Scores opened or saved, newest first, for `:recent` */
   recentFiles?: string[];
+  /** Commands entered on the `:` command line, newest first */
+  commandHistory?: string[];
 }
 
 declare global {
@@ -20,6 +23,8 @@ declare global {
     };
     /** From the preload script */
     files: FileHost & {
+      /** What's in a folder, or nothing if it can't be read */
+      list(folder: string): Promise<FolderEntry[]>;
       readBinary(path: string): Promise<ArrayBuffer>;
       writeBinary(path: string, data: Uint8Array): Promise<void>;
       chooseSoundfontPath(): Promise<string | undefined>;

@@ -77,7 +77,7 @@ export interface EditorState {
     /** The note an insert mode will place; set only in the insert modes */
     phantom?: Phantom;
     /** What's typed after `:`, and why it couldn't run; set only in command mode */
-    commandLine?: { text: string; error?: string };
+    commandLine?: CommandLineState;
     /** Set only in picker mode */
     picker?: Picker;
     /** Set only in mixer mode */
@@ -101,6 +101,13 @@ export type EditorEffect =
     | { kind: 'toggleZoom' }
     /** Sound these MIDI pitches briefly, so you hear what you just changed; `rolled` as an arpeggio */
     | { kind: 'preview'; pitches: number[]; part: number; rolled?: boolean };
+
+export interface CommandLineState {
+    text: string;
+    error?: string;
+    /** While going back through the history: the entry shown, and what was typed before */
+    recalled?: { index: number; typed: string };
+}
 
 export interface KeyResult {
     state: EditorState;
@@ -591,6 +598,11 @@ function commandLineKey(composition: Composition, state: EditorState, key: strin
         return { state: closed, effect: { kind: 'command', command } };
     }
 
+    if (key === '<Up>' || key === '<Down>') {
+        const recalled = recallCommand(commandLine, input.commandHistory ?? [], key === '<Up>' ? 1 : -1);
+        return { state: { ...state, commandLine: recalled } };
+    }
+
     if (key === '<BS>') {
         if (commandLine.text === '') return { state: closed };
         return { state: { ...state, commandLine: { text: commandLine.text.slice(0, -1) } } };
@@ -601,12 +613,28 @@ function commandLineKey(composition: Composition, state: EditorState, key: strin
     return { state: { ...state, commandLine: { text: commandLine.text + typed } } };
 }
 
+/**
+ * `<Up>` and `<Down>` on the command line: the next older or newer command that starts with
+ * what was typed, like vim's. Past the newest, it's what was typed again.
+ */
+function recallCommand(commandLine: CommandLineState, history: string[], step: 1 | -1): CommandLineState {
+    const typed = commandLine.recalled?.typed ?? commandLine.text;
+    for (let index = (commandLine.recalled?.index ?? -1) + step; index >= 0 && index < history.length; index += step) {
+        const entry = history[index]!;
+        if (entry.startsWith(typed)) return { text: entry, recalled: { index, typed } };
+    }
+    if (step === -1) return { text: typed };
+    return { ...commandLine, error: undefined };
+}
+
 /** Besides the key itself */
 export interface KeyInput {
     /** The character the key typed, for the command line and picker; shifted keys differ by layout */
     text?: string;
     /** What the picker offers: the soundfont's instruments, or General MIDI's without one */
     instruments?: Instrument[];
+    /** Commands entered before, newest first, for `<Up>` and `<Down>` on the command line */
+    commandHistory?: string[];
     /** Scores opened before, newest first, for `:recent` */
     recentFiles?: string[];
     /** How many lines of the manual fit in the window, for scrolling it by pages */

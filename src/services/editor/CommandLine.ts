@@ -132,6 +132,9 @@ const NAMES: Record<string, Command['name']> = {
     h: 'help',
 };
 
+/** The command a name typed after `:` stands for, like `w` for `write` */
+export const commandName = (typed: string): Command['name'] | undefined => NAMES[typed];
+
 const CLEFS: Clef[] = ['treble', 'bass'];
 
 /** `60` or `60%`; NaN for anything else */

@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
-import { access, readFile, rename, writeFile } from 'node:fs/promises';
+import { access, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
@@ -30,6 +30,18 @@ function handleFiles(): void {
             () => false,
         ),
     );
+    // For completing file names; a link counts as a folder if it leads to one
+    ipcMain.handle('files:list', async (_event, folder: string) => {
+        const entries = await readdir(folder, { withFileTypes: true }).catch(() => []);
+        return Promise.all(
+            entries.map(async (entry) => ({
+                name: entry.name,
+                folder: entry.isSymbolicLink()
+                    ? await stat(join(folder, entry.name)).then((info) => info.isDirectory(), () => false)
+                    : entry.isDirectory(),
+            })),
+        );
+    });
     ipcMain.handle('files:read', (_event, path: string) => readFile(path, 'utf8'));
     ipcMain.handle('files:readBinary', async (_event, path: string) => {
         const data = await readFile(path);

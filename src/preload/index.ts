@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('versions', {
 contextBridge.exposeInMainWorld('files', {
   resolve: (path: string, base?: string) => ipcRenderer.invoke('files:resolve', path, base),
   exists: (path: string) => ipcRenderer.invoke('files:exists', path),
+  list: (folder: string) => ipcRenderer.invoke('files:list', folder),
   read: (path: string) => ipcRenderer.invoke('files:read', path),
   write: (path: string, text: string) => ipcRenderer.invoke('files:write', path, text),
   chooseSavePath: (suggested?: string) => ipcRenderer.invoke('files:chooseSave', suggested),

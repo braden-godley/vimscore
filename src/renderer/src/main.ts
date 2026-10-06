@@ -3,6 +3,7 @@ import { EditMode, EditorState, editorSelection } from '../../services/editor/Ed
 import { keyName } from '../../services/editor/keys';
 import { Command, isFileCommand } from '../../services/editor/CommandLine';
 import { Picker, filterPaths, pickerItems } from '../../services/editor/Picker';
+import { Completion, completeCommandLine, completionText, cycleCompletion } from '../../services/editor/Completion';
 import { Mixer } from '../../services/editor/MixerMode';
 import { HelpView, matchesQuery } from '../../services/help/Help';
 import { HELP_LINES } from '../../services/help/helpText';
@@ -26,6 +27,7 @@ import { exportVideo } from './video/exportVideo';
 import { SwitchableSynth } from './audio/SwitchableSynth';
 import { ScoreView } from './score/ScoreView';
 import { describePhantom } from './score/notation';
+import type { Settings } from './env';
 
 /**
  * The score being edited and the file it's saved in; its session holds the composition. The
@@ -54,6 +56,9 @@ let soundfontQueue: Promise<unknown> = Promise.resolve();
 /** Scores opened or saved, newest first, kept in the settings */
 let recentFiles: string[] = [];
 const MAX_RECENT_FILES = 30;
+/** Commands entered on the command line, newest first, also kept in the settings */
+let commandHistory: string[] = [];
+const MAX_COMMAND_HISTORY = 100;
 const layers = new SoundfontLayers(audio);
 
 const view = new ScoreView(document.querySelector<HTMLElement>('#viewport')!);
@@ -114,6 +119,15 @@ async function loadSoundfontsNow(paths: string[], { required = [] as string[] })
     }
 }
 
+let settingsQueue: Promise<unknown> = Promise.resolve();
+
+/** Changes the saved settings, one change at a time so none is lost to another */
+function updateSettings(change: (settings: Settings) => Settings): Promise<void> {
+    const updating = settingsQueue.then(async () => window.settings.set(change(await window.settings.get())));
+    settingsQueue = updating.catch(() => undefined);
+    return updating;
+}
+
 /** A new score, with the soundfonts last loaded */
 function blankScore() {
     return setSoundfonts(newComposition(), soundfonts.requested);
@@ -129,8 +143,7 @@ async function loadScoreSoundfonts() {
 async function changeSoundfonts(paths: string[], message: string) {
     const { session } = current;
     current = { ...current, session: sessionEdit(session, setSoundfonts(session.composition, paths)) };
-    const { soundfont: _, ...settings } = await window.settings.get();
-    await window.settings.set({ ...settings, soundfonts: paths });
+    await updateSettings(({ soundfont: _, ...settings }) => ({ ...settings, soundfonts: paths }));
     showMessage(message);
     showEditing();
 }
@@ -178,8 +191,61 @@ const recentChoices = () => recentFiles.filter((path) => path !== current.path);
 /** Puts a score at the top of the recent ones, and saves the list */
 async function rememberRecent(path: string) {
     recentFiles = [path, ...recentFiles.filter((recent) => recent !== path)].slice(0, MAX_RECENT_FILES);
-    const settings = await window.settings.get();
-    await window.settings.set({ ...settings, recentFiles });
+    await updateSettings((settings) => ({ ...settings, recentFiles }));
+}
+
+/** Puts a command at the top of the history, once, and saves it */
+async function rememberCommand(text: string) {
+    const command = text.trim();
+    if (!command) return;
+    commandHistory = [command, ...commandHistory.filter((old) => old !== command)].slice(0, MAX_COMMAND_HISTORY);
+    await updateSettings((settings) => ({ ...settings, commandHistory }));
+}
+
+/** The file names `<Tab>` is cycling through, while the command line still shows one of them */
+let completion: Completion | undefined;
+
+function setCommandText(text: string) {
+    const { session } = current;
+    current = { ...current, session: { ...session, editor: { ...session.editor, commandLine: { text } } } };
+}
+
+/** The matches in the status bar, a window of them around the one shown, which is marked */
+function showMatches({ matches, index }: Completion) {
+    const shown = 15;
+    const first = Math.max(0, Math.min(index - Math.floor(shown / 2), matches.length - shown));
+    const items = matches.slice(first, first + shown).map((match, i) =>
+        Object.assign(document.createElement('span'), { className: first + i === index ? 'current' : '', textContent: match }),
+    );
+    const more = (count: number) => (count > 0 ? [Object.assign(document.createElement('span'), { textContent: `…${count} more` })] : []);
+    messageLabel.classList.remove('error');
+    messageLabel.replaceChildren(...more(first), ...items, ...more(matches.length - first - shown));
+}
+
+/**
+ * `<Tab>` on the command line fills in a file name, from the score's folder unless it says
+ * otherwise; again goes on to the next one, and `<S-Tab>` back
+ */
+async function completeFileName(step: 1 | -1) {
+    const text = current.session.editor.commandLine?.text;
+    if (text === undefined) return;
+    if (completion && completionText(completion) === text) {
+        completion = cycleCompletion(completion, step);
+    } else {
+        const list = async (typed: string) => window.files.list(await window.files.resolve(typed, folder(current.path)));
+        const found = await completeCommandLine(text, list, step);
+        // Typing carried on while the folder was read
+        if (current.session.editor.commandLine?.text !== text) return;
+        if (!found) return showMessage('No matching file', true);
+        // A single match is done with, so another <Tab> completes inside it, if it's a folder
+        completion = found.matches.length > 1 ? found : undefined;
+        setCommandText(completionText(found));
+    }
+    if (completion) {
+        setCommandText(completionText(completion));
+        showMatches(completion);
+    }
+    showEditing();
 }
 
 /** A picker's heading, its list (a window of it around the selection), and a count beneath */
@@ -506,9 +572,17 @@ window.addEventListener('keydown', (event) => {
         return;
     }
 
+    if (session.editor.mode === 'command' && (key === '<Tab>' || key === '<S-Tab>')) {
+        void completeFileName(key === '<Tab>' ? 1 : -1);
+        return;
+    }
+    // Every command entered is remembered, even one with a mistake to fix
+    if (session.editor.mode === 'command' && key === '<CR>') void rememberCommand(session.editor.commandLine?.text ?? '');
+
     // The character typed, for the command line: Shift+3 is `#` on one keyboard and `§` on another
     const typed = event.key.length === 1 ? event.key : undefined;
-    const { session: next, effect } = sessionKey(session, key, { text: typed, instruments, recentFiles: recentChoices(), helpPageLines: helpPageLines() });
+    const input = { text: typed, instruments, recentFiles: recentChoices(), commandHistory, helpPageLines: helpPageLines() };
+    const { session: next, effect } = sessionKey(session, key, input);
     current = { ...current, session: next };
     // Edits, undo and redo all arrive as a new composition
     if (next.composition !== session.composition) showComposition();
@@ -532,6 +606,7 @@ window.addEventListener('beforeunload', (event) => {
 // A new score starts with the soundfonts last chosen, and `:recent` offers the scores from before
 const settings = await window.settings.get();
 recentFiles = settings.recentFiles ?? [];
+commandHistory = settings.commandHistory ?? [];
 const defaultSoundfonts = settings.soundfonts ?? (settings.soundfont ? [settings.soundfont] : []);
 if (defaultSoundfonts.length) {
     current = newDocument(setSoundfonts(newComposition(), defaultSoundfonts));
