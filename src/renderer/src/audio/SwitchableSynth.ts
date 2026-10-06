@@ -1,6 +1,6 @@
 /**
  * The synth the player plays through, which can be swapped: the simple tone until a soundfont
- * loads, then the soundfont. It remembers the instruments so the new synth starts with them.
+ * loads, then the soundfont. It remembers the instruments and mix so the new synth starts with them.
  */
 
 import { Instrument } from '../../../services/instrument/Instrument';
@@ -8,6 +8,7 @@ import { Synth } from '../../../services/synth/Synth';
 
 export class SwitchableSynth implements Synth {
     private instruments: Instrument[] = [];
+    private mix: number[] = [];
 
     constructor(private current: Synth) {}
 
@@ -16,11 +17,17 @@ export class SwitchableSynth implements Synth {
         this.current.stopAll();
         this.current = synth;
         synth.setInstruments(this.instruments);
+        synth.setMix(this.mix);
     }
 
     setInstruments(instruments: Instrument[]) {
         this.instruments = instruments;
         this.current.setInstruments(instruments);
+    }
+
+    setMix(mix: number[]) {
+        this.mix = mix;
+        this.current.setMix(mix);
     }
 
     playNote(part: number, pitch: number, when: number, duration: number, volume: number) {

@@ -85,5 +85,5 @@ export const exampleComposition: Composition = {
         { timeSignature: { beats: 6, beatValue: 8 }, tempo: { bpm: 60, beat: dottedQuarter } },
     ],
     parts: [melody, bass],
-    soundfont: exampleSoundfont,
+    soundfonts: [exampleSoundfont],
 };

@@ -16,3 +16,9 @@ export const BANK_SELECT = 0;
 
 /** MIDI velocity for a volume from 0 to 1; 0 means the note isn't played */
 export const velocity = (volume: number) => Math.round(Math.max(0, Math.min(1, volume)) * 127);
+
+/** MIDI controller 7, a channel's volume, which the mixer sets */
+export const CHANNEL_VOLUME = 7;
+
+/** The channel volume for a part's mix, where 1 is MIDI's usual 100 */
+export const channelVolume = (mix: number) => Math.round(Math.max(0, Math.min(127, mix * 100)));

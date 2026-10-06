@@ -26,7 +26,7 @@ import {
 } from 'vexflow/bravura';
 import { Composition } from '../../../services/composition/Composition';
 import { Cursor } from '../../../services/cursor/Cursor';
-import { Chord, Event, Rest, leaves } from '../../../services/event/Event';
+import { Chord, Event, Rest, glissandoTarget, leaves } from '../../../services/event/Event';
 import { ZERO, add, toNumber } from '../../../services/fraction/Fraction';
 import { TimeSignature, resolveMeasures } from '../../../services/measure/Measure';
 import { Clef } from '../../../services/part/Part';
@@ -52,6 +52,8 @@ const VOLUME_FONT_SIZE = 12;
 const HAIRPIN_HALF_HEIGHT = 5;
 /** Room between a hairpin and a volume marking at either end of it */
 const HAIRPIN_GAP = 4;
+/** Room between a glissando's line and the noteheads at its ends */
+const GLISSANDO_GAP = 3;
 /** How far above the top stave line tempo marks sit, in VexFlow's offset from the stave */
 const TEMPO_Y = -10;
 
@@ -388,6 +390,7 @@ export function renderScore(target: ScoreTarget, composition: Composition): Scor
     );
 
     drawTies(ctx, composition, built);
+    drawGlissandi(ctx, composition, built);
     drawVolumes(ctx, composition, layout);
     drawHairpins(ctx, composition, layout);
     return layout;
@@ -461,34 +464,65 @@ function drawHairpins(ctx: RenderContext, composition: Composition, layout: Scor
     ctx.restore();
 }
 
+/** Every chord or rest of each voice of each part through the whole piece, in order, with its drawn note */
+function voiceSequences(composition: Composition, built: BuiltVoice[][][]): { event: Chord | Rest; note: StaveNote }[][] {
+    return composition.parts.flatMap((part, p) => {
+        const voiceCount = Math.max(0, ...part.measures.map((measure) => measure.voices.length));
+        return Array.from({ length: voiceCount }, (_, v) =>
+            built.flatMap((column) => {
+                const voice = column[p]?.[v];
+                return voice ? voice.events.map((event, i) => ({ event, note: voice.notes[i]! })) : [];
+            }),
+        );
+    });
+}
+
 /**
  * Ties a note to the same pitch in the next chord of its voice, which may be in the next
  * measure. Matches how playback merges ties, so what you see is what you hear.
  */
 function drawTies(ctx: RenderContext, composition: Composition, built: BuiltVoice[][][]) {
-    composition.parts.forEach((part, p) => {
-        const voiceCount = Math.max(0, ...part.measures.map((measure) => measure.voices.length));
+    for (const sequence of voiceSequences(composition, built)) {
+        sequence.forEach(({ event, note }, i) => {
+            const next = sequence[i + 1];
+            if (event.kind !== 'chord' || next?.event.kind !== 'chord') return;
+            const nextPitches = next.event.notes.map(({ pitch }) => midi(pitch));
 
-        for (let v = 0; v < voiceCount; v++) {
-            // Every leaf of this voice through the whole piece, in order
-            const sequence = built.flatMap((column) => {
-                const voice = column[p]?.[v];
-                return voice ? voice.events.map((event, i) => ({ event, note: voice.notes[i]! })) : [];
+            event.notes.forEach(({ pitch, tie }, index) => {
+                const lastIndex = nextPitches.indexOf(midi(pitch));
+                if (!tie || lastIndex === -1) return;
+                new StaveTie({ firstNote: note, lastNote: next.note, firstIndexes: [index], lastIndexes: [lastIndex] })
+                    .setContext(ctx)
+                    .draw();
             });
+        });
+    }
+}
 
-            sequence.forEach(({ event, note }, i) => {
-                const next = sequence[i + 1];
-                if (event.kind !== 'chord' || next?.event.kind !== 'chord') return;
-                const nextPitches = next.event.notes.map(({ pitch }) => midi(pitch));
-
-                event.notes.forEach(({ pitch, tie }, index) => {
-                    const lastIndex = nextPitches.indexOf(midi(pitch));
-                    if (!tie || lastIndex === -1) return;
-                    new StaveTie({ firstNote: note, lastNote: next.note, firstIndexes: [index], lastIndexes: [lastIndex] })
-                        .setContext(ctx)
-                        .draw();
-                });
+/**
+ * A straight line from each sliding note to the note of the next chord it lands on, the one
+ * playback slides to, stopping short of that note's accidental
+ */
+function drawGlissandi(ctx: RenderContext, composition: Composition, built: BuiltVoice[][][]) {
+    ctx.save();
+    ctx.setLineWidth(1.2);
+    for (const sequence of voiceSequences(composition, built)) {
+        sequence.forEach(({ event, note }, i) => {
+            const next = sequence[i + 1];
+            if (event.kind !== 'chord' || next?.event.kind !== 'chord') return;
+            const nextChord = next.event;
+            event.notes.forEach(({ glissando }, index) => {
+                if (!glissando) return;
+                const target = glissandoTarget(index, event, nextChord);
+                const left = note.getTieRightX() + GLISSANDO_GAP;
+                const right = next.note.getAbsoluteX() - next.note.getMetrics().modLeftPx - GLISSANDO_GAP;
+                if (right <= left) return;
+                ctx.beginPath();
+                ctx.moveTo(left, note.getYs()[index]!);
+                ctx.lineTo(right, next.note.getYs()[target]!);
+                ctx.stroke();
             });
-        }
-    });
+        });
+    }
+    ctx.restore();
 }

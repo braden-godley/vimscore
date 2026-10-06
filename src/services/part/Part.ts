@@ -16,6 +16,10 @@ export interface Part {
     bank?: number;
     /** Plays a drum kit, where each pitch is a different drum */
     drums?: boolean;
+    /** The soundfont, by path, the sound was chosen from; see `Instrument.soundfont` */
+    soundfont?: string;
+    /** The mixer's volume for the whole part, in percent of normal (0 to 127); 100 when not set */
+    volume?: number;
     /** Always the same length as the composition's measures */
     measures: PartMeasure[];
 }

@@ -65,3 +65,12 @@ export function mapLeaves(events: Event[], fn: (event: Chord | Rest, index: numb
         events.map((event) => (event.kind === 'tuplet' ? { ...event, events: map(event.events) } : fn(event, index++)));
     return map(events);
 }
+
+/**
+ * Which note of the next chord the note at `index` of a chord slides to: the one as far from the
+ * top, so a glissando up to a chord lands on its top note, or the bottom one if it has fewer
+ */
+export function glissandoTarget(index: number, from: Chord, to: Chord): number {
+    const fromTop = from.notes.length - 1 - index;
+    return Math.max(0, to.notes.length - 1 - fromTop);
+}

@@ -347,6 +347,34 @@ describe(':volume', () => {
     });
 });
 
+describe('the mixer', () => {
+    const volumes = ({ composition }: Session) => [...composition.parts.map((part) => part.volume), composition.volume];
+
+    it(':v sets the cursor part’s volume and :gv the master’s, undoably', () => {
+        const mixed = type(['<C-j>', ':', ...'v 70', '<CR>', ':', ...'gv 90%', '<CR>']);
+        expect(volumes(mixed)).toEqual([undefined, 70, 90]);
+        expect(volumes(type(['u', 'u'], mixed))).toEqual([undefined, undefined, undefined]);
+        expect(type([':', ...'v 128', '<CR>']).editor.commandLine?.error).toBe('Expected a volume from 0 to 127, like :v 80');
+        expect(type([':', ...'gv 101', '<CR>']).editor.commandLine?.error).toBe('Expected a volume from 0 to 100, like :gv 80');
+    });
+
+    it('opens on the cursor part, turning rows up and down, with one undo for the visit', () => {
+        const open = type([':', ...'mixer', '<CR>']);
+        expect(open.editor).toMatchObject({ mode: 'mixer', mixer: { selected: 0 } });
+        const mixed = type(['h', 'h', 'H', 'j', 'l', 'j', 'h', 'k', '=', 'k', 'k', '<Esc>'], open);
+        expect(volumes(mixed)).toEqual([89, undefined, 95]);
+        expect(mixed.editor).toMatchObject({ mode: 'normal', mixer: undefined });
+        expect(volumes(type(['u'], mixed))).toEqual([undefined, undefined, undefined]);
+    });
+
+    it('stops at silent and at the loudest', () => {
+        const open = type([':', ...'mixer', '<CR>']);
+        expect(volumes(type(Array(30).fill('h'), open))[0]).toBe(0);
+        expect(volumes(type(Array(10).fill('l'), open))[0]).toBe(127);
+        expect(volumes(type(['j', 'j', 'l'], open))[2]).toBeUndefined();
+    });
+});
+
 describe('hairpin keys', () => {
     const hairpins = (session: Session, part = 0, measure = 0) => session.composition.parts[part]!.measures[measure]!.hairpins;
 

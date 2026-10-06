@@ -3,7 +3,9 @@ import { FileHost } from '../../services/file/Commands';
 
 /** Kept between runs, in the app's data folder */
 export interface Settings {
-  /** The soundfont new scores start with: the last one loaded */
+  /** The soundfonts new scores start with, first played first: the last ones chosen */
+  soundfonts?: string[];
+  /** Before there could be several, the one soundfont */
   soundfont?: string;
 }
 

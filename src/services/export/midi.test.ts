@@ -91,4 +91,14 @@ describe('writeMidi', () => {
         expect(noteOns(drums, 2).every(([, channel]) => channel === 9)).toBe(true);
         expect(drums.tracks[2]!.events.some(({ statusByte }) => statusByte >> 4 === 0xc)).toBe(false);
     });
+
+    it("sets each channel's volume from the mixer, master included", () => {
+        const mixed = { ...exampleComposition, volume: 50, parts: exampleComposition.parts.map((part, i) => (i === 0 ? { ...part, volume: 120 } : part)) };
+        const channelVolumes = (data: BasicMIDI) =>
+            data.tracks.slice(1).map(({ events }) =>
+                events.find(({ statusByte, data }) => statusByte >> 4 === 0xb && data[0] === 7)?.data[1],
+            );
+        expect(channelVolumes(midi)).toEqual([100, 100]);
+        expect(channelVolumes(read(writeMidi(mixed)))).toEqual([60, 50]);
+    });
 });

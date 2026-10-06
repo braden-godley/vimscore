@@ -50,6 +50,13 @@ describe('setInstrument', () => {
         expect(changed.parts[0]).toMatchObject({ name: 'Violin', program: 40 });
         expect(changed.parts[0]!.bank).toBeUndefined();
     });
+
+    it("keeps which soundfont the sound is from, and clears an old one's", () => {
+        const strings = { name: 'Strings', program: 48, bank: 0, drums: false };
+        const chosen = setInstrument(exampleComposition, 0, { ...strings, soundfont: '/sf/second.sf2' });
+        expect(chosen.parts[0]!.soundfont).toBe('/sf/second.sf2');
+        expect(setInstrument(chosen, 0, violin).parts[0]!.soundfont).toBeUndefined();
+    });
 });
 
 describe('renamePart and setClef', () => {

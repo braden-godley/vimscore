@@ -3,7 +3,7 @@
  * - Title
  * - Measures, holding what all parts share: time signature and tempo
  * - Parts, each holding its own contents for every measure
- * - Soundfont
+ * - Soundfonts, in priority order
  */
 
 import { durationsFilling } from '../duration/Duration';
@@ -17,7 +17,10 @@ export interface Composition {
     title: string;
     measures: MeasureInfo[];
     parts: Part[];
-    soundfont: Soundfont;
+    /** The first one with an instrument plays it */
+    soundfonts: Soundfont[];
+    /** The mixer's master volume over every part, in percent (0 to 100); 100 when not set */
+    volume?: number;
 }
 
 /**
@@ -34,7 +37,7 @@ export function newComposition(): Composition {
             { name: PIANO.name, clef: 'treble', program: 0, measures: [] },
             { name: PIANO.name, clef: 'bass', program: 0, measures: [] },
         ],
-        soundfont: { filePath: '' },
+        soundfonts: [],
     };
 }
 

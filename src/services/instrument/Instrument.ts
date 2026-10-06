@@ -12,6 +12,11 @@ export interface Instrument {
     /** Soundfonts keep variations of a program in other banks; 0 is the standard one */
     bank: number;
     drums: boolean;
+    /**
+     * The soundfont the sound is from, by path, when it's that soundfont's in particular. Without
+     * one, it's the first of the score's soundfonts that has this bank and program.
+     */
+    soundfont?: string;
 }
 
 /** The General MIDI names, by program number */
@@ -85,6 +90,10 @@ export function filterInstruments(instruments: Instrument[], query: string): Ins
 }
 
 /** The instrument a part plays */
-export function partInstrument({ program, bank, drums }: Part): Instrument {
-    return { name: generalMidiName(program), program, bank: bank ?? 0, drums: drums ?? false };
+export function partInstrument({ program, bank, drums, soundfont }: Part): Instrument {
+    return { name: generalMidiName(program), program, bank: bank ?? 0, drums: drums ?? false, ...(soundfont && { soundfont }) };
 }
+
+/** The same bank and program, whichever soundfont it's in */
+export const sameSound = (a: Instrument, b: Instrument) =>
+    a.program === b.program && a.bank === b.bank && a.drums === b.drums;

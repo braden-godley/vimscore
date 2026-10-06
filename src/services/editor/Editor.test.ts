@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { exampleComposition } from '../composition/example-composition';
 import { Cursor } from '../cursor/Cursor';
+import { Chord } from '../event/Event';
 import { EditorState, KeyResult, editorSelection, handleKey, initialEditorState } from './Editor';
 import { parseCommand } from './CommandLine';
 import { KeyPress, keyName } from './keys';
@@ -269,6 +270,30 @@ describe('ga', () => {
     });
 });
 
+describe('gl', () => {
+    const first = (result: KeyResult, leaf = 0) => result.composition?.parts[0]!.measures[0]!.voices[0]!.events[leaf];
+
+    it("slides the cursor's note on to the next chord, and back", () => {
+        const sliding = type(['g', 'l']);
+        // The cursor starts on the chord's top note
+        expect((first(sliding) as Chord).notes.map((note) => !!note.glissando)).toEqual([false, false, true]);
+
+        const pending = handleKey(sliding.composition!, sliding.state, 'g');
+        const back = handleKey(sliding.composition!, pending.state, 'l');
+        expect((first(back) as Chord).notes[2]).not.toHaveProperty('glissando');
+    });
+
+    it('does nothing on a rest', () => {
+        expect(type(['G', 'l', 'l', 'l', 'g', 'l']).composition).toBeUndefined();
+    });
+
+    it('slides every note of the selected chords in visual mode', () => {
+        const sliding = type(['<C-v>', 'l', 'g', 'l']);
+        const glissandi = [0, 1].map((leaf) => (first(sliding, leaf) as Chord).notes.map((note) => !!note.glissando));
+        expect(glissandi).toEqual([[true, true, true], [true, true, true]]);
+    });
+});
+
 describe('placing notes', () => {
     it('plays the chord the note joined', () => {
         expect(type(['i', 'k', '<Space>']).effect).toMatchObject({ kind: 'preview', pitches: [60, 64, 67, 69] });
@@ -512,6 +537,11 @@ describe('parseCommand for parts', () => {
         expect(parseCommand('title Aqua Game')).toEqual({ name: 'title', text: 'Aqua Game' });
         expect(parseCommand('title')).toEqual({ error: 'Title it what? :title Aqua Game' });
         expect(parseCommand('soundfont')).toEqual({ name: 'soundfont', path: undefined });
+        expect(parseCommand('addsf ~/sf/Strings.sf2')).toEqual({ name: 'addSoundfont', path: '~/sf/Strings.sf2' });
+        expect(parseCommand('delsf 2')).toEqual({ name: 'deleteSoundfont', which: '2' });
+        expect(parseCommand('delsf')).toEqual({ error: 'Remove which? :delsf 2, or :delsf and its name' });
+        expect(parseCommand('soundfonts')).toEqual({ name: 'listSoundfonts' });
+        expect(parseCommand('sfs x')).toEqual({ error: ':sfs takes nothing after it' });
     });
 });
 

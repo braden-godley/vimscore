@@ -8,8 +8,8 @@ import { Clef, Part } from '../part/Part';
 import { mergeRests } from './Edit';
 import { rests } from './Stream';
 
-function instrumentFields({ program, bank, drums }: Instrument): Pick<Part, 'program' | 'bank' | 'drums'> {
-    return { program, ...(bank !== 0 && { bank }), ...(drums && { drums }) };
+function instrumentFields({ program, bank, drums, soundfont }: Instrument): Pick<Part, 'program' | 'bank' | 'drums' | 'soundfont'> {
+    return { program, ...(bank !== 0 && { bank }), ...(drums && { drums }), ...(soundfont && { soundfont }) };
 }
 
 /** A new part playing `instrument`, named after it, with a rest in every measure, at `index` */
@@ -60,7 +60,7 @@ export function setInstrument(
                 .filter(({ program, bank, drums }) => program === old.program && bank === old.bank && drums === old.drums)
                 .map(({ name }) => name),
         ];
-        const { bank: _, drums: __, ...rest } = part;
+        const { bank: _, drums: __, soundfont: ___, ...rest } = part;
         return {
             ...rest,
             ...instrumentFields(instrument),
@@ -69,6 +69,7 @@ export function setInstrument(
     });
 }
 
-export function setSoundfont(composition: Composition, filePath: string): Composition {
-    return { ...composition, soundfont: { filePath } };
+/** The soundfonts a score plays through, the first taking precedence */
+export function setSoundfonts(composition: Composition, filePaths: string[]): Composition {
+    return { ...composition, soundfonts: filePaths.map((filePath) => ({ filePath })) };
 }

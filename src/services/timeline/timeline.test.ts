@@ -18,7 +18,7 @@ function compose(...measures: Event[][][]): Composition {
         title: 'Test',
         measures: measures.map((_, i) => (i === 0 ? { tempo: { bpm: 60, beat: quarter } } : {})),
         parts: [{ name: 'Test', program: 0, measures: measures.map((voices) => ({ voices: voices.map((events) => ({ events })) })) }],
-        soundfont: { filePath: '' },
+        soundfonts: [],
     };
 }
 
@@ -122,5 +122,40 @@ describe('timeline', () => {
         expect(lastBass?.duration).toBeCloseTo(2);
         // The tied C sounds for three eighths plus one
         expect(notes.find((note) => note.pitch === 72 && note.start === 3.5)?.duration).toBeCloseTo(4 / 3);
+    });
+
+    it('slides through the semitones between in the second half of the note, landing on the next', () => {
+        const notes = timeline(compose([[chord(quarter, { pitch: spell(60), glissando: true }), chord(quarter, { pitch: spell(65) })]]));
+        // Four steps from C to F fill the half second before the F
+        expect(rounded(notes)).toEqual([
+            { pitch: 60, start: 0, duration: 0.5 },
+            { pitch: 61, start: 0.5, duration: 0.125 },
+            { pitch: 62, start: 0.625, duration: 0.125 },
+            { pitch: 63, start: 0.75, duration: 0.125 },
+            { pitch: 64, start: 0.875, duration: 0.125 },
+            { pitch: 65, start: 1, duration: 1 },
+        ]);
+    });
+
+    it('slides down, over a barline, to the top note of a chord', () => {
+        const notes = timeline(
+            compose(
+                [[chord(quarter, { pitch: spell(60) }), chord(quarter, { pitch: spell(60) }), chord(quarter, { pitch: spell(60) }), chord(quarter, { pitch: spell(67), glissando: true })]],
+                [[chord(quarter, { pitch: spell(60) }, { pitch: spell(64) })]],
+            ),
+        );
+        expect(rounded(notes.filter(({ start }) => start >= 3 && start < 4))).toEqual([
+            { pitch: 67, start: 3, duration: 0.5 },
+            { pitch: 66, start: 3.5, duration: 0.25 },
+            { pitch: 65, start: 3.75, duration: 0.25 },
+        ]);
+    });
+
+    it("doesn't slide into a rest, or between neighbouring semitones", () => {
+        const rest: Event = { kind: 'rest', duration: quarter };
+        const intoRest = timeline(compose([[chord(quarter, { pitch: spell(60), glissando: true }), rest]]));
+        expect(rounded(intoRest)).toEqual([{ pitch: 60, start: 0, duration: 1 }]);
+        const semitone = timeline(compose([[chord(quarter, { pitch: spell(60), glissando: true }), chord(quarter, { pitch: spell(61) })]]));
+        expect(rounded(semitone).map(({ pitch }) => pitch)).toEqual([60, 61]);
     });
 });

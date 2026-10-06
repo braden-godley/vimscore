@@ -2,8 +2,9 @@
  * Reads MuseScore files (`.mscz`, a zip, or the `.mscx` XML inside it) from MuseScore 3 and 4.
  *
  * Each MuseScore staff becomes a part here, playing its MuseScore part's instrument. Notes,
- * rests, tuplets, ties, staccato, arpeggios and voices come across, as do time signatures, key
- * signatures, tempos, repeats, dynamics (as volume markings) and hairpins. What the model has no
+ * rests, tuplets, ties, staccato, arpeggios, glissandi and voices come across, as do time signatures, key
+ * signatures, tempos, repeats, dynamics (as volume markings), hairpins, and the mixer's volumes:
+ * MuseScore 3's channel volumes, or MuseScore 4's audio settings. What the model has no
  * place for yet, like grace notes, slurs, lyrics and voltas, is left out.
  */
 
@@ -14,6 +15,7 @@ import { Duration, durationsFilling, restsFilling } from '../duration/Duration';
 import { Chord, Event, Rest, Tuplet } from '../event/Event';
 import { Fraction, ZERO, add, compare, fraction, mul, sub } from '../fraction/Fraction';
 import { generalMidiName } from '../instrument/Instrument';
+import { MAX_MASTER_VOLUME, MAX_PART_VOLUME, NORMAL_MIX } from '../edit/Mixer';
 import { KeySignature } from '../key/KeySignature';
 import {
     Hairpin,
@@ -75,13 +77,14 @@ function parseFraction(value: string | undefined): Fraction | undefined {
 
 // Reading the file
 
-/** The `.mscx` text inside a `.mscz`, which is a zip */
-function unzipScore(data: Uint8Array): string | undefined {
+/** The `.mscx` text inside a `.mscz`, which is a zip, and MuseScore 4's mixer settings beside it */
+function unzipScore(data: Uint8Array): { xml?: string; audioSettings?: string } {
     const files = unzipSync(data);
     const container = files['META-INF/container.xml'];
     const rootPath = container && /full-path="([^"]+)"/.exec(strFromU8(container))?.[1];
     const score = (rootPath && files[rootPath]) ?? Object.entries(files).find(([name]) => name.endsWith('.mscx'))?.[1];
-    return score && strFromU8(score);
+    const audioSettings = files['audiosettings.json'];
+    return { xml: score && strFromU8(score), audioSettings: audioSettings && strFromU8(audioSettings) };
 }
 
 const isZip = (data: Uint8Array) => data[0] === 0x50 && data[1] === 0x4b;
@@ -89,8 +92,9 @@ const isZip = (data: Uint8Array) => data[0] === 0x50 && data[1] === 0x4b;
 /** The composition in a MuseScore file, or what's wrong with it */
 export function readMuseScore(data: Uint8Array): Composition | { error: string } {
     let xml: string | undefined;
+    let audioSettings: string | undefined;
     try {
-        xml = isZip(data) ? unzipScore(data) : strFromU8(data);
+        ({ xml, audioSettings } = isZip(data) ? unzipScore(data) : { xml: strFromU8(data) });
     } catch {
         return { error: "can't unzip it; is it a MuseScore file?" };
     }
@@ -105,7 +109,7 @@ export function readMuseScore(data: Uint8Array): Composition | { error: string }
     if (!score) return { error: 'no score in it' };
 
     try {
-        return convertScore(score);
+        return withMixer(convertScore(score), score, audioSettings);
     } catch (error) {
         return { error: (error as Error).message };
     }
@@ -119,6 +123,10 @@ interface StaffSetup {
     clef: Clef;
     program: number;
     drums: boolean;
+    /** Its `<Part>`'s id in MuseScore 4, or its place among them in MuseScore 3 */
+    partId: string;
+    /** The mixer's volume, from MuseScore 3's channel volume */
+    volume?: number;
 }
 
 function clefFromLetter(letter: string | undefined): Clef | undefined {
@@ -131,10 +139,13 @@ function clefFromLetter(letter: string | undefined): Clef | undefined {
 /** Every staff id's instrument, name and starting clef */
 function readStaffSetups(score: Element): Map<string, StaffSetup> {
     const setups = new Map<string, StaffSetup>();
-    for (const part of children(score, 'Part')) {
+    children(score, 'Part').forEach((part, partIndex) => {
         const instrument = child(part, 'Instrument');
         const drums = text(instrument, 'useDrumset') === '1';
-        const program = Number(instrument && child(child(instrument, 'Channel') ?? instrument, 'program')?.getAttribute('value')) || 0;
+        const channel = instrument && child(instrument, 'Channel');
+        const program = Number(instrument && child(channel ?? instrument, 'program')?.getAttribute('value')) || 0;
+        const partId = part.getAttribute('id') || String(partIndex);
+        const volume = channel && channelMix(channel);
         // Named for the instrument, not the part: MuseScore's part names are whatever the author typed
         const name = drums ? 'Drums' : generalMidiName(program);
         // Later MuseScore 3 files say concertClef where earlier ones say clef
@@ -147,10 +158,65 @@ function readStaffSetups(score: Element): Map<string, StaffSetup> {
                 clefFromLetter(text(staff, 'defaultClef') ?? text(staff, 'defaultConcertClef')) ??
                 clefFromLetter(instrumentClef?.textContent?.trim()) ??
                 'treble';
-            setups.set(staff.getAttribute('id') ?? '', { name, clef, program, drums });
+            const setup = { name, clef, program, drums, partId, ...(volume !== undefined && { volume }) };
+            setups.set(staff.getAttribute('id') ?? '', setup);
         });
-    }
+    });
     return setups;
+}
+
+/**
+ * The mixer's volume in a MuseScore 3 `<Channel>`: its channel volume, which is ours as it is,
+ * or nothing when muted. Undefined when it's normal.
+ */
+function channelMix(channel: Element): number | undefined {
+    if (text(channel, 'mute') === '1') return 0;
+    const controller = children(channel, 'controller').find((element) => element.getAttribute('ctrl') === '7');
+    const value = Number(controller?.getAttribute('value'));
+    return controller && Number.isFinite(value) && value !== NORMAL_MIX ? Math.max(0, Math.min(MAX_PART_VOLUME, value)) : undefined;
+}
+
+/** MuseScore 4's mixer track: its volume in decibels and whether it's muted */
+interface AudioOutput {
+    volumeDb?: number;
+    muted?: boolean;
+}
+
+/**
+ * MuseScore 4's mixer in decibels as our volume, where a channel volume's loudness goes with
+ * its square: 40 log10(percent / 100) dB
+ */
+function decibelsMix({ volumeDb = 0, muted }: AudioOutput, max: number): number {
+    return muted ? 0 : Math.max(0, Math.min(max, Math.round(100 * 10 ** (volumeDb / 40))));
+}
+
+/**
+ * Sets each part's volume and the master volume from MuseScore's mixer: MuseScore 4's audio
+ * settings when the file has them, or MuseScore 3's channel volumes
+ */
+function withMixer(composition: Composition, score: Element, audioSettings: string | undefined): Composition {
+    const setups = readStaffSetups(score);
+    let tracks = new Map<string, AudioOutput>();
+    let master: AudioOutput | undefined;
+    try {
+        const settings = audioSettings ? JSON.parse(audioSettings) : undefined;
+        tracks = new Map(
+            (settings?.tracks ?? []).map((track: { partId?: unknown; out?: AudioOutput }) => [String(track.partId), track.out ?? {}]),
+        );
+        master = settings?.master;
+    } catch {
+        // A mixer that can't be read leaves the volumes normal
+    }
+
+    const parts = composition.parts.map((part, s) => {
+        // Staves line up with parts, as `convertScore` makes them
+        const setup = setups.get(children(score, 'Staff')[s]?.getAttribute('id') ?? '');
+        const track = setup && tracks.get(setup.partId);
+        const volume = track ? decibelsMix(track, MAX_PART_VOLUME) : setup?.volume;
+        return volume === undefined || volume === NORMAL_MIX ? part : { ...part, volume };
+    });
+    const volume = master && decibelsMix(master, MAX_MASTER_VOLUME);
+    return { ...composition, parts, ...(volume !== undefined && volume !== NORMAL_MIX && { volume }) };
 }
 
 function readTimeSignature(element: Element): TimeSignature | undefined {
@@ -191,9 +257,11 @@ function readNotes(chord: Element): Note[] {
         // MuseScore spells the note by its tonal pitch class, for concert pitch
         const tpc = number(element, 'tpc');
         const note: Note = { pitch: (tpc !== undefined && fromTpc(tpc, sounding)) || spell(sounding) };
-        // A tie is a spanner on its first note, pointing on to the next
-        const tie = children(element, 'Spanner').some((spanner) => spanner.getAttribute('type') === 'Tie' && child(spanner, 'next'));
-        if (tie) note.tie = true;
+        // A tie or glissando is a spanner on its first note, pointing on to the next
+        const startsSpanner = (type: string) =>
+            children(element, 'Spanner').some((spanner) => spanner.getAttribute('type') === type && child(spanner, 'next'));
+        if (startsSpanner('Tie')) note.tie = true;
+        if (startsSpanner('Glissando')) note.glissando = true;
         if (staccato) note.staccato = true;
         return note;
     });
@@ -460,7 +528,7 @@ function convertScore(score: Element): Composition {
     });
 
     const title = children(score, 'metaTag').find((tag) => tag.getAttribute('name') === 'workTitle')?.textContent?.trim();
-    return { title: title || 'Untitled', measures: infos, parts, soundfont: { filePath: '' } };
+    return { title: title || 'Untitled', measures: infos, parts, soundfonts: [] };
 }
 
 /** Voices can each carry the same dynamic or hairpin; one at a moment is enough */

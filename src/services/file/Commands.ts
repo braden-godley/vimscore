@@ -86,7 +86,7 @@ const isMuseScore = (path: string) => /\.msc[zx]$/i.test(path);
 /**
  * Opens a MuseScore file as a new score. It isn't saved anywhere yet, so `:w` asks where,
  * suggesting a `.vimscore` beside it rather than writing over the MuseScore file. It plays
- * through the soundfont `blank` scores start with.
+ * through the soundfonts `blank` scores start with.
  */
 async function importMuseScore(document: Document, host: FileHost, path: string, blank: () => Composition) {
     let data: ArrayBuffer;
@@ -100,7 +100,7 @@ async function importMuseScore(document: Document, host: FileHost, path: string,
 
     // A score without a title of its own goes by its file's name
     const title = result.title === 'Untitled' ? fileName(path).replace(/\.msc[zx]$/i, '') : result.title;
-    const composition = { ...result, title, soundfont: blank().soundfont };
+    const composition = { ...result, title, soundfonts: blank().soundfonts };
     const suggestedPath = path.replace(/\.msc[zx]$/i, `.${EXTENSION}`);
     return {
         document: { session: newDocument(composition).session, suggestedPath },
@@ -137,7 +137,7 @@ async function edit(
     return { document: { ...opened, path }, message: `"${fileName(path)}" ${measureCount(composition)}` };
 }
 
-/** `blank` is what `:enew` starts from, so the app can give it a default soundfont */
+/** `blank` is what `:enew` starts from, so the app can give it default soundfonts */
 export async function runCommand(
     command: FileCommand,
     document: Document,

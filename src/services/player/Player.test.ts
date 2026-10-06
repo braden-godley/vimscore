@@ -21,6 +21,7 @@ function recordingSynth() {
         setInstruments: (instruments) => {
             record.instruments = instruments;
         },
+        setMix: () => {},
         playNote: (part, pitch, when, duration) => played.push({ part, pitch, when, duration }),
         audition: (instrument, pitch) => record.auditions.push({ instrument, pitch }),
         stopAll: () => {

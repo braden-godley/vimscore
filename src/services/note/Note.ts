@@ -8,4 +8,7 @@ export interface Note {
     tie?: boolean;
 
     staccato?: boolean;
+
+    /** Slides up or down to a note of the next chord in the same voice; see `glissandoTarget` */
+    glissando?: boolean;
 }

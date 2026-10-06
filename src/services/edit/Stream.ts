@@ -17,11 +17,11 @@ export function pieces(event: Chord | Rest, durations: Duration[], keepTie = tru
     return durations.map((duration, i) => {
         if (event.kind === 'rest') return { kind: 'rest', duration };
         const last = i === durations.length - 1;
-        // Only the last piece keeps the note's own tie onward, and its staccato
+        // Only the last piece keeps the note's own tie onward, its staccato and its glissando
         const notes = event.notes.map((note) => {
             if (!last) return { pitch: note.pitch, tie: true };
             if (keepTie) return note;
-            const { tie: _, ...untied } = note;
+            const { tie: _, glissando: __, ...untied } = note;
             return untied;
         });
         // It's rolled where it's struck, not where it's held on
@@ -70,7 +70,7 @@ export function extractSpan(events: Event[], start: Fraction, end: Fraction, str
             } else if (compare(from, eventStart) > 0) {
                 result.push(...rests(restsFilling(sub(from, start), length)));
             } else {
-                // Cut off at the end, so it no longer ties on to what came next
+                // Cut off at the end, so it no longer ties or slides on to what came next
                 result.push(...pieces(event, durationsFilling(length), false));
             }
         } catch {

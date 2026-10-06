@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { strToU8, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import { Composition } from '../composition/Composition';
-import { Event, eventsLength, leaves } from '../event/Event';
+import { Chord, Event, eventsLength, leaves } from '../event/Event';
 import { midi, pitchName } from '../pitch/Pitch';
 import { compare } from '../fraction/Fraction';
 import { resolveMeasures } from '../measure/Measure';
@@ -176,6 +176,27 @@ describe('readMuseScore', () => {
         expect(second).not.toHaveProperty('arpeggio');
     });
 
+    it('reads glissandi from the note they start on', () => {
+        const slid = read(
+            mscx(`<Staff id="1"><Measure><voice>
+                <Chord><durationType>half</durationType><Note>
+                    <Spanner type="Glissando"><Glissando><subtype>0</subtype></Glissando><next><location><fractions>1/2</fractions></location></next></Spanner>
+                    <pitch>60</pitch>
+                </Note></Chord>
+                <Chord><durationType>half</durationType><Note>
+                    <Spanner type="Glissando"><prev><location><fractions>-1/2</fractions></location></prev></Spanner>
+                    <pitch>72</pitch>
+                </Note></Chord>
+            </voice></Measure></Staff>`),
+        );
+        const [from, to] = slid.parts[0]!.measures[0]!.voices[0]!.events;
+        expect(from).toMatchObject({ notes: [{ glissando: true }] });
+        expect(to).toMatchObject({ notes: [{}] });
+        expect((to as Chord).notes[0]).not.toHaveProperty('glissando');
+        // It plays as a run up to the C an octave above
+        expect(timeline(slid).map(({ pitch }) => pitch)).toEqual([60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72]);
+    });
+
     it('reads the zipped form too', () => {
         const xml = mscx('<Staff id="1"><Measure><voice><Rest><durationType>measure</durationType><duration>4/4</duration></Rest></voice></Measure></Staff>');
         const zipped = zipSync({
@@ -183,6 +204,41 @@ describe('readMuseScore', () => {
             'a.mscx': strToU8(xml),
         });
         expect(readMuseScore(zipped)).toMatchObject({ title: 'Little Piece', measures: [{ timeSignature: { beats: 4, beatValue: 4 } }] });
+    });
+
+    it("reads MuseScore 3's channel volumes into the mixer", () => {
+        const rest = '<Measure><voice><Rest><durationType>measure</durationType><duration>4/4</duration></Rest></voice></Measure>';
+        const part = (id: number, channel: string) =>
+            `<Part><Staff id="${id}"/><Instrument><Channel><program value="0"/>${channel}</Channel></Instrument></Part>`;
+        const mixed = read(
+            mscx(
+                [1, 2, 3].map((id) => `<Staff id="${id}">${rest}</Staff>`).join(''),
+                part(1, '<controller ctrl="7" value="116"/>') + part(2, '') + part(3, '<controller ctrl="7" value="80"/><mute>1</mute>'),
+            ),
+        );
+        expect(mixed.parts.map(({ volume }) => volume)).toEqual([116, undefined, 0]);
+        expect(mixed.volume).toBeUndefined();
+    });
+
+    it("reads MuseScore 4's mixer from its audio settings", () => {
+        const rest = '<Measure><voice><Rest><durationType>measure</durationType><duration>4/4</duration></Rest></voice></Measure>';
+        const xml = mscx(
+            `<Staff id="1">${rest}</Staff><Staff id="2">${rest}</Staff><Staff id="3">${rest}</Staff>`,
+            `<Part id="7"><Staff id="1"/><Staff id="2"/><Instrument><Channel><program value="0"/></Channel></Instrument></Part>
+             <Part id="9"><Staff id="3"/><Instrument><Channel><program value="40"/></Channel></Instrument></Part>`,
+        ).replace('version="3.02"', 'version="4.20"');
+        const settings = {
+            master: { volumeDb: -6, muted: false },
+            tracks: [
+                { partId: '7', instrumentId: 'piano', out: { volumeDb: -12, muted: false } },
+                { partId: '9', instrumentId: 'violin', out: { volumeDb: 20, muted: false } },
+            ],
+        };
+        const zipped = zipSync({ 'a.mscx': strToU8(xml), 'audiosettings.json': strToU8(JSON.stringify(settings)) });
+        const mixed = readMuseScore(zipped) as Composition;
+        // A piano's two staves both take its part's volume
+        expect(mixed.parts.map(({ volume }) => volume)).toEqual([50, 50, 127]);
+        expect(mixed.volume).toBe(71);
     });
 
     it('reads clefs written the later MuseScore 3 way', () => {

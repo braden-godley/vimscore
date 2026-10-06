@@ -2,14 +2,16 @@
  * Writes a composition as a Standard MIDI File (type 1): a first track with the title, tempos,
  * time signatures and keys, then a track for each part with its instrument and notes. Repeats
  * are written out as they play, so any player plays them; ties are joined into single notes,
- * and volume markings become note velocities, as they sound in the app.
+ * volume markings become note velocities, as they sound in the app, and the mixer's volumes
+ * become each channel's volume.
  */
 
 import { Composition } from '../composition/Composition';
 import { durationValue } from '../duration/Duration';
 import { partInstrument } from '../instrument/Instrument';
 import { resolveMeasures, secondsPerWholeNote } from '../measure/Measure';
-import { BANK_SELECT, channelFor, velocity } from '../synth/channels';
+import { partMix } from '../edit/Mixer';
+import { BANK_SELECT, CHANNEL_VOLUME, channelFor, channelVolume, velocity } from '../synth/channels';
 import { performance, playedMeasureAt } from '../timeline/performance';
 import { timeline } from '../timeline/timeline';
 
@@ -101,6 +103,7 @@ export function writeMidi(composition: Composition): Uint8Array {
 
     const notes = timeline(composition);
     const tracks = [track(conductor)];
+    const mix = partMix(composition);
     composition.parts.forEach((part, p) => {
         const { program, bank, drums } = partInstrument(part);
         const channel = drums ? DRUM_CHANNEL : channelFor(p);
@@ -109,6 +112,7 @@ export function writeMidi(composition: Composition): Uint8Array {
             events.push({ ticks: 0, order: 0, bytes: [0xb0 | channel, BANK_SELECT, Math.min(127, bank)] });
             events.push({ ticks: 0, order: 0, bytes: [0xc0 | channel, program] });
         }
+        events.push({ ticks: 0, order: 0, bytes: [0xb0 | channel, CHANNEL_VOLUME, channelVolume(mix[p]!)] });
         for (const note of notes) {
             const noteVelocity = velocity(note.volume);
             if (note.part !== p || noteVelocity === 0) continue;

@@ -20,6 +20,29 @@ describe('writeScore and readScore', () => {
         expect(writeScore(kit)).toContain('"bank": 128,\n      "drums": true');
     });
 
+    it('keep the mixer’s volumes, leaving normal unwritten', () => {
+        const mixed = { ...exampleComposition, volume: 80, parts: exampleComposition.parts.map((part, i) => (i === 0 ? { ...part, volume: 120 } : part)) };
+        expect(readScore(writeScore(mixed))).toEqual(mixed);
+        expect(writeScore(exampleComposition)).not.toContain('"volume": 1');
+        expect(readScore(writeScore({ ...mixed, volume: 101 }))).toEqual({ error: expect.stringContaining('volume') });
+    });
+
+    it('keep soundfonts in priority order, and read the one of older files', () => {
+        const layered = { ...exampleComposition, soundfonts: [{ filePath: '/sf/Strings.sf2' }, { filePath: '/sf/General.sf2' }] };
+        expect(readScore(writeScore(layered))).toEqual(layered);
+        expect(writeScore(layered)).toContain('"soundfonts": [\n    "/sf/Strings.sf2",\n    "/sf/General.sf2"\n  ]');
+
+        const older = writeScore(exampleComposition).replace(/"soundfonts": \[\s*(".*?")\s*\]/, '"soundfont": $1');
+        expect(older).toContain('"soundfont": "/Users');
+        expect(readScore(older)).toEqual(exampleComposition);
+        expect(writeScore({ ...exampleComposition, soundfonts: [] })).not.toContain('soundfont');
+
+        // A part can choose its sound from any of them
+        const [melody, ...rest] = layered.parts;
+        const chosen = { ...layered, parts: [{ ...melody!, soundfont: '/sf/General.sf2' }, ...rest] };
+        expect(readScore(writeScore(chosen))).toEqual(chosen);
+    });
+
     it('keep arpeggios', () => {
         const melody = exampleComposition.parts[0]!;
         const [first, ...rest] = melody.measures[0]!.voices[0]!.events;
@@ -29,6 +52,19 @@ describe('writeScore and readScore', () => {
         };
         expect(readScore(writeScore(rolled))).toEqual(rolled);
         expect(writeScore(rolled)).toContain('{ "chord": ["C4", "E4", "G4"], "duration": "q", "arpeggio": true }');
+    });
+
+    it('keep glissandi', () => {
+        const melody = exampleComposition.parts[0]!;
+        const [first, ...rest] = melody.measures[0]!.voices[0]!.events;
+        if (first?.kind !== 'chord') throw new Error('expected a chord');
+        const sliding = { ...first, notes: first.notes.map((note, i) => (i === 2 ? { ...note, glissando: true } : note)) };
+        const slid = {
+            ...exampleComposition,
+            parts: [{ ...melody, measures: [{ voices: [{ events: [sliding, ...rest] }] }, ...melody.measures.slice(1)] }],
+        };
+        expect(readScore(writeScore(slid))).toEqual(slid);
+        expect(writeScore(slid)).toContain('{ "pitch": "G4", "glissando": true }');
     });
 
     it('write short values, one event per line', () => {

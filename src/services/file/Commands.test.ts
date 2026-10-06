@@ -165,11 +165,12 @@ describe('opening MuseScore files', () => {
         expect(host.files['/music/tune.mscx']).toBe(MSCX);
     });
 
-    it('gives new imports the soundfont new scores get', async () => {
+    it('gives new imports the soundfonts new scores get', async () => {
         const host = fakeHost({ '/music/tune.mscx': MSCX });
-        const blank = () => ({ ...exampleComposition, soundfont: { filePath: '/sf/default.sf2' } });
+        const soundfonts = [{ filePath: '/sf/strings.sf2' }, { filePath: '/sf/default.sf2' }];
+        const blank = () => ({ ...exampleComposition, soundfonts });
         const opened = await runCommand({ name: 'edit', path: '/music/tune.mscx', force: false }, newDocument(), host, blank);
-        expect(opened.document.session.composition.soundfont.filePath).toBe('/sf/default.sf2');
+        expect(opened.document.session.composition.soundfonts).toEqual(soundfonts);
     });
 
     it('says what is wrong with one it cannot read', async () => {

@@ -12,6 +12,7 @@ import {
     placeRest,
     setLeafDuration,
     toggleArpeggios,
+    toggleGlissandi,
     transposeNote,
     transposeSelection,
 } from '../edit/Edit';
@@ -53,14 +54,16 @@ import { setVolume, toggleHairpin } from '../edit/Volume';
 import { GENERAL_MIDI_INSTRUMENTS, Instrument } from '../instrument/Instrument';
 import { Command, EditCommand, isEditCommand, parseCommand } from './CommandLine';
 import { Picker, auditionPitch, pickerKey } from './Picker';
+import { Mixer, mixerKey } from './MixerMode';
+import { setMasterVolume, setPartVolume } from '../edit/Mixer';
 import { midi } from '../pitch/Pitch';
 
 /**
  * `normal` navigates; the insert modes enter notes, `insertMelody` moving on after each one; the
- * visual modes select from an anchor to the cursor; `command` is the `:` command line, and
- * `picker` chooses an instrument
+ * visual modes select from an anchor to the cursor; `command` is the `:` command line,
+ * `picker` chooses an instrument, and `mixer` sets the parts' volumes
  */
-export type EditMode = 'normal' | InsertKind | VisualKind | 'command' | 'picker';
+export type EditMode = 'normal' | InsertKind | VisualKind | 'command' | 'picker' | 'mixer';
 
 export type InsertKind = 'insert' | 'insertMelody';
 
@@ -75,6 +78,8 @@ export interface EditorState {
     commandLine?: { text: string; error?: string };
     /** Set only in picker mode */
     picker?: Picker;
+    /** Set only in mixer mode */
+    mixer?: Mixer;
     /** What yanking or deleting last took, for putting back */
     register?: Register;
     /** Keys of a command still being typed, like a count or `<C-w>` */
@@ -214,6 +219,19 @@ const toggleSelectedArpeggios: Action = (state, composition) => {
     return edited ? { state, composition: edited } : { state };
 };
 
+/** `gl`: slides the cursor's note on to the next chord, or stops it sliding */
+const toggleCursorGlissando: Action = (state, composition) => {
+    const edited = toggleGlissandi(composition, [state.cursor]);
+    return edited ? { state, composition: edited } : { state };
+};
+
+/** `gl` in visual mode: slides every note of the selected chords on, or none if they all do already */
+const toggleSelectedGlissandi: Action = (state, composition) => {
+    const selection = editorSelection(composition, state);
+    const edited = selection && toggleGlissandi(composition, selectedLeaves(composition, selection));
+    return edited ? { state, composition: edited } : { state };
+};
+
 /**
  * Puts a hairpin over a selection, in each of its parts, or takes it off if it's already there.
  * Measures are covered from the start of the first to the end of the last.
@@ -260,6 +278,7 @@ const NORMAL_ACTIONS: Record<string, Action> = {
     rs: (state, composition) => ({ state, composition: toggleRepeat(composition, state.cursor.measure, 'start') }),
     re: (state, composition) => ({ state, composition: toggleRepeat(composition, state.cursor.measure, 'end') }),
     ga: toggleCursorArpeggio,
+    gl: toggleCursorGlissando,
     '<': hairpinFromCursor('crescendo'),
     '>': hairpinFromCursor('diminuendo'),
     U: (state, _, count = 1) => ({ state, history: { direction: 'redo', count } }),
@@ -341,6 +360,7 @@ const VISUAL_ACTIONS: Record<string, Action> = {
     J: transpose(-1),
     K: transpose(1),
     ga: toggleSelectedArpeggios,
+    gl: toggleSelectedGlissandi,
     '<': hairpinOverSelected('crescendo'),
     '>': hairpinOverSelected('diminuendo'),
 };
@@ -602,6 +622,12 @@ function runEditCommand(composition: Composition, state: EditorState, command: E
             const offset = cursorOffset(composition, state.cursor);
             return { state, composition: setVolume(composition, part, measure, offset, command.percent) };
         }
+        case 'partVolume':
+            return { state, composition: setPartVolume(composition, part, command.percent) };
+        case 'masterVolume':
+            return { state, composition: setMasterVolume(composition, command.percent) };
+        case 'mixer':
+            return { state: { ...state, mode: 'mixer', mixer: { selected: part } } };
         case 'timeSignature': {
             // The measures may have been re-barred, so land on the first beat of the changed one
             const edited = setTimeSignature(composition, measure, command.value);
@@ -638,6 +664,14 @@ function pickerModeKey(composition: Composition, state: EditorState, key: string
     return { state: { ...closed, cursor: moved }, composition: edited };
 }
 
+function mixerModeKey(composition: Composition, state: EditorState, key: string): KeyResult {
+    const closed: EditorState = { ...state, mode: 'normal', mixer: undefined };
+    if (!state.mixer) return { state: closed };
+    const outcome = mixerKey(composition, state.mixer, key);
+    if ('closed' in outcome) return { state: closed };
+    return { state: { ...state, mixer: outcome.mixer }, composition: outcome.composition };
+}
+
 export function handleKey(composition: Composition, state: EditorState, key: string, input: KeyInput = {}): KeyResult {
     switch (state.mode) {
         case 'normal':
@@ -652,6 +686,8 @@ export function handleKey(composition: Composition, state: EditorState, key: str
             return commandLineKey(composition, state, key, input);
         case 'picker':
             return pickerModeKey(composition, state, key, input);
+        case 'mixer':
+            return mixerModeKey(composition, state, key);
     }
 }
 

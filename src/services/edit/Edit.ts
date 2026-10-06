@@ -50,19 +50,11 @@ export function transposeSelection(composition: Composition, selection: Selectio
     return outOfRange ? composition : { ...composition, parts };
 }
 
-/**
- * Rolls the chords among `refs` as arpeggios, or if every one already is, plays them straight
- * again. Rests are skipped. Undefined when there's no chord to change.
- */
-export function toggleArpeggios(composition: Composition, refs: LeafRef[]): Composition | undefined {
-    const keys = new Set(refs.map(({ part, measure, voice, leaf }) => `${part}-${measure}-${voice}-${leaf}`));
-    const chords = refs.flatMap(({ part, measure, voice, leaf }) => {
-        const event = voiceLeaves(composition, part, measure, voice)[leaf]?.event;
-        return event?.kind === 'chord' ? [event] : [];
-    });
-    if (chords.length === 0) return undefined;
-    const arpeggio = !chords.every((chord) => chord.arpeggio);
+const leafKey = ({ part, measure, voice, leaf }: LeafRef) => `${part}-${measure}-${voice}-${leaf}`;
 
+/** Rewrites the chords among `refs`, given each one's ref, sharing measures with none of them */
+function mapChords<R extends LeafRef>(composition: Composition, refs: R[], fn: (chord: Chord, ref: R) => Chord): Composition {
+    const byKey = new Map(refs.map((ref) => [leafKey(ref), ref]));
     const parts = composition.parts.map((part, p) => ({
         ...part,
         measures: part.measures.map((partMeasure, m) => {
@@ -72,15 +64,56 @@ export function toggleArpeggios(composition: Composition, refs: LeafRef[]): Comp
                 voices: partMeasure.voices.map((voice, v) => ({
                     ...voice,
                     events: mapLeaves(voice.events, (event, leaf) => {
-                        if (event.kind !== 'chord' || !keys.has(`${p}-${m}-${v}-${leaf}`)) return event;
-                        const { arpeggio: _, ...straight } = event;
-                        return arpeggio ? { ...straight, arpeggio } : straight;
+                        const ref = byKey.get(leafKey({ part: p, measure: m, voice: v, leaf }));
+                        return event.kind === 'chord' && ref ? fn(event, ref) : event;
                     }),
                 })),
             };
         }),
     }));
     return { ...composition, parts };
+}
+
+/**
+ * Rolls the chords among `refs` as arpeggios, or if every one already is, plays them straight
+ * again. Rests are skipped. Undefined when there's no chord to change.
+ */
+export function toggleArpeggios(composition: Composition, refs: LeafRef[]): Composition | undefined {
+    const chords = refs.flatMap(({ part, measure, voice, leaf }) => {
+        const event = voiceLeaves(composition, part, measure, voice)[leaf]?.event;
+        return event?.kind === 'chord' ? [event] : [];
+    });
+    if (chords.length === 0) return undefined;
+    const arpeggio = !chords.every((chord) => chord.arpeggio);
+
+    return mapChords(composition, refs, (event) => {
+        const { arpeggio: _, ...straight } = event;
+        return arpeggio ? { ...straight, arpeggio } : straight;
+    });
+}
+
+/**
+ * Has the notes among `refs` slide on to the next chord, or if every one already does, stops
+ * them. A ref with a `note` is just that note; one without, every note of its chord. Rests are
+ * skipped. Undefined when there's no note to change.
+ */
+export function toggleGlissandi(composition: Composition, refs: (LeafRef & { note?: number })[]): Composition | undefined {
+    const picks = (ref: LeafRef & { note?: number }, index: number) => ref.note === undefined || ref.note === index;
+    const notes = refs.flatMap((ref) => {
+        const event = voiceLeaves(composition, ref.part, ref.measure, ref.voice)[ref.leaf]?.event;
+        return event?.kind === 'chord' ? event.notes.filter((_, i) => picks(ref, i)) : [];
+    });
+    if (notes.length === 0) return undefined;
+    const glissando = !notes.every((note) => note.glissando);
+
+    return mapChords(composition, refs, (event, ref) => ({
+        ...event,
+        notes: event.notes.map((note, i) => {
+            if (!picks(ref, i)) return note;
+            const { glissando: _, ...straight } = note;
+            return glissando ? { ...straight, glissando } : straight;
+        }),
+    }));
 }
 
 /** Swaps in new events for the cursor's voice in its measure, sharing everything else */

@@ -18,6 +18,7 @@ function pitchToFrequency(pitch: number): number {
 export class ToneSynth implements Synth {
     private output: GainNode;
     private voices = new Set<OscillatorNode>();
+    private mix: number[] = [];
 
     constructor(private ctx: AudioContext) {
         this.output = ctx.createGain();
@@ -27,11 +28,20 @@ export class ToneSynth implements Synth {
 
     setInstruments(_instruments: Instrument[]) {}
 
-    audition(_instrument: Instrument, pitch: number, duration: number) {
-        this.playNote(0, pitch, this.ctx.currentTime, duration, DEFAULT_VOLUME / 100);
+    setMix(mix: number[]) {
+        this.mix = mix;
     }
 
-    playNote(_part: number, pitch: number, when: number, duration: number, volume: number) {
+    audition(_instrument: Instrument, pitch: number, duration: number) {
+        this.tone(pitch, this.ctx.currentTime, duration, DEFAULT_VOLUME / 100);
+    }
+
+    playNote(part: number, pitch: number, when: number, duration: number, volume: number) {
+        // Squared, as a soundfont's channel volume is
+        this.tone(pitch, when, duration, volume * (this.mix[part] ?? 1) ** 2);
+    }
+
+    private tone(pitch: number, when: number, duration: number, volume: number) {
         const osc = this.ctx.createOscillator();
         osc.type = 'triangle';
         osc.frequency.value = pitchToFrequency(pitch);

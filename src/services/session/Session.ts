@@ -14,8 +14,8 @@ export interface Session {
     editor: EditorState;
     history: History;
     /**
-     * Whether this stay in an insert mode has recorded its undo step yet. Like vim, everything
-     * entered in one go is undone together.
+     * Whether this stay in an insert mode, or the mixer, has recorded its undo step yet. Like
+     * vim, everything entered in one go is undone together.
      */
     insertRecorded: boolean;
     /**
@@ -37,6 +37,8 @@ export function startSession(composition: Composition): Session {
 }
 
 const isInsert = ({ mode }: EditorState) => mode === 'insert' || mode === 'insertMelody';
+/** Modes whose edits, made one after another while in them, are undone together */
+const groupsEdits = (state: EditorState) => isInsert(state) || state.mode === 'mixer';
 
 /**
  * `u` in an insert mode: takes back the last `count` notes (or rests) entered, putting the
@@ -70,7 +72,7 @@ export function sessionKey(session: Session, key: string, input: KeyInput = {}):
         ...session,
         editor: result.state,
         // Leaving insert mode ends the group, so the next stay gets its own undo step
-        insertRecorded: session.insertRecorded && isInsert(result.state),
+        insertRecorded: session.insertRecorded && groupsEdits(result.state),
         insertSteps: isInsert(result.state) ? session.insertSteps : [],
     };
 
@@ -89,13 +91,13 @@ export function sessionKey(session: Session, key: string, input: KeyInput = {}):
 
     if (result.composition && result.composition !== composition) {
         // Undo goes back to the cursor from before the edit, or before a stay's first edit
-        const grouped = isInsert(editor) && session.insertRecorded;
+        const grouped = groupsEdits(editor) && session.insertRecorded;
         const before = { composition, cursor: editor.cursor };
         const edited: Session = {
             ...next,
             composition: withTrailingEmptyMeasure(result.composition),
             history: grouped ? history : record(history, before),
-            insertRecorded: isInsert(result.state),
+            insertRecorded: groupsEdits(result.state),
             // Only what's entered in insert mode, not the deletion a visual `c` starts with
             insertSteps: isInsert(editor) ? [...next.insertSteps, before] : next.insertSteps,
         };

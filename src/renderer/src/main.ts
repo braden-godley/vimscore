@@ -3,9 +3,12 @@ import { EditMode, EditorState, editorSelection } from '../../services/editor/Ed
 import { keyName } from '../../services/editor/keys';
 import { Command, isFileCommand } from '../../services/editor/CommandLine';
 import { Picker, pickerItems } from '../../services/editor/Picker';
-import { setSoundfont } from '../../services/edit/Parts';
+import { Mixer } from '../../services/editor/MixerMode';
+import { MAX_PART_VOLUME, masterVolume, partVolume } from '../../services/edit/Mixer';
+import { setSoundfonts } from '../../services/edit/Parts';
 import { Document, isModified, newDocument, runCommand } from '../../services/file/Commands';
-import { newComposition } from '../../services/composition/Composition';
+import { Composition, newComposition } from '../../services/composition/Composition';
+import { addSoundfont, describeSoundfonts, findSoundfont, soundfontName } from '../../services/soundfont/Soundfont';
 import { GENERAL_MIDI_INSTRUMENTS, Instrument } from '../../services/instrument/Instrument';
 import { resolveMeasures, secondsPerWholeNote } from '../../services/measure/Measure';
 import { PlayedMeasure, performance, playedMeasureAt } from '../../services/timeline/performance';
@@ -14,7 +17,7 @@ import { sessionEdit, sessionKey } from '../../services/session/Session';
 import { ToneSynth } from '../../services/synth/ToneSynth';
 import { writeMidi } from '../../services/export/midi';
 import { Renderer, runExport } from '../../services/export/runExport';
-import { SoundfontSynth } from './audio/SoundfontSynth';
+import { SoundfontLayers } from './audio/SoundfontLayers';
 import { exportMp3, renderPcm } from './audio/exportAudio';
 import { exportMusanim } from './video/exportMusanim';
 import { exportVideo } from './video/exportVideo';
@@ -37,10 +40,14 @@ const synth = new SwitchableSynth(tone);
 const player = new Player(audio, synth);
 player.setComposition(current.session.composition);
 
-/** The soundfont playing, and its instruments; General MIDI's names until one loads */
-let soundfont: { path: string; synth: SoundfontSynth } | undefined;
+/**
+ * The soundfonts asked for, first taking precedence, and the ones playing: all of them unless
+ * some couldn't be loaded. Their instruments, or General MIDI's names until one loads.
+ */
+let soundfonts: { requested: string[]; playing: string[] } = { requested: [], playing: [] };
 let instruments: Instrument[] = GENERAL_MIDI_INSTRUMENTS;
-let soundfontSynth: Promise<SoundfontSynth> | undefined;
+let soundfontQueue: Promise<unknown> = Promise.resolve();
+const layers = new SoundfontLayers(audio);
 
 const view = new ScoreView(document.querySelector<HTMLElement>('#viewport')!);
 const modeLabel = document.querySelector<HTMLElement>('#mode')!;
@@ -49,6 +56,7 @@ const messageLabel = document.querySelector<HTMLElement>('#message')!;
 const keysLabel = document.querySelector<HTMLElement>('#keys')!;
 const positionLabel = document.querySelector<HTMLElement>('#position')!;
 const pickerPanel = document.querySelector<HTMLElement>('#picker')!;
+const mixerPanel = document.querySelector<HTMLElement>('#mixer')!;
 
 const MODE_LABELS: Record<EditMode, string> = {
     normal: '',
@@ -58,58 +66,98 @@ const MODE_LABELS: Record<EditMode, string> = {
     visualBlock: '-- VISUAL BLOCK --',
     command: '',
     picker: '',
+    mixer: '-- MIXER --',
 };
 
 const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 const folder = (path: string | undefined) => path?.replace(/[\\/][^\\/]*$/, '');
 
+const scoreSoundfonts = (composition: Composition) => composition.soundfonts.map(({ filePath }) => filePath);
+const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((path, i) => path === b[i]);
+
 /**
- * Plays through a soundfont from now on. The worklet starts the first time. Returns an error
- * to show if the file can't be read or isn't a soundfont, and keeps the old sound then.
+ * Plays through these soundfonts from now on, the first taking precedence; none is the stand-in
+ * tone. The worklet starts the first time. Returns an error to show for any that can't be read
+ * or aren't soundfonts, which are left out; if one of `required` fails, the old sound stays.
+ * One loads at a time, in the order asked for.
  */
-async function loadSoundfont(path: string): Promise<string | undefined> {
-    if (soundfont?.path === path) return undefined;
+function loadSoundfonts(paths: string[], options: { required?: string[] } = {}): Promise<string | undefined> {
+    const loading = soundfontQueue.then(() => loadSoundfontsNow(paths, options));
+    soundfontQueue = loading;
+    return loading;
+}
+
+async function loadSoundfontsNow(paths: string[], { required = [] as string[] }): Promise<string | undefined> {
+    if (sameList(paths, soundfonts.requested)) return undefined;
     try {
-        soundfontSynth ??= SoundfontSynth.create(audio);
-        const loaded = await soundfontSynth;
-        instruments = await loaded.load(await window.files.readBinary(path));
-        soundfont = { path, synth: loaded };
-        synth.use(loaded);
-        return undefined;
+        const result = await layers.load(paths, (path) => window.files.readBinary(path), { required });
+        const playing = paths.filter((path) => !result.failed.some((failure) => failure.path === path));
+        soundfonts = { requested: paths, playing };
+        instruments = playing.length ? result.instruments : GENERAL_MIDI_INSTRUMENTS;
+        synth.use(playing.length ? layers : tone);
+        const failures = result.failed.map(({ path, message }) => `"${soundfontName(path)}": ${message}`);
+        return failures.length ? `Can't load soundfont ${failures.join('; ')}` : undefined;
     } catch (error) {
-        return `Can't load soundfont "${fileName(path)}": ${(error as Error).message}`;
+        return `Can't load soundfont ${(error as Error).message}`;
     }
 }
 
-/** A new score, with the soundfont last loaded */
+/** A new score, with the soundfonts last loaded */
 function blankScore() {
-    return soundfont ? setSoundfont(newComposition(), soundfont.path) : newComposition();
+    return setSoundfonts(newComposition(), soundfonts.requested);
 }
 
-/** Loads the soundfont a score names, if it isn't playing already */
-async function loadScoreSoundfont() {
-    const path = current.session.composition.soundfont.filePath;
-    if (!path) return;
-    const error = await loadSoundfont(path);
+/** Loads the soundfonts a score names, if they aren't playing already: on opening it, or an undo */
+async function loadScoreSoundfonts() {
+    const error = await loadSoundfonts(scoreSoundfonts(current.session.composition));
     if (error) showMessage(error, true);
 }
 
-/** `:soundfont [path]`: loads it, sets it in the score (undoably), and makes it the default */
-async function runSoundfontCommand(typed: string | undefined) {
+/** Changes the score's soundfonts (undoably), and makes them the ones new scores start with */
+async function changeSoundfonts(paths: string[], message: string) {
+    const { session } = current;
+    current = { ...current, session: sessionEdit(session, setSoundfonts(session.composition, paths)) };
+    const { soundfont: _, ...settings } = await window.settings.get();
+    await window.settings.set({ ...settings, soundfonts: paths });
+    showMessage(message);
+    showEditing();
+}
+
+/**
+ * `:soundfont [path]` plays through just that one, and `:addsf [path]` puts it over the others.
+ * Either asks with a dialog when there's no path, and changes nothing if it can't be loaded.
+ */
+async function runSoundfontCommand(typed: string | undefined, add: boolean) {
     const chosen = typed
         ? await window.files.resolve(typed, folder(current.path))
         : await window.files.chooseSoundfontPath();
     if (!chosen) return;
-    const error = await loadSoundfont(chosen);
-    if (error) {
-        showMessage(error, true);
+    const paths = add ? addSoundfont(current.session.composition.soundfonts, chosen).map(({ filePath }) => filePath) : [chosen];
+    const error = await loadSoundfonts(paths, { required: [chosen] });
+    // Already asked for and failed, it isn't loaded again
+    if (!soundfonts.playing.includes(chosen)) {
+        showMessage(error ?? `Can't load soundfont "${fileName(chosen)}"`, true);
         return;
     }
-    const { session } = current;
-    current = { ...current, session: sessionEdit(session, setSoundfont(session.composition, chosen)) };
-    await window.settings.set({ ...(await window.settings.get()), soundfont: chosen });
-    showMessage(`"${fileName(chosen)}" ${instruments.length} instruments`);
-    showEditing();
+    const others = paths.length > 1 ? `, over ${paths.length - 1} more` : '';
+    await changeSoundfonts(paths, `"${fileName(chosen)}" ${instruments.length} instruments${others}`);
+    // Another of them may not have loaded
+    if (error) showMessage(error, true);
+}
+
+/** `:delsf 2` or `:delsf name` */
+async function runDeleteSoundfontCommand(which: string) {
+    const { soundfonts: list } = current.session.composition;
+    const index = findSoundfont(list, which);
+    if (index === undefined) {
+        showMessage(`No soundfont ${which}: ${describeSoundfonts(list)}`, true);
+        return;
+    }
+    const rest = list.filter((_, i) => i !== index);
+    const paths = rest.map(({ filePath }) => filePath);
+    const error = await loadSoundfonts(paths);
+    await changeSoundfonts(paths, `"${soundfontName(list[index]!.filePath)}" removed; ${describeSoundfonts(rest)}`);
+    if (error) showMessage(error, true);
 }
 
 /** The instrument list over the score while choosing, like a fuzzy finder */
@@ -126,8 +174,11 @@ function showPicker(picker: Picker | undefined) {
     const rows = items.slice(first, first + shown).map((instrument, i) => {
         const row = document.createElement('li');
         row.className = first + i === picker.selected ? 'selected' : '';
-        const { bank, program, drums } = instrument;
-        const detail = drums ? 'drums' : `${bank ? `${bank}:` : ''}${program + 1}`;
+        const { bank, program, drums, soundfont } = instrument;
+        const number = drums ? 'drums' : `${bank ? `${bank}:` : ''}${program + 1}`;
+        // With several soundfonts, the same sound can come from any of them
+        const from = soundfont && soundfonts.playing.length > 1 ? `${soundfontName(soundfont).replace(/\.[^.]*$/, '')}  ` : '';
+        const detail = from + number;
         row.append(instrument.name, Object.assign(document.createElement('span'), { textContent: detail }));
         return row;
     });
@@ -136,7 +187,9 @@ function showPicker(picker: Picker | undefined) {
     if (items.length === 0) {
         list.append(Object.assign(document.createElement('li'), { className: 'empty', textContent: 'No match' }));
     }
-    const source = soundfont ? `in ${fileName(soundfont.path)}` : '(General MIDI, no soundfont loaded)';
+    const [top, ...others] = soundfonts.playing;
+    const more = others.length ? ` and ${others.length} more` : '';
+    const source = top ? `in ${fileName(top)}${more}` : '(General MIDI, no soundfont loaded)';
 
     pickerPanel.replaceChildren(
         Object.assign(document.createElement('div'), { className: 'picker-heading', textContent: heading }),
@@ -145,6 +198,41 @@ function showPicker(picker: Picker | undefined) {
         Object.assign(document.createElement('div'), {
             className: 'picker-count',
             textContent: `${items.length} of ${instruments.length} ${source}`,
+        }),
+    );
+}
+
+/** The mixer over the score: each part's volume as a bar, then the master's */
+function showMixer(mixer: Mixer | undefined) {
+    mixerPanel.hidden = !mixer;
+    if (!mixer) return;
+    const { composition } = current.session;
+    const row = (name: string, percent: number, selected: boolean, master = false) => {
+        const item = document.createElement('li');
+        item.className = [selected && 'selected', master && 'master'].filter(Boolean).join(' ');
+        const bar = Object.assign(document.createElement('span'), { className: 'mixer-bar' });
+        // The bar runs to the loudest a part can go, with a tick at normal
+        bar.append(Object.assign(document.createElement('span'), { className: 'mixer-level' }));
+        bar.style.setProperty('--level', `${(percent / MAX_PART_VOLUME) * 100}%`);
+        bar.style.setProperty('--normal', `${(100 / MAX_PART_VOLUME) * 100}%`);
+        item.append(
+            Object.assign(document.createElement('span'), { className: 'mixer-name', textContent: name }),
+            bar,
+            Object.assign(document.createElement('span'), { className: 'mixer-percent', textContent: `${percent}%` }),
+        );
+        return item;
+    };
+    const list = document.createElement('ul');
+    list.append(
+        ...composition.parts.map((part, i) => row(part.name, partVolume(part), mixer.selected === i)),
+        row('Master', masterVolume(composition), mixer.selected >= composition.parts.length, true),
+    );
+    mixerPanel.replaceChildren(
+        Object.assign(document.createElement('div'), { className: 'picker-heading', textContent: 'Mixer' }),
+        list,
+        Object.assign(document.createElement('div'), {
+            className: 'picker-count',
+            textContent: 'j/k part · h/l ±5 · H/L ±1 · = normal · Esc done',
         }),
     );
 }
@@ -180,6 +268,8 @@ function showComposition() {
     played = performance(composition);
     player.setComposition(composition);
     view.render(composition);
+    // An undo can take a soundfont change back
+    if (!sameList(scoreSoundfonts(composition), soundfonts.requested)) void loadScoreSoundfonts();
 }
 
 /** `z` shows every staff at once while editing; playback always does */
@@ -194,6 +284,7 @@ function showEditing() {
     modeLabel.textContent = MODE_LABELS[mode];
     showCommandLine(editor.commandLine);
     showPicker(editor.picker);
+    showMixer(editor.mixer);
     const place = `${composition.parts[cursor.part]?.name ?? ''}  m${cursor.measure + 1}`;
     positionLabel.textContent = editor.phantom ? `${describePhantom(editor.phantom)}  ${place}` : place;
 
@@ -235,8 +326,8 @@ function startPlayback() {
 }
 
 /**
- * `:export`: renders through the score's soundfont in a worker, showing progress. Needs a
- * soundfont, since the stand-in tone is only for listening while writing.
+ * `:export`: renders through the score's soundfonts in a worker, showing progress. Needs one,
+ * since the stand-in tone is only for listening while writing.
  */
 async function runExportCommand(command: Extract<Command, { name: 'export' }>) {
     const progress = (from: number, to: number) => (fraction: number) =>
@@ -244,9 +335,9 @@ async function runExportCommand(command: Extract<Command, { name: 'export' }>) {
     const render: Renderer = async (composition, format) => {
         // MIDI is the notes themselves, so it needs no soundfont, and it's quick
         if (format === 'midi') return writeMidi(composition);
-        const path = composition.soundfont.filePath || soundfont?.path;
-        if (!path) throw new Error('no soundfont to play it with; load one with :soundfont');
-        const data = await window.files.readBinary(path);
+        const paths = composition.soundfonts.length ? scoreSoundfonts(composition) : soundfonts.playing;
+        if (paths.length === 0) throw new Error('no soundfont to play it with; load one with :soundfont');
+        const data = await Promise.all(paths.map(async (path) => ({ path, data: await window.files.readBinary(path) })));
         if (format === 'mp3') return exportMp3(composition, data, progress(0, 1));
         // A video's sound first, in the worker, then its frames here, where they can be drawn
         const audio = await renderPcm(composition, data, progress(0, 0.25));
@@ -260,7 +351,10 @@ async function runExportCommand(command: Extract<Command, { name: 'export' }>) {
 
 /** Runs a `:` command the editor hands over: files, the window, soundfonts or exports */
 async function run(command: Command) {
-    if (command.name === 'soundfont') return runSoundfontCommand(command.path);
+    if (command.name === 'soundfont') return runSoundfontCommand(command.path, false);
+    if (command.name === 'addSoundfont') return runSoundfontCommand(command.path, true);
+    if (command.name === 'deleteSoundfont') return runDeleteSoundfontCommand(command.which);
+    if (command.name === 'listSoundfonts') return showMessage(describeSoundfonts(current.session.composition.soundfonts));
     if (command.name === 'export') return runExportCommand(command);
     if (!isFileCommand(command)) return;
 
@@ -270,7 +364,7 @@ async function run(command: Command) {
     if (after.session.composition !== before.session.composition) showComposition();
     showMessage(message, error);
     showEditing();
-    if (after.session !== before.session) await loadScoreSoundfont();
+    if (after.session !== before.session) await loadScoreSoundfonts();
 }
 
 /** The usual Mac shortcuts, beside `:w` and `:e` */
@@ -334,10 +428,11 @@ window.addEventListener('beforeunload', (event) => {
     showMessage('No write since last change (:w to save, :q! to quit without saving)', true);
 });
 
-// A new score starts with the soundfont last loaded
-const { soundfont: defaultSoundfont } = await window.settings.get();
-if (defaultSoundfont) {
-    current = newDocument(setSoundfont(newComposition(), defaultSoundfont));
+// A new score starts with the soundfonts last chosen
+const settings = await window.settings.get();
+const defaultSoundfonts = settings.soundfonts ?? (settings.soundfont ? [settings.soundfont] : []);
+if (defaultSoundfonts.length) {
+    current = newDocument(setSoundfonts(newComposition(), defaultSoundfonts));
     player.setComposition(current.session.composition);
 }
 
@@ -345,4 +440,4 @@ if (defaultSoundfont) {
 await document.fonts.load('30px Bravura');
 view.render(current.session.composition);
 showEditing();
-await loadScoreSoundfont();
+await loadScoreSoundfonts();

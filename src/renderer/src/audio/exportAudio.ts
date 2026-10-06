@@ -1,7 +1,7 @@
 /** Runs an export's audio in a worker, reporting progress */
 
 import { Composition } from '../../../services/composition/Composition';
-import { RenderedAudio } from '../../../services/export/renderAudio';
+import { RenderedAudio, SoundfontData } from '../../../services/export/renderAudio';
 import type { ExportReply, ExportRequest } from './exportWorker';
 
 function runWorker(request: ExportRequest, onProgress: (fraction: number) => void): Promise<ExportReply> {
@@ -17,16 +17,16 @@ function runWorker(request: ExportRequest, onProgress: (fraction: number) => voi
             worker.terminate();
             reject(new Error(event.message));
         };
-        worker.postMessage(request, [request.soundfont]);
+        worker.postMessage(request, request.soundfonts.map(({ data }) => data));
     });
 }
 
 export async function exportMp3(
     composition: Composition,
-    soundfont: ArrayBuffer,
+    soundfonts: SoundfontData[],
     onProgress: (fraction: number) => void,
 ): Promise<Uint8Array> {
-    const reply = await runWorker({ composition, soundfont, format: 'mp3' }, onProgress);
+    const reply = await runWorker({ composition, soundfonts, format: 'mp3' }, onProgress);
     if (!('data' in reply)) throw new Error('no MP3 came back');
     return reply.data;
 }
@@ -34,10 +34,10 @@ export async function exportMp3(
 /** The piece's audio as samples, for a video */
 export async function renderPcm(
     composition: Composition,
-    soundfont: ArrayBuffer,
+    soundfonts: SoundfontData[],
     onProgress: (fraction: number) => void,
 ): Promise<RenderedAudio> {
-    const reply = await runWorker({ composition, soundfont, format: 'pcm' }, onProgress);
+    const reply = await runWorker({ composition, soundfonts, format: 'pcm' }, onProgress);
     if (!('audio' in reply)) throw new Error('no audio came back');
     return reply.audio;
 }

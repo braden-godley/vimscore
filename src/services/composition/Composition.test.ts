@@ -27,7 +27,7 @@ describe('withTrailingEmptyMeasure', () => {
                 { name: 'A', program: 0, measures: [{ voices: [{ events: [{ kind: 'rest', duration: { base: 1, dots: 0 } }] }] }] },
                 { name: 'B', program: 0, measures: [{ voices: [] }] },
             ],
-            soundfont: { filePath: '' },
+            soundfonts: [],
         };
         expect(withTrailingEmptyMeasure(composition)).toBe(composition);
     });
@@ -37,7 +37,7 @@ describe('withTrailingEmptyMeasure', () => {
             title: 'Test',
             measures: [],
             parts: [{ name: 'A', program: 0, measures: [] }],
-            soundfont: { filePath: '' },
+            soundfonts: [],
         };
         const result = withTrailingEmptyMeasure(composition);
         expect(result.parts[0]?.measures[0]?.voices[0]?.events).toEqual([{ kind: 'rest', duration: { base: 1, dots: 0 } }]);

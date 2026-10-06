@@ -8,6 +8,7 @@
  *     { "tuplet": "3:2", "events": [...] }
  */
 
+import { MAX_MASTER_VOLUME, MAX_PART_VOLUME } from '../edit/Mixer';
 import { Composition } from '../composition/Composition';
 import { Duration } from '../duration/Duration';
 import { Chord, Event } from '../event/Event';
@@ -17,6 +18,7 @@ import { C_MAJOR, KeySignature } from '../key/KeySignature';
 import { Note } from '../note/Note';
 import { Clef, Part } from '../part/Part';
 import { Pitch, parsePitch, pitchName, spell } from '../pitch/Pitch';
+import { Soundfont } from '../soundfont/Soundfont';
 
 export const FORMAT = 'vimscore';
 /** Version 2 spells pitches like `Bb4`; version 1 had MIDI numbers, which it reads in the key */
@@ -43,9 +45,10 @@ const fractionText = ({ num, den }: Fraction) => `${num}/${den}`;
 
 // Writing
 
-function noteData({ pitch, tie, staccato }: Note): unknown {
+function noteData({ pitch, tie, staccato, glissando }: Note): unknown {
     const name = pitchName(pitch);
-    return tie || staccato ? { pitch: name, ...(tie && { tie }), ...(staccato && { staccato }) } : name;
+    if (!tie && !staccato && !glissando) return name;
+    return { pitch: name, ...(tie && { tie }), ...(staccato && { staccato }), ...(glissando && { glissando }) };
 }
 
 function eventData(event: Event): unknown {
@@ -107,14 +110,18 @@ export function writeScore(composition: Composition): string {
         format: FORMAT,
         version: VERSION,
         title: composition.title,
-        ...(composition.soundfont.filePath && { soundfont: composition.soundfont.filePath }),
+        // First played first
+        ...(composition.soundfonts.length && { soundfonts: composition.soundfonts.map(({ filePath }) => filePath) }),
         measures: composition.measures.map(measureInfoData),
-        parts: composition.parts.map(({ name, clef, program, bank, drums, measures }) => ({
+        ...(composition.volume !== undefined && { volume: composition.volume }),
+        parts: composition.parts.map(({ name, clef, program, bank, drums, soundfont, volume, measures }) => ({
             name,
             ...(clef && { clef }),
             program,
             ...(bank && { bank }),
             ...(drums && { drums }),
+            ...(soundfont && { soundfont }),
+            ...(volume !== undefined && { volume }),
             measures: measures.map(({ voices, volumes, hairpins }) => ({
                 voices: voices.map(({ events }) => events.map(eventData)),
                 ...(volumes?.length && {
@@ -187,6 +194,7 @@ function readNote(value: unknown, path: Path, key: KeySignature): Note {
     const note: Note = { pitch: readPitch(data['pitch'], `${path}.pitch`, key) };
     if (data['tie'] === true) note.tie = true;
     if (data['staccato'] === true) note.staccato = true;
+    if (data['glissando'] === true) note.glissando = true;
     return note;
 }
 
@@ -301,6 +309,8 @@ function readPart(value: unknown, path: Path, keys: KeySignature[]): Part {
     };
     if (data['bank'] !== undefined) part.bank = integer(data['bank'], `${path}.bank`, 0, 16383);
     if (data['drums'] === true) part.drums = true;
+    if (data['soundfont'] !== undefined) part.soundfont = string(data['soundfont'], `${path}.soundfont`);
+    if (data['volume'] !== undefined) part.volume = integer(data['volume'], `${path}.volume`, 0, MAX_PART_VOLUME);
     if (data['clef'] !== undefined) {
         const clef = string(data['clef'], `${path}.clef`);
         if (!CLEFS.includes(clef as Clef)) fail(`${path}.clef`, `"${clef}" isn't a clef (${CLEFS.join(' or ')})`);
@@ -310,6 +320,13 @@ function readPart(value: unknown, path: Path, keys: KeySignature[]): Part {
         fail(`${path}.measures`, `has ${part.measures.length} measures but the score has ${keys.length}`);
     }
     return part;
+}
+
+/** The soundfonts in priority order; files from before there could be several have one, `soundfont` */
+function readSoundfonts(data: Record<string, unknown>): Soundfont[] {
+    if (data['soundfont'] !== undefined) return [{ filePath: string(data['soundfont'], 'soundfont') }];
+    if (data['soundfonts'] === undefined) return [];
+    return array(data['soundfonts'], 'soundfonts').map((path, i) => ({ filePath: string(path, `soundfonts[${i}]`) }));
 }
 
 /** The composition in a save file, or what's wrong with the file */
@@ -336,7 +353,8 @@ export function readScore(text: string): Composition | { error: string } {
             title: data['title'] === undefined ? 'Untitled' : string(data['title'], 'title'),
             measures,
             parts: array(data['parts'], 'parts').map((part, i) => readPart(part, `parts[${i}]`, keys)),
-            soundfont: { filePath: data['soundfont'] === undefined ? '' : string(data['soundfont'], 'soundfont') },
+            soundfonts: readSoundfonts(data),
+            ...(data['volume'] !== undefined && { volume: integer(data['volume'], 'volume', 0, MAX_MASTER_VOLUME) }),
         };
     } catch (error) {
         if (error instanceof ReadError) return { error: error.message };
