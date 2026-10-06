@@ -613,6 +613,13 @@ if (defaultSoundfonts.length) {
     player.setComposition(current.session.composition);
 }
 
+// Starting up offers the scores from before, like `:recent`; <Esc> keeps the new score
+if (recentChoices().length) {
+    const picker: Picker = { purpose: 'recent', query: '', selected: 0 };
+    const editor: EditorState = { ...current.session.editor, mode: 'picker', picker };
+    current = { ...current, session: { ...current.session, editor } };
+}
+
 // Glyph metrics are wrong if we draw before the music font has loaded
 await document.fonts.load('30px Bravura');
 view.render(current.session.composition);

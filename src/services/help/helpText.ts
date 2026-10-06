@@ -136,7 +136,8 @@ FILES
                       where to save the .vimscore. :e alone reads the file again, and :e!
                       throws away changes
     :recent [filter]  Pick a score opened or saved before. Type to filter, <C-n> <C-p> or the
-                      arrows to move, <CR> to open, <Esc> to close
+                      arrows to move, <CR> to open, <Esc> to close. It opens by itself
+                      when vimscore starts, if there are any; <Esc> keeps the blank score
     :enew             A new, blank score
     :q                Close the window. :q! closes it with changes unsaved
     :wq  :x           Save and close
