@@ -11,7 +11,16 @@ import { resolveMeasures } from '../../../services/measure/Measure';
 import { Phantom } from '../../../services/phantom/Phantom';
 import { Selection, TimePoint, selectedLeaves } from '../../../services/selection/Selection';
 import { drawPhantom } from './drawPhantom';
-import { LEFT_MARGIN, ScoreLayout, interpolate, leafElementId, leafElementIdPrefix, noteElementId, renderScore } from './renderScore';
+import {
+    LEFT_MARGIN,
+    ScoreCache,
+    ScoreLayout,
+    interpolate,
+    leafElementId,
+    leafElementIdPrefix,
+    noteElementId,
+    renderScore,
+} from './renderScore';
 
 /** How far a block selection's shading reaches either side of its notes and staves */
 const SELECTION_PADDING = 10;
@@ -19,6 +28,8 @@ const SELECTION_PADDING = 10;
 export class ScoreView {
     private layout?: ScoreLayout;
     private composition?: Composition;
+    /** So an edit redraws only the measures it changed */
+    private readonly cache = new ScoreCache();
     private readonly strip: HTMLDivElement;
     private readonly score: HTMLDivElement;
     private readonly playhead: HTMLDivElement;
@@ -56,7 +67,7 @@ export class ScoreView {
 
     render(composition: Composition) {
         this.composition = composition;
-        this.layout = renderScore(this.score, composition);
+        this.layout = renderScore(this.score, composition, this.cache);
         const box = this.score.querySelector('svg')?.getBBox();
         this.drawn = {
             top: Math.min(0, box?.y ?? 0),

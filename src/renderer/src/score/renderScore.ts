@@ -28,7 +28,7 @@ import { Composition } from '../../../services/composition/Composition';
 import { Cursor } from '../../../services/cursor/Cursor';
 import { Chord, Event, Rest, glissandoTarget, leaves } from '../../../services/event/Event';
 import { ZERO, add, toNumber } from '../../../services/fraction/Fraction';
-import { TimeSignature, resolveMeasures } from '../../../services/measure/Measure';
+import { ResolvedMeasure, TimeSignature, resolveMeasures } from '../../../services/measure/Measure';
 import { Clef } from '../../../services/part/Part';
 import { REST_KEYS, durationCode, keySpec, pitchKey } from './notation';
 import { midi } from '../../../services/pitch/Pitch';
@@ -228,95 +228,192 @@ export type ScoreTarget =
     | HTMLElement
     | { canvas: CanvasRenderingContext2D; left: number; top: number; scale: number };
 
-export function renderScore(target: ScoreTarget, composition: Composition): ScoreLayout {
-    const resolved = resolveMeasures(composition.measures);
-    const clefs = composition.parts.map((part) => part.clef ?? 'treble');
+/**
+ * One measure of every part, laid out from x = 0 so it can be drawn anywhere along the system.
+ * Only the measure itself goes in: what reaches across measures, like ties, is drawn over them.
+ */
+interface Column {
+    /** What it's built from: the same things, compared by identity, build the same column */
+    inputs: unknown[];
+    width: number;
+    staves: Stave[];
+    /** [part][voice], with empty voices kept */
+    voices: BuiltVoice[][];
+    /** Relative to the column's left edge */
+    anchors: Anchor[];
+    /** Its SVG group, once drawn into a cached container */
+    group?: SVGGElement;
+}
 
-    const staves: Stave[][] = []; // [measure][part]
-    const built: BuiltVoice[][][] = []; // [measure][part][voice], with empty voices kept
-    const boxes: MeasureBox[] = [];
+/**
+ * What a container was last drawn with. Edits share every measure they don't touch, so passing
+ * the same cache to each render lays out and draws only the measures that changed; the rest
+ * are moved into place.
+ */
+export class ScoreCache {
+    container?: HTMLElement;
+    context?: RenderContext;
+    columns: Column[] = [];
+    /** What's drawn over the measures, redrawn every time */
+    overlay?: SVGGElement;
+}
+
+const sameInputs = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((input, i) => input === b[i]);
+
+function columnInputs(composition: Composition, resolved: ResolvedMeasure[], m: number): unknown[] {
+    const { timeSignature, keySignature, tempo } = resolved[m]!;
+    const previousKey = resolved[m - 1]?.keySignature;
+    return [
+        m,
+        composition.measures[m],
+        // Inherited from earlier measures, so compared by value
+        `${timeSignature.beats}/${timeSignature.beatValue} ${keySignature.fifths} ${previousKey?.fifths} ${tempo.bpm} ${tempo.beat.base}.${tempo.beat.dots}`,
+        ...composition.parts.flatMap((part) => [part.clef ?? 'treble', part.measures[m]]),
+    ];
+}
+
+function buildColumn(composition: Composition, resolved: ResolvedMeasure[], m: number, inputs: unknown[]): Column {
+    const { timeSignature, keySignature, tempo, length } = resolved[m]!;
+    const clefs = composition.parts.map((part) => part.clef ?? 'treble');
+    const showTimeSignature = m === 0 || composition.measures[m]?.timeSignature !== undefined;
+    const showKeySignature = m === 0 || composition.measures[m]?.keySignature !== undefined;
+    const showTempo = m === 0 || composition.measures[m]?.tempo !== undefined;
+
+    const column = composition.parts.map((part, p) => {
+        const voices = part.measures[m]?.voices ?? [];
+        return voices.map((voice, v) => buildVoice(voice.events, clefs[p]!, timeSignature, stemDirectionFor(v, voices.length)));
+    });
+
+    const staves = composition.parts.map((_, p) => {
+        const stave = new Stave(0, TOP_MARGIN + p * PART_SPACING, 0);
+        if (m === 0) stave.addClef(clefs[p]!);
+        // A key change cancels the old key's sharps or flats with naturals
+        const previousKey = resolved[m - 1]?.keySignature;
+        if (showKeySignature) stave.addKeySignature(keySpec(keySignature), previousKey && keySpec(previousKey));
+        if (showTimeSignature) stave.addTimeSignature(`${timeSignature.beats}/${timeSignature.beatValue}`);
+        const info = composition.measures[m];
+        if (info?.repeatStart) stave.setBegBarType(BarlineType.REPEAT_BEGIN);
+        if (info?.repeatEnd) stave.setEndBarType(BarlineType.REPEAT_END);
+        // A metronome mark over the top stave, like ♩ = 120
+        if (showTempo && p === 0) {
+            stave.setTempo({ duration: durationCode(tempo.beat), dots: tempo.beat.dots, bpm: tempo.bpm }, TEMPO_Y);
+        }
+        return stave;
+    });
+
+    // Accidentals take up room, so they go on before measuring
+    const formatter = new Formatter();
+    column.forEach((voices, p) => {
+        // Notes need their stave to place modifiers, and Voice.setStave doesn't pass it on
+        for (const { notes } of voices) for (const note of notes) note.setStave(staves[p]!);
+        const vfVoices = voices.filter(hasNotes).map(({ voice }) => voice);
+        if (vfVoices.length === 0) return;
+        Accidental.applyAccidentals(vfVoices, keySpec(keySignature));
+        formatter.joinVoices(vfVoices);
+    });
+    const allVoices = column.flat().filter(hasNotes).map(({ voice }) => voice);
+
+    // Clefs differ in width, so line every stave's notes up with the widest
+    const notesX = Math.max(...staves.map((stave) => stave.getNoteStartX()));
+    const minWidth = allVoices.length > 0 ? formatter.preCalculateMinTotalWidth(allVoices) : 0;
+    const notesWidth = Math.max(MIN_NOTES_WIDTH, minWidth * NOTE_STRETCH);
+    const width = notesX + notesWidth + END_PADDING;
+
+    for (const stave of staves) {
+        // setWidth resets the stave's formatting, which would undo setNoteStartX
+        stave.setWidth(width);
+        stave.setNoteStartX(notesX);
+    }
+    if (allVoices.length > 0) formatter.format(allVoices, notesWidth);
+
+    const anchors = new Map<number, number>();
+    for (const voice of column.flat()) {
+        voice.notes.forEach((note, i) => {
+            const time = voice.offsets[i]!;
+            anchors.set(time, Math.min(anchors.get(time) ?? Infinity, note.getAbsoluteX()));
+        });
+    }
+    anchors.set(toNumber(length), width);
+
+    return {
+        inputs,
+        width,
+        staves,
+        voices: column,
+        anchors: [...anchors].map(([time, x]) => ({ time, x })).sort((a, b) => a.time - b.time),
+    };
+}
+
+/** Draws a column's staves and notes, from x = 0 in whatever coordinates the context has */
+function drawColumn(ctx: RenderContext, { staves, voices }: Column, m: number) {
+    for (const stave of staves) stave.setContext(ctx).draw();
+
+    // The first measure brackets the staves together
+    if (m === 0 && staves.length > 1) {
+        const top = staves[0]!;
+        const bottom = staves.at(-1)!;
+        new StaveConnector(top, bottom).setType('bracket').setContext(ctx).draw();
+        new StaveConnector(top, bottom).setType('singleLeft').setContext(ctx).draw();
+    }
+
+    voices.forEach((partVoices, p) => {
+        partVoices.forEach(({ notes }, v) =>
+            notes.forEach((staveNote, leaf) => {
+                // Beaming can flip stems, so this waits until now
+                placeArticulations(staveNote);
+                // VexFlow prefixes `vf-` itself
+                staveNote.setAttribute('id', leafElementId({ part: p, measure: m, voice: v, leaf }).slice(3));
+                // Ids go on just before drawing, because setting a stem direction rebuilds the noteheads.
+                // The model's note order is VexFlow's key order, so the indexes line up
+                staveNote.noteHeads.forEach((head, note) =>
+                    head.setAttribute('id', noteheadId({ part: p, measure: m, voice: v, leaf, note })),
+                );
+            }),
+        );
+        for (const { voice, beams, tuplets } of partVoices.filter(hasNotes)) {
+            voice.draw(ctx, staves[p]!);
+            for (const beam of beams) beam.setContext(ctx).draw();
+            for (const { tuplet } of tuplets) tuplet.setContext(ctx).draw();
+        }
+    });
+}
+
+/**
+ * Draws the score into `target`. With a cache, measures that haven't changed since the last
+ * render into the same container are reused rather than laid out and drawn again.
+ */
+export function renderScore(target: ScoreTarget, composition: Composition, cache = new ScoreCache()): ScoreLayout {
+    const resolved = resolveMeasures(composition.measures);
+    const svg = target instanceof HTMLElement;
+    if (!svg || cache.container !== target) {
+        Object.assign(cache, new ScoreCache());
+    }
+
+    const previous = cache.columns;
+    const columns = resolved.map((_, m) => {
+        const inputs = columnInputs(composition, resolved, m);
+        const old = previous[m];
+        return old && sameInputs(old.inputs, inputs) ? old : buildColumn(composition, resolved, m, inputs);
+    });
+
     // Room on the left for the longest staff name
     const namesRight = LEFT_MARGIN + Math.max(0, ...composition.parts.map(({ name }) => textWidth(name)));
     let x = namesRight + NAME_GAP;
-
-    resolved.forEach(({ timeSignature, keySignature, tempo, length }, m) => {
-        const showTimeSignature = m === 0 || composition.measures[m]?.timeSignature !== undefined;
-        const showKeySignature = m === 0 || composition.measures[m]?.keySignature !== undefined;
-        const showTempo = m === 0 || composition.measures[m]?.tempo !== undefined;
-
-        const column = composition.parts.map((part, p) => {
-            const voices = part.measures[m]?.voices ?? [];
-            return voices.map((voice, v) =>
-                buildVoice(voice.events, clefs[p]!, timeSignature, stemDirectionFor(v, voices.length)),
-            );
-        });
-
-        const columnStaves = composition.parts.map((_, p) => {
-            const stave = new Stave(x, TOP_MARGIN + p * PART_SPACING, 0);
-            if (m === 0) stave.addClef(clefs[p]!);
-            // A key change cancels the old key's sharps or flats with naturals
-            const previousKey = resolved[m - 1]?.keySignature;
-            if (showKeySignature) stave.addKeySignature(keySpec(keySignature), previousKey && keySpec(previousKey));
-            if (showTimeSignature) stave.addTimeSignature(`${timeSignature.beats}/${timeSignature.beatValue}`);
-            const info = composition.measures[m];
-            if (info?.repeatStart) stave.setBegBarType(BarlineType.REPEAT_BEGIN);
-            if (info?.repeatEnd) stave.setEndBarType(BarlineType.REPEAT_END);
-            // A metronome mark over the top stave, like ♩ = 120
-            if (showTempo && p === 0) {
-                stave.setTempo({ duration: durationCode(tempo.beat), dots: tempo.beat.dots, bpm: tempo.bpm }, TEMPO_Y);
-            }
-            return stave;
-        });
-
-        // Accidentals take up room, so they go on before measuring
-        const formatter = new Formatter();
-        column.forEach((voices, p) => {
-            // Notes need their stave to place modifiers, and Voice.setStave doesn't pass it on
-            for (const { notes } of voices) for (const note of notes) note.setStave(columnStaves[p]!);
-            const vfVoices = voices.filter(hasNotes).map(({ voice }) => voice);
-            if (vfVoices.length === 0) return;
-            Accidental.applyAccidentals(vfVoices, keySpec(keySignature));
-            formatter.joinVoices(vfVoices);
-        });
-        const allVoices = column.flat().filter(hasNotes).map(({ voice }) => voice);
-
-        // Clefs differ in width, so line every stave's notes up with the widest
-        const notesX = Math.max(...columnStaves.map((stave) => stave.getNoteStartX()));
-        const minWidth = allVoices.length > 0 ? formatter.preCalculateMinTotalWidth(allVoices) : 0;
-        const notesWidth = Math.max(MIN_NOTES_WIDTH, minWidth * NOTE_STRETCH);
-        const width = notesX - x + notesWidth + END_PADDING;
-
-        for (const stave of columnStaves) {
-            // setWidth resets the stave's formatting, which would undo setNoteStartX
-            stave.setWidth(width);
-            stave.setNoteStartX(notesX);
-        }
-        if (allVoices.length > 0) formatter.format(allVoices, notesWidth);
-
-        const anchors = new Map<number, number>();
-        for (const voice of column.flat()) {
-            voice.notes.forEach((note, i) => {
-                const time = voice.offsets[i]!;
-                anchors.set(time, Math.min(anchors.get(time) ?? Infinity, note.getAbsoluteX()));
-            });
-        }
-        anchors.set(toNumber(length), x + width);
-
-        boxes.push({
-            x,
-            width,
-            anchors: [...anchors].map(([time, ax]) => ({ time, x: ax })).sort((a, b) => a.time - b.time),
-        });
-        staves.push(columnStaves);
-        built.push(column);
+    const offsets = columns.map(({ width }) => {
+        const offset = x;
         x += width;
+        return offset;
     });
 
     const layout: ScoreLayout = {
         width: x + RIGHT_MARGIN,
         height: TOP_MARGIN * 2 + composition.parts.length * PART_SPACING,
-        measures: boxes,
-        parts: (staves[0] ?? []).map((stave) => ({
+        measures: columns.map(({ width, anchors }, m) => ({
+            x: offsets[m]!,
+            width,
+            anchors: anchors.map((anchor) => ({ time: anchor.time, x: anchor.x + offsets[m]! })),
+        })),
+        parts: (columns[0]?.staves ?? []).map((stave) => ({
             y: stave.getY(),
             top: stave.getYForLine(0),
             bottom: stave.getYForLine(4),
@@ -324,30 +421,49 @@ export function renderScore(target: ScoreTarget, composition: Composition): Scor
         leafX: new Map(),
         namesRight,
     };
-    built.forEach((column, measure) =>
-        column.forEach((voices, part) =>
-            voices.forEach(({ notes }, voice) =>
+    columns.forEach(({ voices }, measure) =>
+        voices.forEach((partVoices, part) =>
+            partVoices.forEach(({ notes }, voice) =>
                 notes.forEach((note, leaf) =>
-                    layout.leafX.set(leafElementId({ part, measure, voice, leaf }), note.getAbsoluteX()),
+                    layout.leafX.set(leafElementId({ part, measure, voice, leaf }), note.getAbsoluteX() + offsets[measure]!),
                 ),
             ),
         ),
     );
 
     let ctx: RenderContext;
-    if (target instanceof HTMLElement) {
-        target.replaceChildren();
-        const renderer = new Renderer(target as HTMLDivElement, Renderer.Backends.SVG);
-        renderer.resize(layout.width, layout.height);
-        ctx = renderer.getContext();
+    if (svg) {
+        if (!cache.context) {
+            target.replaceChildren();
+            cache.container = target;
+            cache.context = new Renderer(target as HTMLDivElement, Renderer.Backends.SVG).getContext();
+        }
+        ctx = cache.context;
+        ctx.resize(layout.width, layout.height);
+        const kept = new Set(columns);
+        for (const old of previous) if (!kept.has(old)) old.group?.remove();
+        cache.overlay?.remove();
+
+        columns.forEach((column, m) => {
+            if (!column.group) {
+                column.group = ctx.openGroup('measure') as SVGGElement;
+                drawColumn(ctx, column, m);
+                ctx.closeGroup();
+            }
+            column.group.setAttribute('transform', `translate(${offsets[m]}, 0)`);
+        });
+        cache.overlay = ctx.openGroup('overlay') as SVGGElement;
     } else {
         // Everything is drawn in score units; the transform puts the wanted part on the canvas
         const { canvas, left, top, scale } = target;
-        canvas.setTransform(scale, 0, 0, scale, -left * scale, -top * scale);
         ctx = new CanvasContext(canvas);
+        columns.forEach((column, m) => {
+            canvas.setTransform(scale, 0, 0, scale, (offsets[m]! - left) * scale, -top * scale);
+            drawColumn(ctx, column, m);
+        });
+        canvas.setTransform(scale, 0, 0, scale, -left * scale, -top * scale);
     }
-
-    for (const columnStaves of staves) for (const stave of columnStaves) stave.setContext(ctx).draw();
+    cache.columns = columns;
 
     // Each staff's name, right-aligned up to the first measure and centered on the stave
     ctx.save();
@@ -358,41 +474,11 @@ export function renderScore(target: ScoreTarget, composition: Composition): Scor
     });
     ctx.restore();
 
-    const firstColumn = staves[0];
-    if (firstColumn && firstColumn.length > 1) {
-        const top = firstColumn[0]!;
-        const bottom = firstColumn.at(-1)!;
-        new StaveConnector(top, bottom).setType('bracket').setContext(ctx).draw();
-        new StaveConnector(top, bottom).setType('singleLeft').setContext(ctx).draw();
-    }
-
-    built.forEach((column, m) =>
-        column.forEach((voices, p) => {
-            voices.forEach(({ notes }, v) =>
-                notes.forEach((staveNote, leaf) => {
-                    // Beaming can flip stems, so this waits until now
-                    placeArticulations(staveNote);
-                    // VexFlow prefixes `vf-` itself
-                    staveNote.setAttribute('id', leafElementId({ part: p, measure: m, voice: v, leaf }).slice(3));
-                    // Ids go on just before drawing, because setting a stem direction rebuilds the noteheads.
-                    // The model's note order is VexFlow's key order, so the indexes line up
-                    staveNote.noteHeads.forEach((head, note) =>
-                        head.setAttribute('id', noteheadId({ part: p, measure: m, voice: v, leaf, note })),
-                    );
-                }),
-            );
-            for (const { voice, beams, tuplets } of voices.filter(hasNotes)) {
-                voice.draw(ctx, staves[m]![p]!);
-                for (const beam of beams) beam.setContext(ctx).draw();
-                for (const { tuplet } of tuplets) tuplet.setContext(ctx).draw();
-            }
-        }),
-    );
-
-    drawTies(ctx, composition, built);
-    drawGlissandi(ctx, composition, built);
+    drawTies(ctx, composition, columns, offsets);
+    drawGlissandi(ctx, composition, columns, offsets);
     drawVolumes(ctx, composition, layout);
     drawHairpins(ctx, composition, layout);
+    if (svg) ctx.closeGroup();
     return layout;
 }
 
@@ -464,14 +550,43 @@ function drawHairpins(ctx: RenderContext, composition: Composition, layout: Scor
     ctx.restore();
 }
 
-/** Every chord or rest of each voice of each part through the whole piece, in order, with its drawn note */
-function voiceSequences(composition: Composition, built: BuiltVoice[][][]): { event: Chord | Rest; note: StaveNote }[][] {
+/**
+ * A tie between notes that may be in different columns, each moved along by where its column
+ * is drawn
+ */
+class ShiftedTie extends StaveTie {
+    constructor(
+        notes: ConstructorParameters<typeof StaveTie>[0],
+        private readonly firstShift: number,
+        private readonly lastShift: number,
+    ) {
+        super(notes);
+    }
+
+    override getFirstX(): number {
+        return super.getFirstX() + this.firstShift;
+    }
+
+    override getLastX(): number {
+        return super.getLastX() + this.lastShift;
+    }
+}
+
+/**
+ * Every chord or rest of each voice of each part through the whole piece, in order, with its
+ * drawn note and where its column starts
+ */
+function voiceSequences(
+    composition: Composition,
+    columns: Column[],
+    offsets: number[],
+): { event: Chord | Rest; note: StaveNote; shift: number }[][] {
     return composition.parts.flatMap((part, p) => {
         const voiceCount = Math.max(0, ...part.measures.map((measure) => measure.voices.length));
         return Array.from({ length: voiceCount }, (_, v) =>
-            built.flatMap((column) => {
-                const voice = column[p]?.[v];
-                return voice ? voice.events.map((event, i) => ({ event, note: voice.notes[i]! })) : [];
+            columns.flatMap((column, m) => {
+                const voice = column.voices[p]?.[v];
+                return voice ? voice.events.map((event, i) => ({ event, note: voice.notes[i]!, shift: offsets[m]! })) : [];
             }),
         );
     });
@@ -481,9 +596,9 @@ function voiceSequences(composition: Composition, built: BuiltVoice[][][]): { ev
  * Ties a note to the same pitch in the next chord of its voice, which may be in the next
  * measure. Matches how playback merges ties, so what you see is what you hear.
  */
-function drawTies(ctx: RenderContext, composition: Composition, built: BuiltVoice[][][]) {
-    for (const sequence of voiceSequences(composition, built)) {
-        sequence.forEach(({ event, note }, i) => {
+function drawTies(ctx: RenderContext, composition: Composition, columns: Column[], offsets: number[]) {
+    for (const sequence of voiceSequences(composition, columns, offsets)) {
+        sequence.forEach(({ event, note, shift }, i) => {
             const next = sequence[i + 1];
             if (event.kind !== 'chord' || next?.event.kind !== 'chord') return;
             const nextPitches = next.event.notes.map(({ pitch }) => midi(pitch));
@@ -491,9 +606,8 @@ function drawTies(ctx: RenderContext, composition: Composition, built: BuiltVoic
             event.notes.forEach(({ pitch, tie }, index) => {
                 const lastIndex = nextPitches.indexOf(midi(pitch));
                 if (!tie || lastIndex === -1) return;
-                new StaveTie({ firstNote: note, lastNote: next.note, firstIndexes: [index], lastIndexes: [lastIndex] })
-                    .setContext(ctx)
-                    .draw();
+                const notes = { firstNote: note, lastNote: next.note, firstIndexes: [index], lastIndexes: [lastIndex] };
+                new ShiftedTie(notes, shift, next.shift).setContext(ctx).draw();
             });
         });
     }
@@ -503,19 +617,19 @@ function drawTies(ctx: RenderContext, composition: Composition, built: BuiltVoic
  * A straight line from each sliding note to the note of the next chord it lands on, the one
  * playback slides to, stopping short of that note's accidental
  */
-function drawGlissandi(ctx: RenderContext, composition: Composition, built: BuiltVoice[][][]) {
+function drawGlissandi(ctx: RenderContext, composition: Composition, columns: Column[], offsets: number[]) {
     ctx.save();
     ctx.setLineWidth(1.2);
-    for (const sequence of voiceSequences(composition, built)) {
-        sequence.forEach(({ event, note }, i) => {
+    for (const sequence of voiceSequences(composition, columns, offsets)) {
+        sequence.forEach(({ event, note, shift }, i) => {
             const next = sequence[i + 1];
             if (event.kind !== 'chord' || next?.event.kind !== 'chord') return;
             const nextChord = next.event;
             event.notes.forEach(({ glissando }, index) => {
                 if (!glissando) return;
                 const target = glissandoTarget(index, event, nextChord);
-                const left = note.getTieRightX() + GLISSANDO_GAP;
-                const right = next.note.getAbsoluteX() - next.note.getMetrics().modLeftPx - GLISSANDO_GAP;
+                const left = shift + note.getTieRightX() + GLISSANDO_GAP;
+                const right = next.shift + next.note.getAbsoluteX() - next.note.getMetrics().modLeftPx - GLISSANDO_GAP;
                 if (right <= left) return;
                 ctx.beginPath();
                 ctx.moveTo(left, note.getYs()[index]!);
