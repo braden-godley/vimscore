@@ -172,7 +172,6 @@ const recentChoices = () => recentFiles.filter((path) => path !== current.path);
 async function rememberRecent(path: string) {
     recentFiles = [path, ...recentFiles.filter((recent) => recent !== path)].slice(0, MAX_RECENT_FILES);
     const settings = await window.settings.get();
-recentFiles = settings.recentFiles ?? [];
     await window.settings.set({ ...settings, recentFiles });
 }
 
@@ -480,8 +479,9 @@ window.addEventListener('beforeunload', (event) => {
     showMessage('No write since last change (:w to save, :q! to quit without saving)', true);
 });
 
-// A new score starts with the soundfonts last chosen
+// A new score starts with the soundfonts last chosen, and `:recent` offers the scores from before
 const settings = await window.settings.get();
+recentFiles = settings.recentFiles ?? [];
 const defaultSoundfonts = settings.soundfonts ?? (settings.soundfont ? [settings.soundfont] : []);
 if (defaultSoundfonts.length) {
     current = newDocument(setSoundfonts(newComposition(), defaultSoundfonts));
