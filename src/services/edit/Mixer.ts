@@ -37,6 +37,37 @@ export function setMasterVolume(composition: Composition, percent: number): Comp
     return volume === NORMAL_MIX ? rest : { ...rest, volume };
 }
 
-/** How loud each part plays against normal, master included: 1 is normal */
+/** Mutes or unmutes a part; unmuted is left unwritten */
+export function toggleMute(composition: Composition, index: number): Composition {
+    return toggleFlag(composition, index, 'muted');
+}
+
+/** Solos a part or takes its solo off; any number of parts can be soloed together */
+export function toggleSolo(composition: Composition, index: number): Composition {
+    return toggleFlag(composition, index, 'solo');
+}
+
+function toggleFlag(composition: Composition, index: number, flag: 'muted' | 'solo'): Composition {
+    if (!composition.parts[index]) return composition;
+    return {
+        ...composition,
+        parts: composition.parts.map((part, i) => {
+            if (i !== index) return part;
+            const { [flag]: on, ...rest } = part;
+            return on ? rest : { ...rest, [flag]: true };
+        }),
+    };
+}
+
+/** Whether a part is heard: not muted, and soloed if any part is. Muting wins over a solo */
+export function isAudible(composition: Composition, index: number): boolean {
+    const part = composition.parts[index];
+    if (!part || part.muted) return false;
+    return part.solo === true || !composition.parts.some((other) => other.solo);
+}
+
+/** How loud each part plays against normal, master, mutes and solos included: 1 is normal */
 export const partMix = (composition: Composition): number[] =>
-    composition.parts.map((part) => (partVolume(part) / 100) * (masterVolume(composition) / 100));
+    composition.parts.map((part, i) =>
+        isAudible(composition, i) ? (partVolume(part) / 100) * (masterVolume(composition) / 100) : 0,
+    );

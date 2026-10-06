@@ -20,6 +20,10 @@ export interface Part {
     soundfont?: string;
     /** The mixer's volume for the whole part, in percent of normal (0 to 127); 100 when not set */
     volume?: number;
+    /** Silenced in the mixer, whatever its volume */
+    muted?: boolean;
+    /** Soloed in the mixer: while any part is, only soloed parts are heard */
+    solo?: boolean;
     /** Always the same length as the composition's measures */
     measures: PartMeasure[];
 }

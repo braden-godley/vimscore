@@ -62,6 +62,11 @@ export class Player {
         this.endTime = Math.max(0, ...this.notes.map((note) => note.start + note.duration));
     }
 
+    /** Takes up a change in the mixer straight away, without stopping */
+    setMix(composition: Composition) {
+        this.synth.setMix(partMix(composition));
+    }
+
     /**
      * Plays from `from` seconds into the composition. Notes already sounding at that point play
      * for whatever is left of them, so a held chord isn't silent until its next change.

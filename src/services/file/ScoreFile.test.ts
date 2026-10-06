@@ -27,6 +27,12 @@ describe('writeScore and readScore', () => {
         expect(readScore(writeScore({ ...mixed, volume: 101 }))).toEqual({ error: expect.stringContaining('volume') });
     });
 
+    it('keep mutes and solos, leaving them unwritten when off', () => {
+        const mixed = { ...exampleComposition, parts: exampleComposition.parts.map((part, i) => (i === 0 ? { ...part, muted: true } : { ...part, solo: true })) };
+        expect(readScore(writeScore(mixed))).toEqual(mixed);
+        expect(writeScore(exampleComposition)).not.toMatch(/"muted"|"solo"/);
+    });
+
     it('keep soundfonts in priority order, and read the one of older files', () => {
         const layered = { ...exampleComposition, soundfonts: [{ filePath: '/sf/Strings.sf2' }, { filePath: '/sf/General.sf2' }] };
         expect(readScore(writeScore(layered))).toEqual(layered);

@@ -1,11 +1,19 @@
 /**
  * The mixer, open over the score: a row for each part's volume and one for the master volume
  * under them. j/k move between rows, h/l turn the volume down and up by 5, H/L by 1, and `=`
- * puts it back to normal.
+ * puts it back to normal. m mutes a part and s solos it.
  */
 
 import { Composition } from '../composition/Composition';
-import { NORMAL_MIX, masterVolume, partVolume, setMasterVolume, setPartVolume } from '../edit/Mixer';
+import {
+    NORMAL_MIX,
+    masterVolume,
+    partVolume,
+    setMasterVolume,
+    setPartVolume,
+    toggleMute,
+    toggleSolo,
+} from '../edit/Mixer';
 
 export interface Mixer {
     /** A part's index, or the number of parts for the master row */
@@ -42,5 +50,8 @@ export function mixerKey(composition: Composition, mixer: Mixer, key: string): M
     const step = STEPS[key];
     if (step !== undefined) return { mixer, composition: setVolume(composition, mixer, mixerVolume(composition, mixer) + step) };
     if (key === '=') return { mixer, composition: setVolume(composition, mixer, NORMAL_MIX) };
+    // The master has no mute or solo of its own
+    if (key === 'm') return { mixer, composition: toggleMute(composition, mixer.selected) };
+    if (key === 's') return { mixer, composition: toggleSolo(composition, mixer.selected) };
     return { mixer };
 }

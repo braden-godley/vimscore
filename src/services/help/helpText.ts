@@ -45,6 +45,10 @@ PLAYING
     g                 Carry on from the start of the score
     h  l              Carry on from the start of the measure before or after, going through
                       repeats as they're played. Past the last note, l does nothing
+    m                 Open the mixer on the cursor's part, to change the mix as it plays.
+                      Its keys work as in the mixer (see VOLUME), so h and l turn the volume
+                      instead of jumping; <Esc> closes it and playing carries on. <Space>
+                      stops, leaving the mixer open
 
 EDITING IN NORMAL MODE
     u  U              Undo or redo
@@ -204,9 +208,15 @@ VOLUME
     h  l            Down or up by 5
     H  L            Down or up by 1
     =               Back to normal
+    m               Mute the part, or unmute it
+    s               Solo the part, or take its solo off. While any part is soloed, only
+                    soloed parts are heard; a muted part stays silent even when soloed
     q  <Esc>  <CR>  Close
 
+    Muted parts show M and soloed ones S, and any part not heard is dimmed. Mutes and
+    solos are saved with the score and hold in exports too.
     Everything changed in one visit to the mixer is undone together.
+    m while playing opens the mixer without stopping (see PLAYING).
 
 HELP
     :help [topic]   This manual, open at the first match for a topic if one is given (also :h)

@@ -1,5 +1,5 @@
 import { cursorSeconds } from '../../services/cursor/Cursor';
-import { EditMode, EditorState, editorSelection } from '../../services/editor/Editor';
+import { EditMode, EditorState, editorSelection, openMixer } from '../../services/editor/Editor';
 import { keyName } from '../../services/editor/keys';
 import { Command, isFileCommand } from '../../services/editor/CommandLine';
 import { Picker, filterPaths, pickerItems } from '../../services/editor/Picker';
@@ -7,7 +7,7 @@ import { Completion, completeCommandLine, completionText, cycleCompletion } from
 import { Mixer } from '../../services/editor/MixerMode';
 import { HelpView, matchesQuery } from '../../services/help/Help';
 import { HELP_LINES } from '../../services/help/helpText';
-import { MAX_PART_VOLUME, masterVolume, partVolume } from '../../services/edit/Mixer';
+import { MAX_PART_VOLUME, isAudible, masterVolume, partVolume } from '../../services/edit/Mixer';
 import { setSoundfonts } from '../../services/edit/Parts';
 import { Document, isModified, newDocument, runCommand } from '../../services/file/Commands';
 import { Composition, newComposition } from '../../services/composition/Composition';
@@ -306,14 +306,14 @@ function showPicker(picker: Picker | undefined) {
     showPickerPanel(heading, picker.query, rows, picker.selected, `${items.length} of ${instruments.length} ${source}`);
 }
 
-/** The mixer over the score: each part's volume as a bar, then the master's */
+/** The mixer over the score: each part's volume as a bar, muted or soloed, then the master's */
 function showMixer(mixer: Mixer | undefined) {
     mixerPanel.hidden = !mixer;
     if (!mixer) return;
     const { composition } = current.session;
-    const row = (name: string, percent: number, selected: boolean, master = false) => {
+    const row = (name: string, percent: number, selected: boolean, flags: string, silent = false, master = false) => {
         const item = document.createElement('li');
-        item.className = [selected && 'selected', master && 'master'].filter(Boolean).join(' ');
+        item.className = [selected && 'selected', master && 'master', silent && 'silent'].filter(Boolean).join(' ');
         const bar = Object.assign(document.createElement('span'), { className: 'mixer-bar' });
         // The bar runs to the loudest a part can go, with a tick at normal
         bar.append(Object.assign(document.createElement('span'), { className: 'mixer-level' }));
@@ -323,20 +323,24 @@ function showMixer(mixer: Mixer | undefined) {
             Object.assign(document.createElement('span'), { className: 'mixer-name', textContent: name }),
             bar,
             Object.assign(document.createElement('span'), { className: 'mixer-percent', textContent: `${percent}%` }),
+            Object.assign(document.createElement('span'), { className: 'mixer-flags', textContent: flags }),
         );
         return item;
     };
     const list = document.createElement('ul');
     list.append(
-        ...composition.parts.map((part, i) => row(part.name, partVolume(part), mixer.selected === i)),
-        row('Master', masterVolume(composition), mixer.selected >= composition.parts.length, true),
+        ...composition.parts.map((part, i) => {
+            const flags = [part.muted && 'M', part.solo && 'S'].filter(Boolean).join(' ');
+            return row(part.name, partVolume(part), mixer.selected === i, flags, !isAudible(composition, i));
+        }),
+        row('Master', masterVolume(composition), mixer.selected >= composition.parts.length, '', false, true),
     );
     mixerPanel.replaceChildren(
         Object.assign(document.createElement('div'), { className: 'picker-heading', textContent: 'Mixer' }),
         list,
         Object.assign(document.createElement('div'), {
             className: 'picker-count',
-            textContent: 'j/k part · h/l ±5 · H/L ±1 · = normal · Esc done',
+            textContent: 'j/k part · h/l ±5 · H/L ±1 · = normal · m mute · s solo · Esc done',
         }),
     );
 }
@@ -499,7 +503,29 @@ function startPlayback() {
 }
 
 function showPlayingLabel() {
-    modeLabel.textContent = skipRepeats ? '-- PLAYING (NO REPEATS) --' : '-- PLAYING --';
+    const mixer = current.session.editor.mode === 'mixer' ? ' MIXER' : '';
+    modeLabel.textContent = skipRepeats ? `-- PLAYING (NO REPEATS)${mixer} --` : `-- PLAYING${mixer} --`;
+}
+
+/**
+ * The mixer while playing: `m` opens it on the cursor's part, and its keys change the mix as it
+ * plays, undone together like any visit. Space still stops, and `r` and `g` still go to playback.
+ * The mixer stays open when playing stops.
+ */
+function playingMixerKey(key: string) {
+    const { session } = current;
+    if (session.editor.mode !== 'mixer') {
+        if (key !== 'm') return;
+        current = { ...current, session: { ...session, editor: openMixer(session.editor) } };
+    } else {
+        const next = sessionKey(session, key).session;
+        current = { ...current, session: next };
+        // Only the mix changed, so the notes keep playing as they are
+        if (next.composition !== session.composition) player.setMix(next.composition);
+    }
+    showMixer(current.session.editor.mixer);
+    showPlayingLabel();
+    showTitle();
 }
 
 /** `r` while playing: skips repeats or plays them, carrying on from the same moment of the same measure */
@@ -607,11 +633,15 @@ window.addEventListener('keydown', (event) => {
     // The whole command so far, so a finished `2<C-w>j` stays readable after its last key
     keysLabel.textContent = (player.playing ? '' : session.editor.pending) + key;
 
-    // While playing, the only things to do are stop or toggle repeats; followPlayback switches back to editing
+    // While playing, the only things to do are stop, toggle repeats, jump and mix; followPlayback
+    // switches back to editing
     if (player.playing) {
-        if (key === '<Space>' || key === '<S-Space>' || key === '<Esc>') player.stop();
-        if (key === 'r') toggleRepeats();
-        if (key === 'g' || key === 'h' || key === 'l') jumpPlayback(key);
+        const stop = key === '<Space>' || key === '<S-Space>';
+        const mixing = session.editor.mode === 'mixer';
+        if (stop || (key === '<Esc>' && !mixing)) player.stop();
+        else if (key === 'r') toggleRepeats();
+        else if (key === 'g' || (!mixing && (key === 'h' || key === 'l'))) jumpPlayback(key);
+        else playingMixerKey(key);
         return;
     }
 

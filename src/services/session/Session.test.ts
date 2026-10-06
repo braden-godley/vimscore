@@ -420,6 +420,16 @@ describe('the mixer', () => {
         expect(volumes(type(['u'], mixed))).toEqual([undefined, undefined, undefined]);
     });
 
+    it('m mutes and s solos the selected part, undone with the rest of the visit', () => {
+        const flags = ({ composition }: Session) => composition.parts.map(({ muted, solo }) => [muted, solo]);
+        const open = type([':', ...'mixer', '<CR>']);
+        const mixed = type(['m', 'j', 's', 's', 's', 'j', 'm', 's'], open);
+        expect(flags(mixed)).toEqual([[true, undefined], [undefined, true]]);
+        // The master, where the last m and s landed, has neither
+        expect(flags(type(['k', 'k', 'm'], mixed))).toEqual([[undefined, undefined], [undefined, true]]);
+        expect(flags(type(['<Esc>', 'u'], mixed))).toEqual([[undefined, undefined], [undefined, undefined]]);
+    });
+
     it('stops at silent and at the loudest', () => {
         const open = type([':', ...'mixer', '<CR>']);
         expect(volumes(type(Array(30).fill('h'), open))[0]).toBe(0);

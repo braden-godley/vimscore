@@ -105,7 +105,7 @@ describe('writeMidi', () => {
         expect(channels).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 9, 15]);
     });
 
-    it("sets each channel's volume from the mixer, master included", () => {
+    it("sets each channel's volume from the mixer, master, mutes and solos included", () => {
         const mixed = { ...exampleComposition, volume: 50, parts: exampleComposition.parts.map((part, i) => (i === 0 ? { ...part, volume: 120 } : part)) };
         const channelVolumes = (data: BasicMIDI) =>
             data.tracks.slice(1).map(({ events }) =>
@@ -113,5 +113,9 @@ describe('writeMidi', () => {
             );
         expect(channelVolumes(midi)).toEqual([100, 100]);
         expect(channelVolumes(read(writeMidi(mixed)))).toEqual([60, 50]);
+        const withParts = (flags: object[]) => ({ ...exampleComposition, parts: exampleComposition.parts.map((part, i) => ({ ...part, ...flags[i] })) });
+        expect(channelVolumes(read(writeMidi(withParts([{ muted: true }, {}]))))).toEqual([0, 100]);
+        expect(channelVolumes(read(writeMidi(withParts([{}, { solo: true }]))))).toEqual([0, 100]);
+        expect(channelVolumes(read(writeMidi(withParts([{}, { solo: true, muted: true }]))))).toEqual([0, 0]);
     });
 });

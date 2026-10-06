@@ -719,7 +719,7 @@ function runEditCommand(composition: Composition, state: EditorState, command: E
         case 'masterVolume':
             return { state, composition: setMasterVolume(composition, command.percent) };
         case 'mixer':
-            return { state: { ...state, mode: 'mixer', mixer: { selected: part } } };
+            return { state: openMixer(state) };
         case 'parts':
             return { state: { ...state, mode: 'parts' } };
         case 'help': {
@@ -772,6 +772,9 @@ function recentPickerKey(state: EditorState, closed: EditorState, key: string, i
     if ('picker' in outcome) return { state: { ...state, picker: outcome.picker } };
     return { state: closed, effect: { kind: 'command', command: { name: 'edit', path: outcome.chosen, force: false } } };
 }
+
+/** Opens the mixer on the cursor's part: `:mixer`, or `m` while playing */
+export const openMixer = (state: EditorState): EditorState => ({ ...state, mode: 'mixer', mixer: { selected: state.cursor.part } });
 
 function mixerModeKey(composition: Composition, state: EditorState, key: string): KeyResult {
     const closed: EditorState = { ...state, mode: 'normal', mixer: undefined };

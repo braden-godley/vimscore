@@ -235,6 +235,16 @@
         flex: 0 0 3.5rem;
         text-align: right;
       }
+      /* M for muted, S for soloed */
+      .mixer-flags {
+        flex: 0 0 2.5ch;
+        font-weight: bold;
+      }
+      /* A part the mix leaves unheard, by its mute or another's solo */
+      #mixer li.silent .mixer-name,
+      #mixer li.silent .mixer-bar {
+        opacity: 0.4;
+      }
       .picker-count {
         padding: 0.3rem 0.8rem 0.5rem;
         border-top: 1px solid #eee;

@@ -114,7 +114,7 @@ export function writeScore(composition: Composition): string {
         ...(composition.soundfonts.length && { soundfonts: composition.soundfonts.map(({ filePath }) => filePath) }),
         measures: composition.measures.map(measureInfoData),
         ...(composition.volume !== undefined && { volume: composition.volume }),
-        parts: composition.parts.map(({ name, clef, program, bank, drums, soundfont, volume, measures }) => ({
+        parts: composition.parts.map(({ name, clef, program, bank, drums, soundfont, volume, muted, solo, measures }) => ({
             name,
             ...(clef && { clef }),
             program,
@@ -122,6 +122,8 @@ export function writeScore(composition: Composition): string {
             ...(drums && { drums }),
             ...(soundfont && { soundfont }),
             ...(volume !== undefined && { volume }),
+            ...(muted && { muted }),
+            ...(solo && { solo }),
             measures: measures.map(({ voices, volumes, hairpins }) => ({
                 voices: voices.map(({ events }) => events.map(eventData)),
                 ...(volumes?.length && {
@@ -311,6 +313,8 @@ function readPart(value: unknown, path: Path, keys: KeySignature[]): Part {
     if (data['drums'] === true) part.drums = true;
     if (data['soundfont'] !== undefined) part.soundfont = string(data['soundfont'], `${path}.soundfont`);
     if (data['volume'] !== undefined) part.volume = integer(data['volume'], `${path}.volume`, 0, MAX_PART_VOLUME);
+    if (data['muted'] === true) part.muted = true;
+    if (data['solo'] === true) part.solo = true;
     if (data['clef'] !== undefined) {
         const clef = string(data['clef'], `${path}.clef`);
         if (!CLEFS.includes(clef as Clef)) fail(`${path}.clef`, `"${clef}" isn't a clef (${CLEFS.join(' or ')})`);
