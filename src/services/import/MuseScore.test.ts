@@ -110,6 +110,78 @@ describe('readMuseScore', () => {
         expect(voice(score, 1, 0)).toBe('41/2.');
     });
 
+    it('reads accents, marcatos and tenutos, alone or two to a mark', () => {
+        const chord = (...subtypes: string[]) =>
+            `<Chord><durationType>quarter</durationType>${subtypes
+                .map((subtype) => `<Articulation><subtype>${subtype}</subtype></Articulation>`)
+                .join('')}<Note><pitch>60</pitch></Note></Chord>`;
+        const measure = (...chords: string[]) => `<Measure><voice>${chords.join('')}</voice></Measure>`;
+        const marked = read(
+            mscx(`
+    <Staff id="1">
+      ${measure(chord('articAccentAbove'), chord('articMarcatoBelow'), chord('articTenutoAbove', 'articStaccatissimoAbove'), chord('articMarcatoStaccatoAbove'))}
+      ${measure(chord('articTenutoAccentBelow'), chord('articAccentStaccatoAbove'), chord('articTenutoStaccatoBelow'), chord('articFadeIn'))}
+    </Staff>`),
+        );
+        const marks = (m: number) =>
+            [...leaves(marked.parts[0]!.measures[m]!.voices[0]!.events)].map(({ event }) => {
+                const { pitch: _, ...rest } = (event as Chord).notes[0]!;
+                return rest;
+            });
+        expect(marks(0)).toEqual([{ accent: true }, { marcato: true }, { tenuto: true, staccato: true }, { marcato: true, staccato: true }]);
+        expect(marks(1)).toEqual([{ tenuto: true, accent: true }, { accent: true, staccato: true }, { tenuto: true, staccato: true }, {}]);
+    });
+
+    it('reads slurs, across barlines, up to the chord they end on', () => {
+        const quarter = (pitch: number, spanner = '') => `<Chord><durationType>quarter</durationType>${spanner}<Note><pitch>${pitch}</pitch></Note></Chord>`;
+        const rest = (type: string) => `<Rest><durationType>${type}</durationType></Rest>`;
+        // From the third beat to the second of the next measure
+        const start = '<Spanner type="Slur"><Slur/><next><location><measures>1</measures><fractions>-1/4</fractions></location></next></Spanner>';
+        const end = '<Spanner type="Slur"><prev><location><measures>-1</measures><fractions>1/4</fractions></location></prev></Spanner>';
+        const slurred = read(
+            mscx(`
+    <Staff id="1">
+      <Measure><voice>${rest('half')}${quarter(60, start)}${quarter(62)}</voice></Measure>
+      <Measure><voice>${quarter(64)}${quarter(65, end)}${rest('half')}</voice></Measure>
+    </Staff>`),
+        );
+        const slurs = (m: number) =>
+            [...leaves(slurred.parts[0]!.measures[m]!.voices[0]!.events)].map(({ event }) => event.kind === 'chord' && !!event.slur);
+        expect(slurs(0)).toEqual([false, true, true]);
+        expect(slurs(1)).toEqual([true, false, false]);
+    });
+
+    it('reads a slur written between chords', () => {
+        const slurred = read(
+            mscx(`
+    <Staff id="1">
+      <Measure><voice>
+        <Spanner type="Slur"><Slur/><next><location><fractions>1/2</fractions></location></next></Spanner>
+        <Chord><durationType>half</durationType><Note><pitch>60</pitch></Note></Chord>
+        <Chord><durationType>half</durationType><Note><pitch>62</pitch></Note></Chord>
+      </voice></Measure>
+    </Staff>`),
+        );
+        const events = slurred.parts[0]!.measures[0]!.voices[0]!.events;
+        expect(events.map((event) => event.kind === 'chord' && !!event.slur)).toEqual([true, false]);
+    });
+
+    it('keeps an accent on the first piece of a note split to fit', () => {
+        const long = read(
+            mscx(`
+    <Staff id="1">
+      <Measure len="5/4">
+        <voice>
+          <Chord><durationType>breve</durationType><Articulation><subtype>articAccentAbove</subtype></Articulation><Note><pitch>60</pitch></Note></Chord>
+        </voice>
+      </Measure>
+    </Staff>`),
+        );
+        const notes = [...leaves(long.parts[0]!.measures[0]!.voices[0]!.events)].map(({ event }) => (event as Chord).notes[0]);
+        expect(notes[0]).toMatchObject({ accent: true, tie: true });
+        expect(notes.slice(1).some((note) => note?.accent)).toBe(false);
+    });
+
     it('keeps MuseScore’s spelling of each note', () => {
         const spelled = (m: number, leaf: number) => {
             const event = [...leaves(score.parts[0]!.measures[m]!.voices[0]!.events)][leaf]!.event;

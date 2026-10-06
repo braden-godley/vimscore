@@ -4,6 +4,7 @@ import { Cursor } from '../cursor/Cursor';
 import { Chord } from '../event/Event';
 import { EditorState, KeyResult, editorSelection, handleKey, initialEditorState } from './Editor';
 import { parseCommand } from './CommandLine';
+import { written } from '../edit/written';
 import { KeyPress, keyName } from './keys';
 import { midi, pitch, spell } from '../pitch/Pitch';
 
@@ -89,7 +90,7 @@ describe('insert mode', () => {
 
     it('starts the phantom as the selected note and shapes it', () => {
         // The top note of the first chord: a quarter G4
-        expect(type(['i']).state.phantom).toEqual({ pitch: spell(67), duration: { base: 4, dots: 0 }, staccato: false });
+        expect(type(['i']).state.phantom).toEqual({ pitch: spell(67), duration: { base: 4, dots: 0 } });
         // Up to A by sharps, then down a half step to a flat
         expect(type(['i', 'K', 'K', 'J', 'l', 'w', 's']).state.phantom).toEqual({
             pitch: pitch('Ab4'),
@@ -97,6 +98,13 @@ describe('insert mode', () => {
             staccato: true,
         });
         expect(type(['i', 'h', 'h']).state.phantom?.duration).toEqual({ base: 16, dots: 0 });
+    });
+
+    it('marks it tenuto, accented or marcato, an accent and a marcato replacing each other', () => {
+        expect(type(['i', '-', '>']).state.phantom).toMatchObject({ tenuto: true, accent: true });
+        const marcato = type(['i', '>', 'v']).state.phantom;
+        expect(marcato).toMatchObject({ marcato: true });
+        expect(marcato).not.toHaveProperty('accent');
     });
 
     it('places the phantom with <Space>, staying in insert mode', () => {
@@ -314,6 +322,47 @@ describe('gs', () => {
         const short = type(['<C-v>', 'l', 'g', 's']);
         const staccatos = [0, 1].map((leaf) => (first(short, leaf) as Chord).notes.map((note) => !!note.staccato));
         expect(staccatos).toEqual([[true, true, true], [true, true, true]]);
+    });
+});
+
+describe('(', () => {
+    it("slurs the cursor's chord on to the next, or count chords on", () => {
+        expect(written(type(['(']).composition!, 0, 0)).toBe('60,64,67/q( 55,59,62/q 60,64,67/h');
+        expect(written(type(['2', '(']).composition!, 0, 0)).toBe('60,64,67/q( 55,59,62/q( 60,64,67/h');
+    });
+
+    it('takes the slur off again', () => {
+        const slurred = type(['(']);
+        expect(written(handleKey(slurred.composition!, slurred.state, '(').composition!, 0, 0)).toBe('60,64,67/q 55,59,62/q 60,64,67/h');
+    });
+
+    it('slurs the selected chords together in visual mode', () => {
+        expect(written(type(['<C-v>', 'l', 'l', '(']).composition!, 0, 0)).toBe('60,64,67/q( 55,59,62/q( 60,64,67/h');
+    });
+});
+
+describe('g- g> gv', () => {
+    const first = (result: KeyResult, leaf = 0) => result.composition?.parts[0]!.measures[0]!.voices[0]!.events[leaf];
+    const marks = (result: KeyResult, leaf = 0) =>
+        (first(result, leaf) as Chord).notes.map(({ tenuto, accent, marcato }) => ({ tenuto, accent, marcato }));
+
+    it("put a tenuto, accent or marcato on every note of the cursor's chord", () => {
+        expect(marks(type(['g', '-']))).toEqual(Array(3).fill({ tenuto: true }));
+        expect(marks(type(['g', '>']))).toEqual(Array(3).fill({ accent: true }));
+        expect(marks(type(['g', 'v']))).toEqual(Array(3).fill({ marcato: true }));
+    });
+
+    it('swap an accent for a marcato, and take it off again', () => {
+        const accented = type(['g', '>']);
+        const marcato = handleKey(accented.composition!, handleKey(accented.composition!, accented.state, 'g').state, 'v');
+        expect(marks(marcato)).toEqual(Array(3).fill({ marcato: true }));
+        const plain = handleKey(marcato.composition!, handleKey(marcato.composition!, marcato.state, 'g').state, 'v');
+        expect(marks(plain)).toEqual(Array(3).fill({}));
+    });
+
+    it('mark every selected chord in visual mode', () => {
+        const accented = type(['<C-v>', 'l', 'g', '>']);
+        expect([0, 1].map((leaf) => marks(accented, leaf))).toEqual([Array(3).fill({ accent: true }), Array(3).fill({ accent: true })]);
     });
 });
 
@@ -572,10 +621,7 @@ describe('number keys in insert mode', () => {
         expect(value(['<S-6>'])).toEqual({ base: 1, dots: 0 });
         expect(value(['<S-3>'])).toEqual({ base: 8, dots: 0 });
         expect(value(['<S-1>'])).toEqual({ base: 32, dots: 0 });
-        expect(type(['i', 'w', 's', '<S-4>']).state.phantom).toMatchObject({
-            duration: { base: 4, dots: 0 },
-            staccato: false,
-        });
+        expect(type(['i', 'w', 's', '<S-4>']).state.phantom).not.toHaveProperty('staccato');
         // No double whole yet
         expect(value(['<S-7>'])).toEqual({ base: 4, dots: 0 });
     });

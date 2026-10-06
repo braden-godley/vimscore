@@ -15,7 +15,8 @@ import {
     setLeafDuration,
     toggleArpeggios,
     toggleGlissandi,
-    toggleStaccatos,
+    toggleSlurs,
+    toggleArticulations,
     toggleTies,
     transposeNote,
     transposeSelection,
@@ -47,10 +48,10 @@ import {
     stepDuration,
     stepScale,
     toggleDot,
-    toggleStaccato,
+    toggleArticulation,
 } from '../phantom/Phantom';
 import { Register, put, yankNote, yankSelection } from '../register/Register';
-import { Selection, VisualKind, selectedChordPitches, selectedLeaves, visualSelection } from '../selection/Selection';
+import { LeafRef, Selection, VisualKind, selectedChordPitches, selectedLeaves, visualSelection } from '../selection/Selection';
 import { setKeySignature, setTempo, setTimeSignature } from '../edit/MeasureChanges';
 import { addPart, deletePart, renamePart, setClef, setInstrument } from '../edit/Parts';
 import { toggleRepeat } from '../edit/Repeats';
@@ -63,6 +64,7 @@ import { partsKey } from './PartsMode';
 import { HelpView, helpKey, openHelp } from '../help/Help';
 import { setMasterVolume, setPartVolume } from '../edit/Mixer';
 import { midi } from '../pitch/Pitch';
+import { Articulation } from '../note/Note';
 
 /**
  * `normal` navigates; the insert modes enter notes, `insertMelody` moving on after each one; the
@@ -249,17 +251,46 @@ const toggleSelectedGlissandi: Action = (state, composition) => {
     return edited ? { state, composition: edited } : { state };
 };
 
-/** `gs`: makes the cursor's chord staccato, or holds it full length again */
-const toggleCursorStaccato: Action = (state, composition) => {
-    const { part, measure, voice, leaf } = state.cursor;
-    const edited = toggleStaccatos(composition, [{ part, measure, voice, leaf }]);
+/** `gs`, `g-`, `g>` and `gv`: puts an articulation on the cursor's chord, or takes it off */
+const toggleCursorArticulation =
+    (articulation: Articulation): Action =>
+    (state, composition) => {
+        const { part, measure, voice, leaf } = state.cursor;
+        const edited = toggleArticulations(composition, [{ part, measure, voice, leaf }], articulation);
+        return edited ? { state, composition: edited } : { state };
+    };
+
+/** The same in visual mode: on every selected chord, or off if they all have it already */
+const toggleSelectedArticulations =
+    (articulation: Articulation): Action =>
+    (state, composition) => {
+        const selection = editorSelection(composition, state);
+        const edited = selection && toggleArticulations(composition, selectedLeaves(composition, selection), articulation);
+        return edited ? { state, composition: edited } : { state };
+    };
+
+/** The keys after `g` that put each articulation on in normal and visual mode */
+const ARTICULATION_KEYS: Record<Articulation, string> = { staccato: 's', tenuto: '-', accent: '>', marcato: 'v' };
+
+/** `(`: slurs the cursor's chord on to the next, or count chords on, in its voice; or takes the slur off */
+const slurFromCursor: Action = (state, composition, count = 1) => {
+    const { part, voice } = state.cursor;
+    const refs: LeafRef[] = [];
+    let cursor = state.cursor;
+    for (let i = 0; i <= count; i++) {
+        const { measure, leaf } = cursor;
+        if (refs.some((ref) => ref.measure === measure && ref.leaf === leaf)) break;
+        refs.push({ part, measure, voice, leaf });
+        cursor = moveLeaf(composition, cursor, 1);
+    }
+    const edited = toggleSlurs(composition, refs);
     return edited ? { state, composition: edited } : { state };
 };
 
-/** `gs` in visual mode: makes every selected chord staccato, or none if they all are already */
-const toggleSelectedStaccatos: Action = (state, composition) => {
+/** `(` in visual mode: slurs the selected chords together in each voice, or takes the slur off */
+const slurSelected: Action = (state, composition) => {
     const selection = editorSelection(composition, state);
-    const edited = selection && toggleStaccatos(composition, selectedLeaves(composition, selection));
+    const edited = selection && toggleSlurs(composition, selectedLeaves(composition, selection));
     return edited ? { state, composition: edited } : { state };
 };
 
@@ -331,8 +362,8 @@ const NORMAL_ACTIONS: Record<string, Action> = {
     re: (state, composition) => ({ state, composition: toggleRepeat(composition, state.cursor.measure, 'end') }),
     ga: toggleCursorArpeggio,
     gl: toggleCursorGlissando,
-    gs: toggleCursorStaccato,
     gt: toggleCursorTie,
+    '(': slurFromCursor,
     // Dots the cursor's chord or rest, or takes the dot off, like `w` in the insert modes
     gw: changeDuration(({ base, dots }) => ({ base, dots: dots ? 0 : 1 })),
     '<': hairpinFromCursor('crescendo'),
@@ -417,8 +448,8 @@ const VISUAL_ACTIONS: Record<string, Action> = {
     K: transpose(1),
     ga: toggleSelectedArpeggios,
     gl: toggleSelectedGlissandi,
-    gs: toggleSelectedStaccatos,
     gt: toggleSelectedTies,
+    '(': slurSelected,
     '<': hairpinOverSelected('crescendo'),
     '>': hairpinOverSelected('diminuendo'),
 };
@@ -537,7 +568,11 @@ const PHANTOM_KEYS: Record<string, PhantomKey> = {
     h: (phantom, _, count) => stepDuration(phantom, -count),
     l: (phantom, _, count) => stepDuration(phantom, count),
     w: toggleDot,
-    s: toggleStaccato,
+    // Like the normal mode keys without the g
+    s: (phantom) => toggleArticulation(phantom, 'staccato'),
+    '-': (phantom) => toggleArticulation(phantom, 'tenuto'),
+    '>': (phantom) => toggleArticulation(phantom, 'accent'),
+    v: (phantom) => toggleArticulation(phantom, 'marcato'),
 };
 
 // Shifted number keys pick a value outright, counting up from 4 for a quarter: 1 is a 32nd and
@@ -548,6 +583,11 @@ NUMBERED_VALUES.forEach((base, i) => {
     PHANTOM_KEYS[`<S-${i + 1}>`] = (phantom) => setDuration(phantom, base);
     NORMAL_ACTIONS[`<S-${i + 1}>`] = changeDuration(() => ({ base, dots: 0 }));
 });
+
+for (const [articulation, key] of Object.entries(ARTICULATION_KEYS) as [Articulation, string][]) {
+    NORMAL_ACTIONS[`g${key}`] = toggleCursorArticulation(articulation);
+    VISUAL_ACTIONS[`g${key}`] = toggleSelectedArticulations(articulation);
+}
 
 // g3 makes a triplet, g4 a quadruplet, up to g7 for a septuplet
 for (const actual of Object.keys(TUPLET_NORMALS)) NORMAL_ACTIONS[`g${actual}`] = tupletAtCursor(Number(actual));

@@ -7,13 +7,14 @@ import { Composition } from '../composition/Composition';
 import { Cursor, cursorPitch, voiceLeaves } from '../cursor/Cursor';
 import { Duration } from '../duration/Duration';
 import { KeySignature } from '../key/KeySignature';
+import { Articulation, withArticulation, withoutArticulations } from '../note/Note';
 import { Clef } from '../part/Part';
 import { HIGHEST_MIDI, LOWEST_MIDI, Pitch, midi, pitch, scaleStep, transpose } from '../pitch/Pitch';
 
-export interface Phantom {
+/** Its articulations are what the note it places gets */
+export interface Phantom extends Partial<Record<Articulation, boolean>> {
     pitch: Pitch;
     duration: Duration;
-    staccato: boolean;
 }
 
 /** Where a phantom starts when the cursor is on a rest: the middle line of the stave */
@@ -29,7 +30,6 @@ export function phantomAt(composition: Composition, cursor: Cursor): Phantom {
     return {
         pitch: cursorPitch(composition, cursor) ?? MIDDLE_LINE_PITCH[clef],
         duration: event?.duration ?? QUARTER,
-        staccato: false,
     };
 }
 
@@ -49,9 +49,9 @@ export function stepScale(phantom: Phantom, key: KeySignature, steps: number): P
     return { ...phantom, pitch: scaleStep(phantom.pitch, key, steps) };
 }
 
-/** A new value starts plain: no dot and no staccato */
+/** A new value starts plain: no dot and no articulation */
 export function setDuration(phantom: Phantom, base: Duration['base']): Phantom {
-    return { ...phantom, duration: { base, dots: 0 }, staccato: false };
+    return { ...withoutArticulations(phantom), duration: { base, dots: 0 } };
 }
 
 export function stepDuration(phantom: Phantom, steps: number): Phantom {
@@ -63,6 +63,7 @@ export function toggleDot(phantom: Phantom): Phantom {
     return { ...phantom, duration: { ...phantom.duration, dots: phantom.duration.dots ? 0 : 1 } };
 }
 
-export function toggleStaccato(phantom: Phantom): Phantom {
-    return { ...phantom, staccato: !phantom.staccato };
+/** Puts an articulation on or takes it off; an accent and a marcato replace each other */
+export function toggleArticulation(phantom: Phantom, articulation: Articulation): Phantom {
+    return withArticulation(phantom, articulation, !phantom[articulation]);
 }

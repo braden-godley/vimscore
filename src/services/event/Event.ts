@@ -14,6 +14,11 @@ export interface Chord {
     notes: Note[];
     /** Rolled from the bottom note up, rather than struck all at once */
     arpeggio?: boolean;
+    /**
+     * Slurred on to the next chord of the same voice, which may be in the next measure. A slur
+     * over several chords is set on all but the last
+     */
+    slur?: boolean;
 }
 
 export interface Rest {

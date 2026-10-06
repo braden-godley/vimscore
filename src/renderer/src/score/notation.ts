@@ -2,6 +2,7 @@
 
 import { Duration } from '../../../services/duration/Duration';
 import { KeySignature } from '../../../services/key/KeySignature';
+import { ARTICULATIONS } from '../../../services/note/Note';
 import { Clef } from '../../../services/part/Part';
 import { Phantom } from '../../../services/phantom/Phantom';
 import { Pitch } from '../../../services/pitch/Pitch';
@@ -50,13 +51,14 @@ const VALUE_NAMES: Record<Duration['base'], string> = {
     64: '64th',
 };
 
-/** Reads like `C♯4 dotted quarter staccato`, for the status bar */
-export function describePhantom({ pitch, duration, staccato }: Phantom): string {
+/** Reads like `C♯4 dotted quarter staccato accent`, for the status bar */
+export function describePhantom(phantom: Phantom): string {
+    const { pitch, duration } = phantom;
     const accidental = pitch.alter > 0 ? '♯'.repeat(pitch.alter) : '♭'.repeat(-pitch.alter);
     return [
         `${pitch.letter}${accidental}${pitch.octave}`,
         ['', 'dotted ', 'double-dotted '][duration.dots] + VALUE_NAMES[duration.base],
-        staccato ? 'staccato' : '',
+        ...ARTICULATIONS.filter((articulation) => phantom[articulation]),
     ]
         .filter(Boolean)
         .join(' ');

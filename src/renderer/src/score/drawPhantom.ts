@@ -3,12 +3,12 @@
  * note rather than the whole score.
  */
 
-import { Accidental, Articulation, Dot, Formatter, Renderer, Stave, StaveNote, Voice } from 'vexflow/bravura';
+import { Accidental, Dot, Formatter, Renderer, Stave, StaveNote, Voice } from 'vexflow/bravura';
 import { KeySignature } from '../../../services/key/KeySignature';
 import { Clef } from '../../../services/part/Part';
 import { Phantom } from '../../../services/phantom/Phantom';
 import { durationCode, keySpec, pitchKey } from './notation';
-import { ScoreLayout, placeArticulations } from './renderScore';
+import { ScoreLayout, addArticulations, placeArticulations } from './renderScore';
 
 export interface PhantomPlace {
     part: number;
@@ -32,7 +32,7 @@ export function drawPhantom(container: HTMLElement, layout: ScoreLayout, phantom
 
     // Never drawn: it only gives the note its clef and line positions
     const stave = new Stave(box.x, stavePlace.y, box.width);
-    const { duration, pitch, staccato } = phantom;
+    const { duration, pitch } = phantom;
     const note = new StaveNote({
         keys: [pitchKey(pitch)],
         duration: durationCode(duration),
@@ -41,7 +41,7 @@ export function drawPhantom(container: HTMLElement, layout: ScoreLayout, phantom
         autoStem: true,
     });
     if (duration.dots) Dot.buildAndAttach([note], { all: true });
-    if (staccato) note.addModifier(new Articulation('a.'), 0);
+    addArticulations(note, [phantom]);
     placeArticulations(note);
     note.setStave(stave);
 

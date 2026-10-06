@@ -9,6 +9,7 @@ import { Chord, Event, Rest, eventsLength } from '../event/Event';
 import { Fraction, ZERO, add, compare, sub } from '../fraction/Fraction';
 import { resolveMeasures } from '../measure/Measure';
 import { mergeRests } from './Edit';
+import { notePiece } from '../note/Note';
 
 export const rests = (durations: Duration[]): Rest[] => durations.map((duration) => ({ kind: 'rest', duration }));
 
@@ -17,15 +18,20 @@ export function pieces(event: Chord | Rest, durations: Duration[], keepTie = tru
     return durations.map((duration, i) => {
         if (event.kind === 'rest') return { kind: 'rest', duration };
         const last = i === durations.length - 1;
-        // Only the last piece keeps the note's own tie onward, its staccato and its glissando
         const notes = event.notes.map((note) => {
-            if (!last) return { pitch: note.pitch, tie: true };
-            if (keepTie) return note;
-            const { tie: _, glissando: __, ...untied } = note;
+            const piece = notePiece(note, i === 0, last);
+            if (!last || keepTie) return piece;
+            const { tie: _, glissando: __, ...untied } = piece;
             return untied;
         });
-        // It's rolled where it's struck, not where it's held on
-        return { kind: 'chord', duration, notes, ...(i === 0 && event.arpeggio && { arpeggio: true }) };
+        // It's rolled where it's struck, not where it's held on; a slur runs over every piece
+        return {
+            kind: 'chord',
+            duration,
+            notes,
+            ...(i === 0 && event.arpeggio && { arpeggio: true }),
+            ...(event.slur && { slur: true }),
+        };
     });
 }
 

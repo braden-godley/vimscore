@@ -2,6 +2,7 @@ import { Composition } from '../composition/Composition';
 import { Chord, glissandoTarget, leaves } from '../event/Event';
 import { Fraction, ZERO, add, compare, sub, toNumber } from '../fraction/Fraction';
 import { DEFAULT_VOLUME, HAIRPIN_STEP, HairpinKind, ResolvedMeasure, resolveMeasures, secondsPerWholeNote } from '../measure/Measure';
+import { Note } from '../note/Note';
 import { Part } from '../part/Part';
 import { PerformanceOptions, performance } from './performance';
 import { midi } from '../pitch/Pitch';
@@ -60,6 +61,38 @@ function volumeAt(changes: VolumeChange[], time: Fraction): number {
     return percent / 100;
 }
 
+/** How much louder an accented note is struck, and a marcato one */
+export const ACCENT_BOOST = 1.2;
+export const MARCATO_BOOST = 1.35;
+
+/** A note's volume with its accent or marcato, no louder than full */
+function accented(note: Note, volume: number): number {
+    const boost = note.marcato ? MARCATO_BOOST : note.accent ? ACCENT_BOOST : 1;
+    return Math.min(1, volume * boost);
+}
+
+/**
+ * How much of its written length a plain note sounds, leaving a little gap so repeated notes
+ * sound apart, and one under a slur, held on into the next; a tenuto note is held all of it
+ */
+export const NOTE_LENGTH = 0.95;
+export const SLURRED_LENGTH = 1;
+
+/** How much of its written length a marcato note sounds, a little short of it */
+export const MARCATO_LENGTH = 0.8;
+
+/**
+ * How much of its written length a note sounds: half for staccato, three quarters with tenuto
+ * too. A marcato is a little short, unless tenuto holds it, and a plain note just short of full,
+ * or all of it under a slur
+ */
+function heldFor(note: Note, slurred: boolean): number {
+    if (note.staccato) return note.tenuto ? 3 / 4 : 1 / 2;
+    if (note.tenuto) return 1;
+    if (note.marcato) return MARCATO_LENGTH;
+    return slurred ? SLURRED_LENGTH : NOTE_LENGTH;
+}
+
 /** Seconds between the notes of a rolled chord */
 export const ARPEGGIO_STEP = 0.05;
 
@@ -98,9 +131,11 @@ function slide({ timed, from, to }: Glide, target: number): TimedNote[] {
 
 /**
  * Resolves a composition into the notes it plays, sorted by start time, playing repeats. Tied
- * notes are merged into one, staccato notes sound for half their written length, an arpeggio's
- * notes come in one after another from the bottom, all ending together, and a glissando runs
- * through the semitones on the way to its next note.
+ * notes are merged into one, plain notes sound just short of their written length (all of it
+ * under a slur), tenuto ones all of it, staccato ones half (three quarters with tenuto) and
+ * marcatos a little short, accents and marcatos are struck louder, an arpeggio's notes come in
+ * one after another from the bottom, all ending together, and a glissando runs through the
+ * semitones on the way to its next note.
  */
 export function timeline(composition: Composition, options: PerformanceOptions = {}): TimedNote[] {
     const measures = resolveMeasures(composition.measures);
@@ -113,6 +148,10 @@ export function timeline(composition: Composition, options: PerformanceOptions =
         const tiedByVoice = new Map<number, Map<number, TimedNote>>();
         // Per voice index, notes from the previous chord that slide into the next one
         const glidesByVoice = new Map<number, Glide[]>();
+        // Per voice index, whether the previous chord slurs into the next one
+        const slurredByVoice = new Map<number, boolean>();
+        // Notes struck under a slur, which stay slurred through any ties
+        const slurredNotes = new WeakSet<TimedNote>();
 
         if (part.measures.length > measures.length) {
             throw new Error(`Part "${part.name}" has more measures than the composition`);
@@ -128,6 +167,7 @@ export function timeline(composition: Composition, options: PerformanceOptions =
             if (i > 0 && played[i - 1]!.measure !== measureIndex - 1) {
                 tiedByVoice.clear();
                 glidesByVoice.clear();
+                slurredByVoice.clear();
             }
 
             partMeasure.voices.forEach((voice, voiceIndex) => {
@@ -147,6 +187,9 @@ export function timeline(composition: Composition, options: PerformanceOptions =
                         notes.push(...slide(glide, midi(target.pitch)));
                     }
 
+                    // Under a slur from the chord before, or carrying one on to the next
+                    const slurred = event.kind === 'chord' && (slurredByVoice.get(voiceIndex) || !!event.slur);
+
                     if (event.kind === 'chord') {
                         // An arpeggio rolls up through the notes it strikes; held ties are already sounding
                         const struck = event.notes.map(({ pitch }) => midi(pitch)).filter((pitch) => !tiedIn?.has(pitch));
@@ -159,10 +202,11 @@ export function timeline(composition: Composition, options: PerformanceOptions =
                             if (!timed) {
                                 const volume = volumeAt(volumes, add(measure.start, offset));
                                 const delay = struck.indexOf(pitch) * step;
-                                timed = { part: partIndex, pitch, start: start + delay, duration: 0, volume };
+                                timed = { part: partIndex, pitch, start: start + delay, duration: 0, volume: accented(note, volume) };
                                 notes.push(timed);
+                                if (slurred) slurredNotes.add(timed);
                             }
-                            const end = start + (note.staccato ? seconds / 2 : seconds);
+                            const end = start + seconds * heldFor(note, slurred || slurredNotes.has(timed));
                             timed.duration = end - timed.start;
                             if (note.tie) tiedOut.set(pitch, timed);
                             if (note.glissando) {
@@ -174,6 +218,7 @@ export function timeline(composition: Composition, options: PerformanceOptions =
 
                     tiedByVoice.set(voiceIndex, tiedOut);
                     glidesByVoice.set(voiceIndex, glides);
+                    slurredByVoice.set(voiceIndex, event.kind === 'chord' && !!event.slur);
                     offset = add(offset, length);
                 }
             });

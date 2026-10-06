@@ -9,7 +9,7 @@ import { Duration, durationValue, durationsFilling, restsFilling } from '../dura
 import { Chord, Event, Rest, Tuplet, eventsLength, mapLeaves } from '../event/Event';
 import { Fraction, ZERO, add, compare, fraction, mul, sub } from '../fraction/Fraction';
 import { resolveMeasures } from '../measure/Measure';
-import { Note } from '../note/Note';
+import { Articulation, Note, articulationsOf, sameArticulations, withArticulation, withoutArticulations } from '../note/Note';
 import { Phantom } from '../phantom/Phantom';
 import { comparePitch, midi, samePitch, transpose } from '../pitch/Pitch';
 import { LeafRef, Selection, selectedLeaves } from '../selection/Selection';
@@ -93,6 +93,29 @@ export function toggleArpeggios(composition: Composition, refs: LeafRef[]): Comp
 }
 
 /**
+ * Slurs the chords among `refs` together, in each part and voice from the first to the last, or
+ * if they're slurred already, takes the slur off. Undefined when no voice has two chords to join.
+ */
+export function toggleSlurs(composition: Composition, refs: LeafRef[]): Composition | undefined {
+    const chordRefs = refs.filter(
+        ({ part, measure, voice, leaf }) => voiceLeaves(composition, part, measure, voice)[leaf]?.event.kind === 'chord',
+    );
+    // Every chord but the last of each voice carries the slur on to the next
+    const last = new Map<string, LeafRef>();
+    const inOrder = [...chordRefs].sort((a, b) => a.measure - b.measure || a.leaf - b.leaf);
+    for (const ref of inOrder) last.set(`${ref.part}:${ref.voice}`, ref);
+    const carriers = chordRefs.filter((ref) => last.get(`${ref.part}:${ref.voice}`) !== ref);
+    if (carriers.length === 0) return undefined;
+
+    const chordAt = ({ part, measure, voice, leaf }: LeafRef) => voiceLeaves(composition, part, measure, voice)[leaf]!.event as Chord;
+    const slur = !carriers.every((ref) => chordAt(ref).slur);
+    return mapChords(composition, carriers, (event) => {
+        const { slur: _, ...unslurred } = event;
+        return slur ? { ...unslurred, slur } : unslurred;
+    });
+}
+
+/**
  * Has the notes among `refs` slide on to the next chord, or if every one already does, stops
  * them. A ref with a `note` is just that note; one without, every note of its chord. Rests are
  * skipped. Undefined when there's no note to change.
@@ -117,24 +140,21 @@ export function toggleGlissandi(composition: Composition, refs: (LeafRef & { not
 }
 
 /**
- * Makes every note of the chords among `refs` staccato, or if every one already is, plays them
- * full length again. The whole chord, since it's drawn with one dot. Rests are skipped.
- * Undefined when there's no chord to change.
+ * Puts an articulation on every note of the chords among `refs`, or if every one has it already,
+ * takes it off. The whole chord, since it's drawn with one mark. An accent replaces a marcato and
+ * the other way round. Rests are skipped. Undefined when there's no chord to change.
  */
-export function toggleStaccatos(composition: Composition, refs: LeafRef[]): Composition | undefined {
+export function toggleArticulations(composition: Composition, refs: LeafRef[], articulation: Articulation): Composition | undefined {
     const notes = refs.flatMap(({ part, measure, voice, leaf }) => {
         const event = voiceLeaves(composition, part, measure, voice)[leaf]?.event;
         return event?.kind === 'chord' ? event.notes : [];
     });
     if (notes.length === 0) return undefined;
-    const staccato = !notes.every((note) => note.staccato);
+    const on = !notes.every((note) => note[articulation]);
 
     return mapChords(composition, refs, (event) => ({
         ...event,
-        notes: event.notes.map((note) => {
-            const { staccato: _, ...held } = note;
-            return staccato ? { ...held, staccato } : held;
-        }),
+        notes: event.notes.map((note) => withArticulation(note, articulation, on)),
     }));
 }
 
@@ -262,8 +282,8 @@ export function replaceLeaf(composition: Composition, cursor: Cursor, replacemen
  * Insert mode's place command, at the cursor's chord or rest:
  * - the phantom's pitch is already there, with the same value and articulation: it's removed,
  *   leaving a rest if it was the only note
- * - otherwise the pitch is added (or kept) and the chord takes the phantom's value and staccato
- *   for that note. A chord has one value, so every note in it changes length together.
+ * - otherwise the pitch is added (or kept) and the chord takes the phantom's value, and that
+ *   note its articulations. A chord has one value, so every note in it changes length together.
  * Undefined when the new value doesn't fit before the end of the measure (or tuplet). `placed`
  * is the chord now holding the note, or undefined if the note was removed.
  */
@@ -278,15 +298,15 @@ export function placeNote(
     const notes = event.kind === 'chord' ? event.notes : [];
     const existing = notes.find(({ pitch }) => midi(pitch) === midi(phantom.pitch));
     const others = notes.filter((note) => note !== existing);
-    // A rolled chord stays rolled as notes come and go
-    const rolled = event.kind === 'chord' && event.arpeggio && { arpeggio: true };
+    // A rolled or slurred chord stays so as notes come and go
+    const rolled = event.kind === 'chord' && { ...(event.arpeggio && { arpeggio: true }), ...(event.slur && { slur: true }) };
 
     let replacement: Chord | Rest;
     if (
         existing &&
         samePitch(existing.pitch, phantom.pitch) &&
         sameDuration(event.duration, phantom.duration) &&
-        !!existing.staccato === phantom.staccato
+        sameArticulations(existing, phantom)
     ) {
         replacement =
             others.length > 0
@@ -294,8 +314,8 @@ export function placeNote(
                 : { kind: 'rest', duration: event.duration };
     } else {
         // Keeps a tie the note already had, taking the phantom's spelling
-        const { staccato: _, ...kept }: Note = { ...existing, pitch: phantom.pitch };
-        const placed: Note = phantom.staccato ? { ...kept, staccato: true } : kept;
+        const kept: Note = withoutArticulations({ ...existing, pitch: phantom.pitch });
+        const placed: Note = { ...kept, ...articulationsOf(phantom) };
         const sorted = [...others, placed].sort((a, b) => comparePitch(a.pitch, b.pitch));
         replacement = { kind: 'chord', duration: phantom.duration, notes: sorted, ...rolled };
     }

@@ -3,9 +3,9 @@ import { exampleComposition } from '../composition/example-composition';
 import { Composition } from '../composition/Composition';
 import { cursorPitch } from '../cursor/Cursor';
 import { Duration } from '../duration/Duration';
-import { leaves } from '../event/Event';
+import { Chord, leaves } from '../event/Event';
 import { Phantom } from '../phantom/Phantom';
-import { deleteNote, deleteSelection, placeNote, setLeafDuration, toggleArpeggios, transposeNote, transposeSelection } from './Edit';
+import { deleteNote, deleteSelection, placeNote, setLeafDuration, toggleArpeggios, toggleArticulations, toggleSlurs, transposeNote, transposeSelection } from './Edit';
 import { pieces } from './Stream';
 import { written } from './written';
 import { midi, pitch, pitchName, spell } from '../pitch/Pitch';
@@ -59,7 +59,7 @@ describe('transposeSelection', () => {
 const phantom = (note: number, base: Duration['base'], dots: Duration['dots'] = 0, staccato = false): Phantom => ({
     pitch: spell(note),
     duration: { base, dots },
-    staccato,
+    ...(staccato && { staccato }),
 });
 
 // Melody measure 1 (4/4): C-E-G quarter, G-B-D quarter, C-E-G half
@@ -118,6 +118,19 @@ describe('placeNote', () => {
         );
     });
 
+    it('gives the note the phantom’s articulations, removing it only when they match', () => {
+        const accented: Phantom = { ...phantom(67, 4), accent: true, tenuto: true };
+        const placed = placeNote(exampleComposition, at(0, 0, 0), accented)!.composition;
+        const top = (composition: Composition) => (composition.parts[0]!.measures[0]!.voices[0]!.events[0] as Chord).notes.at(-1);
+        expect(top(placed)).toEqual({ pitch: spell(67), accent: true, tenuto: true });
+        // A marcato instead replaces them
+        expect(top(placeNote(placed, at(0, 0, 0), { ...phantom(67, 4), marcato: true })!.composition)).toEqual({
+            pitch: spell(67),
+            marcato: true,
+        });
+        expect(written(placeNote(placed, at(0, 0, 0), accented)!.composition, 0, 0)).toBe('60,64/q 55,59,62/q 60,64,67/h');
+    });
+
     it('respells a note placed again with another spelling, rather than removing it', () => {
         const fFlat: Phantom = { ...phantom(64, 4), pitch: pitch('Fb4') };
         const placed = placeNote(exampleComposition, at(0, 0, 0), fFlat)!;
@@ -165,6 +178,73 @@ describe('toggleArpeggios', () => {
             { base: 4, dots: 0 },
         ]);
         expect(split.map((piece) => piece.kind === 'chord' && !!piece.arpeggio)).toEqual([true, false]);
+    });
+});
+
+describe('toggleSlurs', () => {
+    const leaf = (measure: number, leaf: number) => ({ part: 0, measure, voice: 0, leaf });
+
+    it('slurs every chord but the last on to the next, and takes the slur off again', () => {
+        const slurred = toggleSlurs(exampleComposition, [leaf(0, 0), leaf(0, 1), leaf(0, 2)])!;
+        expect(written(slurred, 0, 0)).toBe('60,64,67/q( 55,59,62/q( 60,64,67/h');
+        expect(written(toggleSlurs(slurred, [leaf(0, 0), leaf(0, 1), leaf(0, 2)])!, 0, 0)).toBe('60,64,67/q 55,59,62/q 60,64,67/h');
+    });
+
+    it('slurs across a barline', () => {
+        const slurred = toggleSlurs(exampleComposition, [leaf(0, 2), leaf(1, 0)])!;
+        expect(written(slurred, 0, 0)).toBe('60,64,67/q 55,59,62/q 60,64,67/h(');
+        expect(written(slurred, 0, 1)).not.toContain('(');
+    });
+
+    it('needs two chords to join', () => {
+        expect(toggleSlurs(exampleComposition, [leaf(0, 0)])).toBeUndefined();
+        expect(toggleSlurs(exampleComposition, [leaf(2, 2), leaf(2, 3)])).toBeUndefined();
+    });
+
+    it('stays slurred as notes are added and taken away', () => {
+        const slurred = toggleSlurs(exampleComposition, [leaf(0, 0), leaf(0, 1)])!;
+        expect(written(placeNote(slurred, at(0, 0, 0), phantom(72, 4))!.composition, 0, 0)).toBe('60,64,67,72/q( 55,59,62/q 60,64,67/h');
+    });
+
+    it('keeps the slur on every piece of a split chord', () => {
+        const half: Duration = { base: 2, dots: 0 };
+        const quarter: Duration = { base: 4, dots: 0 };
+        const split = pieces({ kind: 'chord', duration: half, notes: [{ pitch: spell(60) }], slur: true }, [quarter, quarter]);
+        expect(split.map((piece) => piece.kind === 'chord' && !!piece.slur)).toEqual([true, true]);
+    });
+});
+
+describe('toggleArticulations', () => {
+    const leaf = (measure: number, leaf: number) => ({ part: 0, measure, voice: 0, leaf });
+    const marks = (composition: Composition, index: number) =>
+        (composition.parts[0]!.measures[0]!.voices[0]!.events[index] as Chord).notes.map(({ accent, marcato }) => ({ accent, marcato }));
+
+    it('marks every note of the chords, and unmarks them when every one already is', () => {
+        const accented = toggleArticulations(exampleComposition, [leaf(0, 0), leaf(0, 1)], 'accent')!;
+        expect(marks(accented, 0)).toEqual(Array(3).fill({ accent: true }));
+        expect(marks(accented, 1)).toEqual(Array(3).fill({ accent: true }));
+        const plain = toggleArticulations(accented, [leaf(0, 0), leaf(0, 1)], 'accent')!;
+        expect(marks(plain, 0)).toEqual(Array(3).fill({}));
+    });
+
+    it('replaces an accent with a marcato', () => {
+        const accented = toggleArticulations(exampleComposition, [leaf(0, 0)], 'accent')!;
+        expect(marks(toggleArticulations(accented, [leaf(0, 0)], 'marcato')!, 0)).toEqual(Array(3).fill({ marcato: true }));
+    });
+
+    it('does nothing with only rests', () => {
+        expect(toggleArticulations(exampleComposition, [leaf(2, 3)], 'tenuto')).toBeUndefined();
+    });
+
+    it('keeps an accent on the first piece of a split note, and staccato and tenuto on the last', () => {
+        const half: Duration = { base: 2, dots: 0 };
+        const quarter: Duration = { base: 4, dots: 0 };
+        const note = { pitch: spell(60), accent: true, staccato: true, tenuto: true };
+        const split = pieces({ kind: 'chord', duration: half, notes: [note] }, [quarter, quarter]);
+        expect(split.map((piece) => piece.kind === 'chord' && piece.notes)).toEqual([
+            [{ pitch: spell(60), tie: true, accent: true }],
+            [{ pitch: spell(60), staccato: true, tenuto: true }],
+        ]);
     });
 });
 

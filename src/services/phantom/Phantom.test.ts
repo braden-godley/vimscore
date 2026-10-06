@@ -8,12 +8,13 @@ import {
     stepDuration,
     stepScale,
     toggleDot,
-    toggleStaccato,
+    toggleArticulation,
 } from './Phantom';
 import { pitch } from '../pitch/Pitch';
 
 const at = (part: number, measure: number, leaf: number, note = 0) => ({ part, measure, voice: 0, leaf, note });
-const quarterC: Phantom = { pitch: pitch('C4'), duration: { base: 4, dots: 0 }, staccato: false };
+const quarterC: Phantom = { pitch: pitch('C4'), duration: { base: 4, dots: 0 } };
+const toggleStaccato = (phantom: Phantom) => toggleArticulation(phantom, 'staccato');
 
 describe('phantomAt', () => {
     it('copies the selected note and its written value', () => {
@@ -67,5 +68,18 @@ describe('adjusting', () => {
         expect(toggleDot(toggleDot(quarterC))).toEqual(quarterC);
         expect(toggleStaccato(quarterC).staccato).toBe(true);
         expect(toggleStaccato(toggleStaccato(quarterC))).toEqual(quarterC);
+    });
+
+    it('sets a value with no accent or tenuto either', () => {
+        const marked = toggleArticulation(toggleArticulation(quarterC, 'accent'), 'tenuto');
+        expect(setDuration(marked, 8)).toEqual({ ...quarterC, duration: { base: 8, dots: 0 } });
+    });
+
+    it('swaps an accent for a marcato and back, keeping the others', () => {
+        const accented = toggleArticulation(toggleStaccato(quarterC), 'accent');
+        const marcato = toggleArticulation(accented, 'marcato');
+        expect(marcato).toEqual({ ...quarterC, staccato: true, marcato: true });
+        expect(toggleArticulation(marcato, 'accent')).toEqual({ ...quarterC, staccato: true, accent: true });
+        expect(toggleArticulation(marcato, 'marcato')).toEqual({ ...quarterC, staccato: true });
     });
 });

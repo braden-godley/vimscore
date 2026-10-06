@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { exampleComposition } from '../composition/example-composition';
 import { Instrument } from '../instrument/Instrument';
 import { Synth } from '../synth/Synth';
-import { ARPEGGIO_STEP } from '../timeline/timeline';
+import { ARPEGGIO_STEP, NOTE_LENGTH } from '../timeline/timeline';
 import { Player } from './Player';
 
 /** Just enough of an AudioContext for the scheduler: a clock that stands still at zero */
@@ -55,7 +55,8 @@ describe('Player.play', () => {
         const { played } = playFrom(2.5);
         const bass = played.find(({ pitch }) => pitch === 43);
         expect(bass?.when).toBeCloseTo(0.05);
-        expect(bass?.duration).toBeCloseTo(1);
+        // Half a second in, of 1.5s let go just short of the end
+        expect(bass?.duration).toBeCloseTo(1.5 * NOTE_LENGTH - 0.5);
     });
 });
 

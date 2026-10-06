@@ -73,6 +73,31 @@ describe('writeScore and readScore', () => {
         expect(writeScore(slid)).toContain('{ "pitch": "G4", "glissando": true }');
     });
 
+    it('keep slurs', () => {
+        const melody = exampleComposition.parts[0]!;
+        const [first, ...rest] = melody.measures[0]!.voices[0]!.events;
+        const slurred = {
+            ...exampleComposition,
+            parts: [{ ...melody, measures: [{ voices: [{ events: [{ ...first!, slur: true }, ...rest] }] }, ...melody.measures.slice(1)] }],
+        };
+        expect(readScore(writeScore(slurred))).toEqual(slurred);
+        expect(writeScore(slurred)).toContain('"duration": "q", "slur": true }');
+    });
+
+    it('keep articulations', () => {
+        const melody = exampleComposition.parts[0]!;
+        const [first, ...rest] = melody.measures[0]!.voices[0]!.events;
+        if (first?.kind !== 'chord') throw new Error('expected a chord');
+        const marks = [{ tenuto: true }, { accent: true }, { marcato: true, staccato: true }];
+        const marked = { ...first, notes: first.notes.map((note, i) => ({ ...note, ...marks[i] })) };
+        const articulated = {
+            ...exampleComposition,
+            parts: [{ ...melody, measures: [{ voices: [{ events: [marked, ...rest] }] }, ...melody.measures.slice(1)] }],
+        };
+        expect(readScore(writeScore(articulated))).toEqual(articulated);
+        expect(writeScore(articulated)).toContain('{ "pitch": "G4", "staccato": true, "marcato": true }');
+    });
+
     it('write short values, one event per line', () => {
         const text = writeScore(exampleComposition);
         expect(text).toContain('"format": "vimscore"');

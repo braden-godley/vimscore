@@ -62,11 +62,21 @@ EDITING IN NORMAL MODE
                       seven in the time of four. It becomes the first of them, with rests
                       for the others. g4 needs a dotted value, like a dotted quarter for four
                       eighths. Deleting every note in a tuplet takes it away again
-    gs                Make the cursor's chord staccato, or full length again
+    gs                Make the cursor's chord staccato, played half length, or full length again
+    g-                Tenuto on the cursor's chord, or off. Held its full length, where other
+                      notes are let go just before the next (unless under a slur);
+                      with staccato too, it's played three quarters of its length
+    g>                Accent the cursor's chord, struck louder, or take the accent off
+    gv                Marcato on the cursor's chord, struck louder than an accent and played a
+                      little short (unless tenuto too), or off. A chord has an accent or a
+                      marcato, so each replaces the other
     gt                Tie the cursor's note to the same note in the next chord, or untie it.
                       Nothing is joined if the next chord doesn't have it
     ga                Roll the cursor's chord as an arpeggio, or play it straight again
     gl                Slide the cursor's note on to the next chord (a glissando), or stop it
+    (                 Slur the cursor's chord on to the next, or with a count that many chords
+                      on, across barlines; again over the same chords takes the slur off.
+                      Notes under a slur with no other marking are held their full length
     <  >              A crescendo or diminuendo over the cursor's chord, and count - 1 after it
     rs  re            Put a repeat start or end barline at the cursor's measure, or take it away
     dd                Delete the cursor's note, keeping it to put back
@@ -98,7 +108,8 @@ INSERT MODES
     <C-h>  <C-l>      Back or on a chord or rest, across barlines, keeping the phantom
     <S-1> .. <S-6>    Pick a value outright, as in normal mode
     w                 Dot the value, or not
-    s                 Make the phantom staccato, or not
+    s  -  >  v        Make the phantom staccato, tenuto, accented or marcato, or not; as gs g-
+                      g> gv in normal mode. A new value starts with none
     m                 Switch between insert and melody insert
     u                 Take back the last note entered
     z                 Show every staff at once, or back to the normal size
@@ -114,6 +125,9 @@ VISUAL MODES
     J  K              Move every selected note down or up a semitone
     gs  ga  gl  gt    Staccato, arpeggio, glissando or a tie on every selected chord, or off if
                       they all have it already
+    g-  g>  gv        Tenuto, an accent or marcato on every selected chord, or off if they all
+                      have it already
+    (                 Slur the selected chords together, in each voice, or take the slur off
     <  >              A crescendo or diminuendo over the selection
     <Esc>             Back to normal mode
 

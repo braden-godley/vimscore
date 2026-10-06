@@ -29,6 +29,7 @@ import { Cursor } from '../../../services/cursor/Cursor';
 import { Chord, Event, Rest, glissandoTarget, leaves } from '../../../services/event/Event';
 import { ZERO, add, toNumber } from '../../../services/fraction/Fraction';
 import { ResolvedMeasure, TimeSignature, resolveMeasures } from '../../../services/measure/Measure';
+import { ARTICULATIONS, Articulation as ArticulationName } from '../../../services/note/Note';
 import { Clef } from '../../../services/part/Part';
 import { REST_KEYS, durationCode, keySpec, pitchKey } from './notation';
 import { midi } from '../../../services/pitch/Pitch';
@@ -54,6 +55,11 @@ const HAIRPIN_HALF_HEIGHT = 5;
 const HAIRPIN_GAP = 4;
 /** Room between a glissando's line and the noteheads at its ends */
 const GLISSANDO_GAP = 3;
+/** Room between a slur's ends and the noteheads they curve from */
+const SLUR_GAP = 5;
+/** How far a slur bows out past the notes under it, at most, and how thick it is in the middle */
+const SLUR_MAX_HEIGHT = 12;
+const SLUR_THICKNESS = 1.8;
 /** How far above the top stave line tempo marks sit, in VexFlow's offset from the stave */
 const TEMPO_Y = -10;
 
@@ -124,6 +130,16 @@ export function leafElementIdPrefix({ part, measure, voice, leaf }: Omit<Cursor,
     return `vf-note-${part}-${measure}-${voice}-${leaf}-`;
 }
 
+/** VexFlow's codes for the marks */
+const ARTICULATION_CODES: Record<ArticulationName, string> = { staccato: 'a.', tenuto: 'a-', accent: 'a>', marcato: 'a^' };
+
+/** Marks a chord with the articulations any of its notes have, nearest the notehead first */
+export function addArticulations(note: StaveNote, marked: Partial<Record<ArticulationName, boolean>>[]) {
+    for (const articulation of ARTICULATIONS) {
+        if (marked.some((n) => n[articulation])) note.addModifier(new Articulation(ARTICULATION_CODES[articulation]), 0);
+    }
+}
+
 /** Puts articulations on the notehead side, away from the stem, once the stem direction is final */
 export function placeArticulations(note: StaveNote) {
     const position = note.getStemDirection() === Stem.UP ? Modifier.Position.BELOW : Modifier.Position.ABOVE;
@@ -152,7 +168,7 @@ function makeNote(event: Chord | Rest, clef: Clef, stemDirection: number | undef
         stemDirection,
     });
     if (duration.dots) Dot.buildAndAttach([note], { all: true });
-    if (event.kind === 'chord' && event.notes.some((n) => n.staccato)) note.addModifier(new Articulation('a.'), 0);
+    if (event.kind === 'chord') addArticulations(note, event.notes);
     // Only this chord's notes, not another voice's sharing the stave
     if (event.kind === 'chord' && event.arpeggio) {
         note.addModifier(new Stroke(Stroke.Type.ARPEGGIO_DIRECTIONLESS, { allVoices: false }), 0);
@@ -476,6 +492,7 @@ export function renderScore(target: ScoreTarget, composition: Composition, cache
 
     drawTies(ctx, composition, columns, offsets);
     drawGlissandi(ctx, composition, columns, offsets);
+    drawSlurs(ctx, composition, columns, offsets);
     drawVolumes(ctx, composition, layout);
     drawHairpins(ctx, composition, layout);
     if (svg) ctx.closeGroup();
@@ -639,4 +656,54 @@ function drawGlissandi(ctx: RenderContext, composition: Composition, columns: Co
         });
     }
     ctx.restore();
+}
+
+type Placed = ReturnType<typeof voiceSequences>[number][number];
+
+/**
+ * A curve over each run of chords slurred together in a voice, across barlines. It goes under
+ * the noteheads when the first chord's stem is up, over them otherwise, clearing the notes between.
+ */
+function drawSlurs(ctx: RenderContext, composition: Composition, columns: Column[], offsets: number[]) {
+    for (const sequence of voiceSequences(composition, columns, offsets)) {
+        let start: number | undefined;
+        sequence.forEach(({ event }, i) => {
+            const continues = event.kind === 'chord' && event.slur && sequence[i + 1]?.event.kind === 'chord';
+            if (continues) {
+                start ??= i;
+                return;
+            }
+            if (start !== undefined) drawSlur(ctx, sequence.slice(start, i + 1));
+            start = undefined;
+        });
+    }
+}
+
+function drawSlur(ctx: RenderContext, run: Placed[]) {
+    const first = run[0]!;
+    const last = run.at(-1)!;
+    // 1 bows down, -1 up
+    const sign = first.note.getStemDirection() === Stem.UP ? 1 : -1;
+    const edge = ({ note }: Placed) => (sign > 0 ? Math.max(...note.getYs()) : Math.min(...note.getYs())) + sign * SLUR_GAP;
+    const middle = ({ note, shift }: Placed) => shift + (note.getNoteHeadBeginX() + note.getNoteHeadEndX()) / 2;
+
+    const [x1, x2] = [middle(first), middle(last)];
+    const [y1, y2] = [edge(first), edge(last)];
+    if (x2 <= x1) return;
+    const outermost = (sign > 0 ? Math.max : Math.min)(y1, y2, ...run.slice(1, -1).map(edge));
+    const height = Math.min(SLUR_MAX_HEIGHT, 4 + (x2 - x1) * 0.05);
+    const curve = (bow: number) => {
+        const y = outermost + sign * bow;
+        return [x1 + (x2 - x1) / 4, y, x2 - (x2 - x1) / 4, y] as const;
+    };
+
+    // Two curves, closed and filled, so it's thicker in the middle than at the ends
+    const [ax, ay, bx, by] = curve(height);
+    const [cx, cy, dx, dy] = curve(height - SLUR_THICKNESS);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.bezierCurveTo(ax, ay, bx, by, x2, y2);
+    ctx.bezierCurveTo(dx, dy, cx, cy, x1, y1);
+    ctx.closePath();
+    ctx.fill();
 }

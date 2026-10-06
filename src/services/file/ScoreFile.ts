@@ -15,7 +15,7 @@ import { Chord, Event } from '../event/Event';
 import { Fraction, fraction } from '../fraction/Fraction';
 import { Hairpin, MeasureInfo, PartMeasure, Tempo, TimeSignature, VolumeMark } from '../measure/Measure';
 import { C_MAJOR, KeySignature } from '../key/KeySignature';
-import { Note } from '../note/Note';
+import { ARTICULATIONS, Note, articulationsOf } from '../note/Note';
 import { Clef, Part } from '../part/Part';
 import { Pitch, parsePitch, pitchName, spell } from '../pitch/Pitch';
 import { Soundfont } from '../soundfont/Soundfont';
@@ -45,10 +45,12 @@ const fractionText = ({ num, den }: Fraction) => `${num}/${den}`;
 
 // Writing
 
-function noteData({ pitch, tie, staccato, glissando }: Note): unknown {
+function noteData(note: Note): unknown {
+    const { pitch, tie, glissando } = note;
     const name = pitchName(pitch);
-    if (!tie && !staccato && !glissando) return name;
-    return { pitch: name, ...(tie && { tie }), ...(staccato && { staccato }), ...(glissando && { glissando }) };
+    const articulations = articulationsOf(note);
+    if (!tie && !glissando && Object.keys(articulations).length === 0) return name;
+    return { pitch: name, ...(tie && { tie }), ...articulations, ...(glissando && { glissando }) };
 }
 
 function eventData(event: Event): unknown {
@@ -58,6 +60,7 @@ function eventData(event: Event): unknown {
                 chord: event.notes.map(noteData),
                 duration: durationText(event.duration),
                 ...(event.arpeggio && { arpeggio: true }),
+                ...(event.slur && { slur: true }),
             };
         case 'rest':
             return { rest: durationText(event.duration) };
@@ -195,7 +198,7 @@ function readNote(value: unknown, path: Path, key: KeySignature): Note {
     const data = value;
     const note: Note = { pitch: readPitch(data['pitch'], `${path}.pitch`, key) };
     if (data['tie'] === true) note.tie = true;
-    if (data['staccato'] === true) note.staccato = true;
+    for (const articulation of ARTICULATIONS) if (data[articulation] === true) note[articulation] = true;
     if (data['glissando'] === true) note.glissando = true;
     return note;
 }
@@ -207,6 +210,7 @@ function readEvent(value: unknown, path: Path, key: KeySignature): Event {
         if (notes.length === 0) fail(`${path}.chord`, 'a chord needs at least one note');
         const chord: Chord = { kind: 'chord', notes, duration: readDuration(data['duration'], `${path}.duration`) };
         if (data['arpeggio'] === true) chord.arpeggio = true;
+        if (data['slur'] === true) chord.slur = true;
         return chord;
     }
     if ('rest' in data) return { kind: 'rest', duration: readDuration(data['rest'], `${path}.rest`) };

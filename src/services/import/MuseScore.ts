@@ -2,17 +2,18 @@
  * Reads MuseScore files (`.mscz`, a zip, or the `.mscx` XML inside it) from MuseScore 3 and 4.
  *
  * Each MuseScore staff becomes a part here, playing its MuseScore part's instrument. Notes,
- * rests, tuplets, ties, staccato, arpeggios, glissandi and voices come across, as do time signatures, key
- * signatures, tempos, repeats, dynamics (as volume markings), hairpins, and the mixer's volumes:
- * MuseScore 3's channel volumes, or MuseScore 4's audio settings. What the model has no
- * place for yet, like grace notes, slurs, lyrics and voltas, is left out.
+ * rests, tuplets, ties, slurs, articulations (staccato, tenuto, accent, marcato), arpeggios,
+ * glissandi and voices come across, as do time signatures, key signatures, tempos, repeats, dynamics (as
+ * volume markings), hairpins, and the mixer's volumes: MuseScore 3's channel volumes, or
+ * MuseScore 4's audio settings. What the model has no
+ * place for yet, like grace notes, lyrics and voltas, is left out.
  */
 
 import { DOMParser, Element } from '@xmldom/xmldom';
 import { unzipSync, strFromU8 } from 'fflate';
 import { Composition } from '../composition/Composition';
 import { Duration, durationsFilling, restsFilling } from '../duration/Duration';
-import { Chord, Event, Rest, Tuplet } from '../event/Event';
+import { Chord, Event, Rest, Tuplet, leaves } from '../event/Event';
 import { Fraction, ZERO, add, compare, fraction, mul, sub } from '../fraction/Fraction';
 import { generalMidiName } from '../instrument/Instrument';
 import { MAX_MASTER_VOLUME, MAX_PART_VOLUME, NORMAL_MIX } from '../edit/Mixer';
@@ -27,7 +28,7 @@ import {
     VolumeMark,
     measureLength,
 } from '../measure/Measure';
-import { Note } from '../note/Note';
+import { Articulation, Note, notePiece, withArticulation } from '../note/Note';
 import { fromTpc, spell } from '../pitch/Pitch';
 import { Clef, Part } from '../part/Part';
 
@@ -248,21 +249,40 @@ function writtenDuration(element: Element): Duration | Fraction | undefined {
 
 const isDuration = (value: Duration | Fraction): value is Duration => 'base' in value;
 
+/** The words in MuseScore's articulation names, like `articAccentStaccatoAbove`, that we have */
+const ARTICULATION_WORDS: Record<string, Articulation> = {
+    Staccato: 'staccato',
+    // Played short like a staccato, which is as near as the model gets
+    Staccatissimo: 'staccato',
+    Tenuto: 'tenuto',
+    Accent: 'accent',
+    Marcato: 'marcato',
+};
+
+/**
+ * The articulations on a chord. MuseScore names each mark for the symbols in it, some holding
+ * two, like `articTenutoStaccatoBelow`; ones the model has no place for are left out.
+ */
+function readArticulations(chord: Element): Articulation[] {
+    return children(chord, 'Articulation').flatMap((articulation) => {
+        const name = /^artic(.*?)(Above|Below)?$/.exec(text(articulation, 'subtype') ?? '')?.[1] ?? '';
+        return (name.match(/[A-Z][a-z]*/g) ?? []).flatMap((word) => ARTICULATION_WORDS[word] ?? []);
+    });
+}
+
 function readNotes(chord: Element): Note[] {
-    const staccato = children(chord, 'Articulation').some((articulation) =>
-        (text(articulation, 'subtype') ?? '').startsWith('articStaccato'),
-    );
+    const articulations = readArticulations(chord);
     return children(chord, 'Note').map((element) => {
         const sounding = Math.max(0, Math.min(127, number(element, 'pitch') ?? 60));
         // MuseScore spells the note by its tonal pitch class, for concert pitch
         const tpc = number(element, 'tpc');
-        const note: Note = { pitch: (tpc !== undefined && fromTpc(tpc, sounding)) || spell(sounding) };
+        let note: Note = { pitch: (tpc !== undefined && fromTpc(tpc, sounding)) || spell(sounding) };
         // A tie or glissando is a spanner on its first note, pointing on to the next
         const startsSpanner = (type: string) =>
             children(element, 'Spanner').some((spanner) => spanner.getAttribute('type') === type && child(spanner, 'next'));
         if (startsSpanner('Tie')) note.tie = true;
         if (startsSpanner('Glissando')) note.glissando = true;
-        if (staccato) note.staccato = true;
+        for (const articulation of articulations) note = withArticulation(note, articulation, true);
         return note;
     });
 }
@@ -307,6 +327,24 @@ function readHairpin(spanner: Element, offset: Fraction): HairpinStart | undefin
     return { offset, kind, measures: number(location, 'measures') ?? 0, fractions: parseFraction(text(location, 'fractions')) ?? ZERO };
 }
 
+/** Where a slur starts in its measure, and where it ends relative to that, as for a hairpin */
+interface SlurStart {
+    offset: Fraction;
+    measures: number;
+    fractions: Fraction;
+}
+
+/**
+ * A slur's start, from the spanner MuseScore writes in the chord it starts on (or just before
+ * it); its end is a spanner pointing back
+ */
+function readSlur(spanner: Element, offset: Fraction): SlurStart | undefined {
+    const next = spanner.getAttribute('type') === 'Slur' ? child(spanner, 'next') : undefined;
+    const location = next && child(next, 'location');
+    if (!location) return undefined;
+    return { offset, measures: number(location, 'measures') ?? 0, fractions: parseFraction(text(location, 'fractions')) ?? ZERO };
+}
+
 /** What one `<voice>` element held */
 interface VoiceContents {
     events: Event[];
@@ -316,10 +354,11 @@ interface VoiceContents {
     clef?: Clef;
     volumes: VolumeMark[];
     hairpins: HairpinStart[];
+    slurs: SlurStart[];
 }
 
 function readVoice(voice: Element, length: Fraction): VoiceContents {
-    const contents: VoiceContents = { events: [], volumes: [], hairpins: [] };
+    const contents: VoiceContents = { events: [], volumes: [], hairpins: [], slurs: [] };
     /** Open tuplets, innermost last; events go into the innermost */
     const tuplets: { tuplet: Tuplet; scale: Fraction }[] = [];
     let position: Fraction = ZERO;
@@ -366,6 +405,8 @@ function readVoice(voice: Element, length: Fraction): VoiceContents {
             case 'Spanner': {
                 const hairpin = readHairpin(element, position);
                 if (hairpin) contents.hairpins.push(hairpin);
+                const slur = readSlur(element, position);
+                if (slur) contents.slurs.push(slur);
                 break;
             }
             case 'location': {
@@ -408,13 +449,18 @@ function readVoice(voice: Element, length: Fraction): VoiceContents {
                 const written = writtenDuration(element);
                 const notes = readNotes(element);
                 if (!written || notes.length === 0) break;
+                for (const spanner of children(element, 'Spanner')) {
+                    const slur = readSlur(spanner, position);
+                    if (slur) contents.slurs.push(slur);
+                }
                 const arpeggio = isArpeggio(element);
                 place(
                     (duration, first, last) => ({
                         kind: 'chord',
                         duration,
                         // Pieces of a split note tie together; the last keeps the note's own tie
-                        notes: last ? notes : notes.map(({ pitch }) => ({ pitch, tie: true })),
+                        // and the first its accent or marcato
+                        notes: notes.map((note) => notePiece(note, first, last)),
                         // Only the first piece is struck, so only it rolls
                         ...(arpeggio && first && { arpeggio: true }),
                     }),
@@ -453,6 +499,8 @@ function convertScore(score: Element): Composition {
     const clefs: (Clef | undefined)[] = staves.map(() => undefined);
     /** Each staff's hairpins by the measure they start in, placed once every measure's start is known */
     const hairpinStarts: HairpinStart[][][] = staves.map(() => []);
+    /** Each staff's slurs by the measure they start in, likewise */
+    const slurStarts: (SlurStart & { voice: number })[][][] = staves.map(() => []);
     /** Where each measure starts, in whole notes, and finally where the last one ends */
     const measureStarts: Fraction[] = [ZERO];
     let timeSignature: TimeSignature = { beats: 4, beatValue: 4 };
@@ -476,7 +524,7 @@ function convertScore(score: Element): Composition {
         elements.forEach((measure, s) => {
             const voices = (measure ? children(measure, 'voice') : []).map((voice) => readVoice(voice, length));
             // A staff missing the measure gets a measure of rest
-            if (voices.length === 0) voices.push({ events: rests(length), volumes: [], hairpins: [] });
+            if (voices.length === 0) voices.push({ events: rests(length), volumes: [], hairpins: [], slurs: [] });
 
             for (const voice of voices) {
                 if (voice.keySignature && !info.keySignature) info.keySignature = voice.keySignature;
@@ -485,6 +533,7 @@ function convertScore(score: Element): Composition {
             }
             const volumes = voices.flatMap((voice) => voice.volumes).sort((a, b) => compare(a.offset, b.offset));
             hairpinStarts[s]!.push(voices.flatMap((voice) => voice.hairpins));
+            slurStarts[s]!.push(voices.flatMap((voice, v) => voice.slurs.map((slur) => ({ ...slur, voice: v }))));
             partMeasures[s]!.push({
                 voices: voices.map(({ events }) => ({ events })),
                 ...(volumes.length > 0 && { volumes: dedupeByOffset(volumes) }),
@@ -516,6 +565,12 @@ function convertScore(score: Element): Composition {
         }),
     );
 
+    slurStarts.forEach((measures, s) =>
+        measures.forEach((starts, m) => {
+            for (const slur of starts) slurChords(partMeasures[s]!, slur, m, measureStarts);
+        }),
+    );
+
     const parts: Part[] = staves.map((staff, s) => {
         const setup = setups.get(staff.getAttribute('id') ?? '') ?? { name: `Staff ${s + 1}`, clef: 'treble', program: 0, drums: false };
         return {
@@ -529,6 +584,29 @@ function convertScore(score: Element): Composition {
 
     const title = children(score, 'metaTag').find((tag) => tag.getAttribute('name') === 'workTitle')?.textContent?.trim();
     return { title: title || 'Untitled', measures: infos, parts, soundfonts: [] };
+}
+
+/**
+ * Marks every chord of the slur's voice from where it starts to just before where it ends as
+ * slurred on to the next, so the chord it ends on is the last under it
+ */
+function slurChords(
+    partMeasures: PartMeasure[],
+    { offset, measures, fractions, voice }: SlurStart & { voice: number },
+    m: number,
+    measureStarts: Fraction[],
+) {
+    const last = partMeasures.length - 1;
+    const endMeasure = Math.max(0, Math.min(last, m + measures));
+    const start = add(measureStarts[m]!, offset);
+    const end = add(measureStarts[endMeasure]!, add(offset, fractions));
+    for (let measure = m; measure <= endMeasure; measure++) {
+        let time = measureStarts[measure]!;
+        for (const { event, length } of leaves(partMeasures[measure]?.voices[voice]?.events ?? [])) {
+            if (event.kind === 'chord' && compare(time, start) >= 0 && compare(time, end) < 0) event.slur = true;
+            time = add(time, length);
+        }
+    }
 }
 
 /** Voices can each carry the same dynamic or hairpin; one at a moment is enough */

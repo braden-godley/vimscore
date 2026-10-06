@@ -21,9 +21,12 @@ describe('durationCode', () => {
 
 describe('describePhantom', () => {
     it('names the pitch as spelled, value and articulation', () => {
-        expect(describePhantom({ pitch: pitch('C4'), duration: { base: 4, dots: 0 }, staccato: false })).toBe('C4 quarter');
+        expect(describePhantom({ pitch: pitch('C4'), duration: { base: 4, dots: 0 } })).toBe('C4 quarter');
         expect(describePhantom({ pitch: pitch('A#4'), duration: { base: 2, dots: 1 }, staccato: true })).toBe('A♯4 dotted half staccato');
-        expect(describePhantom({ pitch: pitch('Eb4'), duration: { base: 4, dots: 0 }, staccato: false })).toBe('E♭4 quarter');
+        expect(describePhantom({ pitch: pitch('Eb4'), duration: { base: 4, dots: 0 } })).toBe('E♭4 quarter');
+        expect(describePhantom({ pitch: pitch('G4'), duration: { base: 8, dots: 0 }, tenuto: true, marcato: true })).toBe(
+            'G4 eighth tenuto marcato',
+        );
     });
 });
 
