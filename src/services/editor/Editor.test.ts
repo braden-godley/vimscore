@@ -364,6 +364,75 @@ describe('gt', () => {
     });
 });
 
+describe('g3 to g7', () => {
+    const events = (result: KeyResult) => result.composition?.parts[0]!.measures[0]!.voices[0]!.events;
+
+    it("makes the cursor's chord the first of a triplet in the same time", () => {
+        const made = type(['g', '3']);
+        expect(events(made)?.[0]).toEqual({
+            kind: 'tuplet',
+            actual: 3,
+            normal: 2,
+            events: [
+                { ...(exampleComposition.parts[0]!.measures[0]!.voices[0]!.events[0] as Chord), duration: { base: 8, dots: 0 } },
+                { kind: 'rest', duration: { base: 8, dots: 0 } },
+                { kind: 'rest', duration: { base: 8, dots: 0 } },
+            ],
+        });
+        expect(events(made)?.slice(1)).toEqual(exampleComposition.parts[0]!.measures[0]!.voices[0]!.events.slice(1));
+    });
+
+    /** Types keys on into the score each one leaves */
+    const edit = (result: KeyResult, keys: string[]) =>
+        keys.reduce((last, key) => {
+            const next = handleKey(last.composition!, last.state, key);
+            return { ...next, composition: next.composition ?? last.composition };
+        }, result);
+    const kinds = (result: KeyResult) => {
+        const first = events(result)?.[0];
+        return first?.kind === 'tuplet' ? first.events.map(({ kind }) => kind) : first?.kind;
+    };
+
+    it('fills in from insert mode', () => {
+        expect(kinds(edit(type(['g', '3']), ['a', 'k', '<Space>', '<Space>']))).toEqual(['chord', 'chord', 'rest']);
+    });
+
+    it('goes away when its notes are all deleted', () => {
+        const emptied = edit(type(['g', '3']), ['d', 'd', 'd', 'd', 'd', 'd']);
+        expect(events(emptied)?.[0]).toEqual({ kind: 'rest', duration: { base: 4, dots: 0 } });
+    });
+
+    it('makes quintuplets, sextuplets and septuplets in the time of four', () => {
+        for (const actual of [5, 6, 7]) {
+            const first = events(type(['g', String(actual)]))?.[0];
+            expect(first).toMatchObject({ kind: 'tuplet', actual, normal: 4 });
+            expect(first?.kind === 'tuplet' && first.events.map((event) => event.kind !== 'tuplet' && event.duration)).toEqual(
+                Array(actual).fill({ base: 16, dots: 0 }),
+            );
+        }
+    });
+
+    it('makes a quadruplet in the time of three from a dotted value only', () => {
+        expect(type(['g', '4']).composition).toBeUndefined();
+        const first = events(edit(type(['g', 'w']), ['g', '4']))?.[0];
+        expect(first).toMatchObject({ kind: 'tuplet', actual: 4, normal: 3 });
+        expect(first?.kind === 'tuplet' && first.events.map((event) => event.kind !== 'tuplet' && event.duration)).toEqual(
+            Array(4).fill({ base: 8, dots: 0 }),
+        );
+    });
+
+    it('keeps a dot, and refuses a value too short to halve', () => {
+        const dotted = edit(type(['g', 'w']), ['g', '3']);
+        const first = events(dotted)?.[0];
+        expect(first?.kind === 'tuplet' && first.events.map((event) => event.kind !== 'tuplet' && event.duration)).toEqual(
+            Array(3).fill({ base: 8, dots: 1 }),
+        );
+        // Eighths become 16ths, 32nds, then 64ths, which can't be halved
+        const shortest = edit(dotted, ['g', '3', 'g', '3', 'g', '3']);
+        expect(handleKey(shortest.composition!, handleKey(shortest.composition!, shortest.state, 'g').state, '3').composition).toBeUndefined();
+    });
+});
+
 describe('placing notes', () => {
     it('plays the chord the note joined', () => {
         expect(type(['i', 'k', '<Space>']).effect).toMatchObject({ kind: 'preview', pitches: [60, 64, 67, 69] });

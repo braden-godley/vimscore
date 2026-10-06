@@ -8,6 +8,8 @@ import { Composition, withTrailingEmptyMeasure } from '../composition/Compositio
 import {
     deleteNote,
     deleteSelection,
+    TUPLET_NORMALS,
+    makeTuplet,
     placeNote,
     placeRest,
     setLeafDuration,
@@ -271,6 +273,14 @@ const toggleSelectedTies: Action = (state, composition) => {
     const edited = selection && toggleTies(composition, selectedLeaves(composition, selection));
     return edited ? { state, composition: edited } : { state };
 };
+
+/** `g3` to `g7`: turns the cursor's chord or rest into the first of a tuplet in the same time */
+const tupletAtCursor =
+    (actual: number): Action =>
+    (state, composition) => {
+        const edited = makeTuplet(composition, state.cursor, actual);
+        return edited ? { state, composition: edited } : { state };
+    };
 
 /**
  * Puts a hairpin over a selection, in each of its parts, or takes it off if it's already there.
@@ -536,6 +546,9 @@ NUMBERED_VALUES.forEach((base, i) => {
     PHANTOM_KEYS[`<S-${i + 1}>`] = (phantom) => setDuration(phantom, base);
     NORMAL_ACTIONS[`<S-${i + 1}>`] = changeDuration(() => ({ base, dots: 0 }));
 });
+
+// g3 makes a triplet, g4 a quadruplet, up to g7 for a septuplet
+for (const actual of Object.keys(TUPLET_NORMALS)) NORMAL_ACTIONS[`g${actual}`] = tupletAtCursor(Number(actual));
 
 /**
  * Places the phantom and plays the chord it joined. Melody mode then moves on to the next chord

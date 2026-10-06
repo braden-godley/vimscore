@@ -6,8 +6,8 @@
 import { Composition } from '../composition/Composition';
 import { Cursor, clampCursor, cursorAtOffset, cursorOffset, voiceLeaves, withNote } from '../cursor/Cursor';
 import { Duration, durationValue, durationsFilling, restsFilling } from '../duration/Duration';
-import { Chord, Event, Rest, eventsLength, mapLeaves } from '../event/Event';
-import { Fraction, ZERO, add, compare, sub } from '../fraction/Fraction';
+import { Chord, Event, Rest, Tuplet, eventsLength, mapLeaves } from '../event/Event';
+import { Fraction, ZERO, add, compare, fraction, mul, sub } from '../fraction/Fraction';
 import { resolveMeasures } from '../measure/Measure';
 import { Note } from '../note/Note';
 import { Phantom } from '../phantom/Phantom';
@@ -470,6 +470,41 @@ export function setLeafDuration(composition: Composition, cursor: Cursor, durati
     const event = voiceLeaves(composition, cursor.part, cursor.measure, cursor.voice)[cursor.leaf]?.event;
     if (!event || sameDuration(event.duration, duration)) return undefined;
     return replaceLeaf(composition, cursor, { ...event, duration });
+}
+
+/**
+ * How many of the notes a tuplet of `actual` replaces, the way they're usually written: three in
+ * the time of two, four in the time of three, five, six or seven in the time of four
+ */
+export const TUPLET_NORMALS: Record<number, number> = { 3: 2, 4: 3, 5: 4, 6: 4, 7: 4 };
+
+/**
+ * Turns the cursor's chord or rest into a tuplet of `actual` taking the same time (see
+ * `TUPLET_NORMALS`): it becomes the first of them, with rests after it to fill in. Each is the
+ * old value divided by the tuplet's normal count, so a dotted value stays dotted, except in the
+ * time of three, which needs a dotted value to divide. Undefined when there's nothing there, or
+ * that value can't be written.
+ */
+export function makeTuplet(composition: Composition, cursor: Cursor, actual: number): Composition | undefined {
+    const events = composition.parts[cursor.part]?.measures[cursor.measure]?.voices[cursor.voice]?.events;
+    const normal = TUPLET_NORMALS[actual];
+    if (!events || !normal) return undefined;
+
+    const newEvents = rewriteAroundLeaf(events, cursor.leaf, (list, index) => {
+        const event = list[index] as Chord | Rest;
+        let durations: Duration[];
+        try {
+            durations = durationsFilling(mul(durationValue(event.duration), fraction(1, normal)));
+        } catch {
+            return undefined;
+        }
+        const [duration] = durations;
+        if (!duration || durations.length > 1) return undefined;
+        const rests = Array.from({ length: actual - 1 }, () => rest(duration));
+        const tuplet: Tuplet = { kind: 'tuplet', actual, normal, events: [{ ...event, duration }, ...rests] };
+        return list.map((other, i) => (i === index ? tuplet : other));
+    });
+    return newEvents && withVoiceEvents(composition, cursor, newEvents);
 }
 
 /**

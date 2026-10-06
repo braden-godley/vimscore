@@ -50,6 +50,11 @@ EDITING IN NORMAL MODE
                       <S-3> an eighth, <S-4> a quarter, <S-5> a half, <S-6> a whole
     gw                Dot the cursor's chord or rest, or take the dot off. A dot that
                       doesn't fit before the end of the measure or tuplet is refused
+    g3 .. g7          Make the cursor's chord or rest a tuplet in the same time: g3 three in
+                      the time of two, g4 four in the time of three, g5 g6 g7 five, six or
+                      seven in the time of four. It becomes the first of them, with rests
+                      for the others. g4 needs a dotted value, like a dotted quarter for four
+                      eighths. Deleting every note in a tuplet takes it away again
     gs                Make the cursor's chord staccato, or full length again
     gt                Tie the cursor's note to the same note in the next chord, or untie it.
                       Nothing is joined if the next chord doesn't have it
