@@ -1,0 +1,290 @@
+/**
+ * The save file: a composition as JSON, with its format and version so later versions can tell
+ * what they're reading. It's written to be read too: values are short strings like `q.` and
+ * `3/4`, and each event sits on its own line.
+ *
+ *     { "chord": [60, 64, { "pitch": 67, "tie": true }], "duration": "q" }
+ *     { "rest": "8." }
+ *     { "tuplet": "3:2", "events": [...] }
+ */
+
+import { Composition } from '../composition/Composition';
+import { Duration } from '../duration/Duration';
+import { Event } from '../event/Event';
+import { fraction } from '../fraction/Fraction';
+import { MeasureInfo, PartMeasure, Tempo, TimeSignature, VolumeMark } from '../measure/Measure';
+import { Note } from '../note/Note';
+import { Clef, Part } from '../part/Part';
+
+export const FORMAT = 'vimscore';
+export const VERSION = 1;
+export const EXTENSION = 'vimscore';
+
+const DURATION_CODES: Record<Duration['base'], string> = {
+    1: 'w',
+    2: 'h',
+    4: 'q',
+    8: '8',
+    16: '16',
+    32: '32',
+    64: '64',
+};
+const CODE_BASES = new Map(
+    Object.entries(DURATION_CODES).map(([base, code]) => [code, Number(base) as Duration['base']]),
+);
+const CLEFS: Clef[] = ['treble', 'bass'];
+
+const durationText = ({ base, dots }: Duration) => DURATION_CODES[base] + '.'.repeat(dots);
+
+// Writing
+
+function noteData({ pitch, tie, staccato }: Note): unknown {
+    return tie || staccato ? { pitch, ...(tie && { tie }), ...(staccato && { staccato }) } : pitch;
+}
+
+function eventData(event: Event): unknown {
+    switch (event.kind) {
+        case 'chord':
+            return { chord: event.notes.map(noteData), duration: durationText(event.duration) };
+        case 'rest':
+            return { rest: durationText(event.duration) };
+        case 'tuplet':
+            return { tuplet: `${event.actual}:${event.normal}`, events: event.events.map(eventData) };
+    }
+}
+
+function measureInfoData({ timeSignature, tempo, keySignature, repeatStart, repeatEnd }: MeasureInfo): unknown {
+    return {
+        ...(timeSignature && { timeSignature: `${timeSignature.beats}/${timeSignature.beatValue}` }),
+        ...(tempo && { tempo: `${durationText(tempo.beat)}=${tempo.bpm}` }),
+        ...(keySignature && { key: keySignature.fifths }),
+        ...(repeatStart && { repeatStart }),
+        ...(repeatEnd && { repeatEnd }),
+    };
+}
+
+/** How many levels of lists and objects a value has inside it */
+function depth(value: unknown): number {
+    if (value === null || typeof value !== 'object') return 0;
+    return 1 + Math.max(0, ...Object.values(value).map(depth));
+}
+
+/** One line of JSON with a space after each comma and colon, like `{ "rest": "q" }` */
+function inline(value: unknown): string {
+    if (value === null || typeof value !== 'object') return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map(inline).join(', ')}]`;
+    const fields = Object.entries(value).map(([key, item]) => `${JSON.stringify(key)}: ${inline(item)}`);
+    return `{ ${fields.join(', ')} }`;
+}
+
+/**
+ * JSON indented by structure: lists one item per line, and small objects (an event, a
+ * measure's changes) on one line each.
+ */
+function pretty(value: unknown, indent = ''): string {
+    const inner = indent + '  ';
+    if (Array.isArray(value)) {
+        if (value.length === 0) return '[]';
+        return `[\n${value.map((item) => inner + pretty(item, inner)).join(',\n')}\n${indent}]`;
+    }
+    if (value === null || typeof value !== 'object' || depth(value) <= 3) return inline(value);
+    const fields = Object.entries(value).map(([key, item]) => `${inner}${JSON.stringify(key)}: ${pretty(item, inner)}`);
+    return `{\n${fields.join(',\n')}\n${indent}}`;
+}
+
+export function writeScore(composition: Composition): string {
+    const data = {
+        format: FORMAT,
+        version: VERSION,
+        title: composition.title,
+        ...(composition.soundfont.filePath && { soundfont: composition.soundfont.filePath }),
+        measures: composition.measures.map(measureInfoData),
+        parts: composition.parts.map(({ name, clef, program, bank, drums, measures }) => ({
+            name,
+            ...(clef && { clef }),
+            program,
+            ...(bank && { bank }),
+            ...(drums && { drums }),
+            measures: measures.map(({ voices, volumes }) => ({
+                voices: voices.map(({ events }) => events.map(eventData)),
+                ...(volumes?.length && {
+                    volume: volumes.map(({ offset, percent }) => ({ at: `${offset.num}/${offset.den}`, percent })),
+                }),
+            })),
+        })),
+    };
+    return pretty(data) + '\n';
+}
+
+// Reading
+
+/** Why a file couldn't be read, and where in it */
+class ReadError extends Error {}
+
+type Path = string;
+
+function fail(path: Path, message: string): never {
+    throw new ReadError(path ? `${path}: ${message}` : message);
+}
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value);
+
+function object(value: unknown, path: Path): Record<string, unknown> {
+    return isObject(value) ? value : fail(path, 'expected an object');
+}
+
+function array(value: unknown, path: Path): unknown[] {
+    return Array.isArray(value) ? value : fail(path, 'expected a list');
+}
+
+function string(value: unknown, path: Path): string {
+    return typeof value === 'string' ? value : fail(path, 'expected text');
+}
+
+function integer(value: unknown, path: Path, min: number, max: number): number {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+        fail(path, `expected a whole number from ${min} to ${max}`);
+    }
+    return value;
+}
+
+function readDuration(value: unknown, path: Path): Duration {
+    const text = string(value, path);
+    const match = /^(w|h|q|8|16|32|64)(\.{0,2})$/.exec(text);
+    if (!match) fail(path, `"${text}" isn't a note value like q, 8 or h.`);
+    return { base: CODE_BASES.get(match[1]!)!, dots: match[2]!.length as Duration['dots'] };
+}
+
+function readNote(value: unknown, path: Path): Note {
+    if (typeof value === 'number') return { pitch: integer(value, path, 0, 127) };
+    const data = object(value, path);
+    const note: Note = { pitch: integer(data['pitch'], `${path}.pitch`, 0, 127) };
+    if (data['tie'] === true) note.tie = true;
+    if (data['staccato'] === true) note.staccato = true;
+    return note;
+}
+
+function readEvent(value: unknown, path: Path): Event {
+    const data = object(value, path);
+    if ('chord' in data) {
+        const notes = array(data['chord'], `${path}.chord`).map((note, i) => readNote(note, `${path}.chord[${i}]`));
+        if (notes.length === 0) fail(`${path}.chord`, 'a chord needs at least one note');
+        return { kind: 'chord', notes, duration: readDuration(data['duration'], `${path}.duration`) };
+    }
+    if ('rest' in data) return { kind: 'rest', duration: readDuration(data['rest'], `${path}.rest`) };
+    if ('tuplet' in data) {
+        const ratio = string(data['tuplet'], `${path}.tuplet`);
+        const match = /^(\d+):(\d+)$/.exec(ratio);
+        if (!match || Number(match[1]) < 1 || Number(match[2]) < 1) {
+            fail(`${path}.tuplet`, `"${ratio}" isn't a ratio like 3:2`);
+        }
+        const events = array(data['events'], `${path}.events`).map((event, i) => readEvent(event, `${path}.events[${i}]`));
+        return { kind: 'tuplet', actual: Number(match[1]), normal: Number(match[2]), events };
+    }
+    return fail(path, 'expected a chord, rest or tuplet');
+}
+
+function readTimeSignature(value: unknown, path: Path): TimeSignature {
+    const text = string(value, path);
+    const match = /^(\d+)\/(1|2|4|8|16|32|64)$/.exec(text);
+    if (!match || Number(match[1]) < 1) fail(path, `"${text}" isn't a time signature like 3/4`);
+    return { beats: Number(match[1]), beatValue: Number(match[2]) };
+}
+
+function readTempo(value: unknown, path: Path): Tempo {
+    const text = string(value, path);
+    const [beat, bpm, ...extra] = text.split('=');
+    const beats = Number(bpm);
+    if (extra.length > 0 || !(beats > 0)) fail(path, `"${text}" isn't a tempo like q=120`);
+    return { beat: readDuration(beat, path), bpm: beats };
+}
+
+function readMeasureInfo(value: unknown, path: Path): MeasureInfo {
+    const data = object(value, path);
+    const info: MeasureInfo = {};
+    if (data['timeSignature'] !== undefined) {
+        info.timeSignature = readTimeSignature(data['timeSignature'], `${path}.timeSignature`);
+    }
+    if (data['tempo'] !== undefined) info.tempo = readTempo(data['tempo'], `${path}.tempo`);
+    if (data['key'] !== undefined) info.keySignature = { fifths: integer(data['key'], `${path}.key`, -7, 7) };
+    if (data['repeatStart'] === true) info.repeatStart = true;
+    if (data['repeatEnd'] === true) info.repeatEnd = true;
+    return info;
+}
+
+function readVolumeMark(value: unknown, path: Path): VolumeMark {
+    const data = object(value, path);
+    const at = string(data['at'], `${path}.at`);
+    const match = /^(\d+)\/(\d+)$/.exec(at);
+    if (!match || Number(match[2]) === 0) fail(`${path}.at`, `"${at}" isn't a time in the measure, like 1/4`);
+    return {
+        offset: fraction(Number(match[1]), Number(match[2])),
+        percent: integer(data['percent'], `${path}.percent`, 0, 100),
+    };
+}
+
+function readPartMeasure(value: unknown, path: Path): PartMeasure {
+    const data = object(value, path);
+    const voices = array(data['voices'], `${path}.voices`);
+    const partMeasure: PartMeasure = {
+        voices: voices.map((voice, v) => ({
+            events: array(voice, `${path}.voices[${v}]`).map((event, i) => readEvent(event, `${path}.voices[${v}][${i}]`)),
+        })),
+    };
+    if (data['volume'] !== undefined) {
+        const marks = array(data['volume'], `${path}.volume`);
+        partMeasure.volumes = marks.map((mark, i) => readVolumeMark(mark, `${path}.volume[${i}]`));
+    }
+    return partMeasure;
+}
+
+function readPart(value: unknown, path: Path, measureCount: number): Part {
+    const data = object(value, path);
+    const part: Part = {
+        name: string(data['name'], `${path}.name`),
+        program: integer(data['program'] ?? 0, `${path}.program`, 0, 127),
+        measures: array(data['measures'], `${path}.measures`).map((m, i) => readPartMeasure(m, `${path}.measures[${i}]`)),
+    };
+    if (data['bank'] !== undefined) part.bank = integer(data['bank'], `${path}.bank`, 0, 16383);
+    if (data['drums'] === true) part.drums = true;
+    if (data['clef'] !== undefined) {
+        const clef = string(data['clef'], `${path}.clef`);
+        if (!CLEFS.includes(clef as Clef)) fail(`${path}.clef`, `"${clef}" isn't a clef (${CLEFS.join(' or ')})`);
+        part.clef = clef as Clef;
+    }
+    if (part.measures.length !== measureCount) {
+        fail(`${path}.measures`, `has ${part.measures.length} measures but the score has ${measureCount}`);
+    }
+    return part;
+}
+
+/** The composition in a save file, or what's wrong with the file */
+export function readScore(text: string): Composition | { error: string } {
+    try {
+        let json: unknown;
+        try {
+            json = JSON.parse(text);
+        } catch (error) {
+            return fail('', `not valid JSON (${(error as Error).message})`);
+        }
+
+        const data = object(json, '');
+        if (data['format'] !== FORMAT) fail('', `not a ${FORMAT} file`);
+        const version = data['version'];
+        if (typeof version !== 'number' || version > VERSION) {
+            fail('version', `this file is version ${String(version)}; this app reads up to version ${VERSION}`);
+        }
+
+        const measures = array(data['measures'], 'measures').map((m, i) => readMeasureInfo(m, `measures[${i}]`));
+        return {
+            title: data['title'] === undefined ? 'Untitled' : string(data['title'], 'title'),
+            measures,
+            parts: array(data['parts'], 'parts').map((part, i) => readPart(part, `parts[${i}]`, measures.length)),
+            soundfont: { filePath: data['soundfont'] === undefined ? '' : string(data['soundfont'], 'soundfont') },
+        };
+    } catch (error) {
+        if (error instanceof ReadError) return { error: error.message };
+        throw error;
+    }
+}

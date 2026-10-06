@@ -5,7 +5,7 @@
  */
 
 import { Composition, withTrailingEmptyMeasure } from '../composition/Composition';
-import { deleteNote, deleteSelection, placeNote, setLeafDuration, transposeNote, transposeSelection } from '../edit/Edit';
+import { deleteNote, deleteSelection, placeNote, placeRest, setLeafDuration, transposeNote, transposeSelection } from '../edit/Edit';
 import { Duration } from '../duration/Duration';
 import { ZERO } from '../fraction/Fraction';
 import { KeySignature } from '../key/KeySignature';
@@ -15,6 +15,7 @@ import {
     backToMeasureStart,
     clampCursor,
     cursorAtOffset,
+    cursorOffset,
     cursorPitch,
     gotoMeasure,
     moveLeaf,
@@ -34,14 +35,22 @@ import {
     toggleDot,
     toggleStaccato,
 } from '../phantom/Phantom';
+import { Register, put, yankNote, yankSelection } from '../register/Register';
 import { Selection, VisualKind, selectedChordPitches, visualSelection } from '../selection/Selection';
-import { Prompt, PromptKind, applyPrompt } from './Prompt';
+import { setKeySignature, setTempo, setTimeSignature } from '../edit/MeasureChanges';
+import { addPart, deletePart, renamePart, setClef, setInstrument } from '../edit/Parts';
+import { toggleRepeat } from '../edit/Repeats';
+import { setVolume } from '../edit/Volume';
+import { GENERAL_MIDI_INSTRUMENTS, Instrument } from '../instrument/Instrument';
+import { Command, EditCommand, isEditCommand, parseCommand } from './CommandLine';
+import { Picker, auditionPitch, pickerKey } from './Picker';
 
 /**
  * `normal` navigates; the insert modes enter notes, `insertMelody` moving on after each one; the
- * visual modes select from an anchor to the cursor; `prompt` reads a value typed in
+ * visual modes select from an anchor to the cursor; `command` is the `:` command line, and
+ * `picker` chooses an instrument
  */
-export type EditMode = 'normal' | InsertKind | VisualKind | 'prompt';
+export type EditMode = 'normal' | InsertKind | VisualKind | 'command' | 'picker';
 
 export type InsertKind = 'insert' | 'insertMelody';
 
@@ -52,8 +61,12 @@ export interface EditorState {
     anchor?: Cursor;
     /** The note an insert mode will place; set only in the insert modes */
     phantom?: Phantom;
-    /** What's being typed for a change to every part; set only in prompt mode */
-    prompt?: Prompt;
+    /** What's typed after `:`, and why it couldn't run; set only in command mode */
+    commandLine?: { text: string; error?: string };
+    /** Set only in picker mode */
+    picker?: Picker;
+    /** What yanking or deleting last took, for putting back */
+    register?: Register;
     /** Keys of a command still being typed, like a count or `<C-w>` */
     pending: string;
 }
@@ -61,8 +74,14 @@ export interface EditorState {
 /** Something the editor wants done outside the score */
 export type EditorEffect =
     | { kind: 'togglePlayback' }
+    /** A `:` command, which needs files, dialogs or the window */
+    | { kind: 'command'; command: Command }
+    /** Play a note on an instrument, while choosing one */
+    | { kind: 'audition'; instrument: Instrument; pitch: number }
+    /** Switch between showing every staff at once and the normal size */
+    | { kind: 'toggleZoom' }
     /** Sound these pitches briefly, so you hear what you just changed */
-    | { kind: 'preview'; pitches: number[] };
+    | { kind: 'preview'; pitches: number[]; part: number };
 
 export interface KeyResult {
     state: EditorState;
@@ -126,7 +145,7 @@ const transpose =
         if (moved === composition) return { state };
 
         const pitches = selectedChordPitches(moved, selection);
-        return { state, composition: moved, effect: pitches && { kind: 'preview', pitches } };
+        return { state, composition: moved, effect: pitches && { kind: 'preview', pitches, part: selection.firstPart } };
     };
 
 const SHARED_ACTIONS: Record<string, Action> = {
@@ -145,13 +164,10 @@ const transposeCursorNote =
         return {
             state: { ...state, cursor: moved.cursor },
             composition: moved.composition,
-            effect: pitch === undefined ? undefined : { kind: 'preview', pitches: [pitch] },
+            effect: pitch === undefined ? undefined : { kind: 'preview', pitches: [pitch], part: moved.cursor.part },
         };
     };
 
-function openPrompt(kind: PromptKind): Action {
-    return (state) => ({ state: { ...state, mode: 'prompt', prompt: { kind, measure: state.cursor.measure, text: '' } } });
-}
 
 /** The phantom starts as a copy of the selected note */
 function enterInsert(mode: InsertKind): Action {
@@ -166,51 +182,93 @@ function changeDuration(base: Duration['base']): Action {
         if (!edited) return { state };
         const event = voiceLeaves(edited, cursor.part, cursor.measure, cursor.voice)[cursor.leaf]?.event;
         const pitches = event?.kind === 'chord' ? event.notes.map(({ pitch }) => pitch) : undefined;
-        return { state, composition: edited, effect: pitches && { kind: 'preview', pitches } };
+        return { state, composition: edited, effect: pitches && { kind: 'preview', pitches, part: cursor.part } };
     };
 }
 
 const NORMAL_ACTIONS: Record<string, Action> = {
     ...SHARED_ACTIONS,
     u: (state, _, count = 1) => ({ state, history: { direction: 'undo', count } }),
+    z: (state) => ({ state, effect: { kind: 'toggleZoom' } }),
+    // Repeat barlines at the cursor's measure, on or off
+    rs: (state, composition) => ({ state, composition: toggleRepeat(composition, state.cursor.measure, 'start') }),
+    re: (state, composition) => ({ state, composition: toggleRepeat(composition, state.cursor.measure, 'end') }),
     U: (state, _, count = 1) => ({ state, history: { direction: 'redo', count } }),
-    // Just the note under the cursor. A lone `d` waits, left free to become an operator
+    // Just the note under the cursor. A lone `d` or `y` waits for a motion
     dd: (state, composition) => {
         const deleted = deleteNote(composition, state.cursor);
         if (!deleted) return { state };
-        return { state: { ...state, cursor: deleted.cursor }, composition: deleted.composition };
+        const register = yankNote(composition, state.cursor) ?? state.register;
+        return { state: { ...state, cursor: deleted.cursor, register }, composition: deleted.composition };
     },
+    yy: (state, composition) => ({ state: { ...state, register: yankNote(composition, state.cursor) ?? state.register } }),
+    p: putRegister(true),
+    P: putRegister(false),
     J: transposeCursorNote(-1),
     K: transposeCursorNote(1),
     i: enterInsert('insert'),
     a: enterInsert('insertMelody'),
-    // Changes for every part, from the cursor's measure on
-    mt: openPrompt('timeSignature'),
-    mT: openPrompt('tempo'),
-    mk: openPrompt('keySignature'),
+    ':': (state) => ({ state: { ...state, mode: 'command', commandLine: { text: '' } } }),
 };
 
-/** Like vim, deleting leaves visual mode with the cursor at the start of what was deleted */
-function deleteSelected(state: EditorState, composition: Composition): KeyResult {
-    const selection = editorSelection(composition, state);
-    return selection ? deleteRange(state, composition, selection) : { state };
+/** Puts the register after the cursor's chord (`p`) or at it (`P`), count times over */
+function putRegister(after: boolean): Action {
+    return (state, composition, count = 1) => {
+        const putting = state.register && put(composition, state.cursor, state.register, after, count);
+        if (!putting) return { state };
+        return { state: { ...state, cursor: putting.cursor }, composition: putting.composition };
+    };
 }
 
-/** Deletes a selection, landing in normal mode at its start (the top left of a block) */
-function deleteRange(state: EditorState, composition: Composition, selection: Selection): KeyResult {
-    const edited = deleteSelection(composition, selection);
+/** `d` deletes and `y` only yanks; both fill the register */
+type Operator = 'd' | 'y';
+
+/** Like vim, these leave visual mode with the cursor at the start of what they took */
+const operateOnSelected =
+    (operator: Operator): Action =>
+    (state, composition) => {
+        const selection = editorSelection(composition, state);
+        return selection ? operate(operator, state, composition, selection) : { state };
+    };
+
+/** Yanks a selection, and deletes it for `d`, landing in normal mode at its start (top left of a block) */
+function operate(operator: Operator, state: EditorState, composition: Composition, selection: Selection): KeyResult {
+    const register = yankSelection(composition, selection) ?? state.register;
+    const edited = operator === 'd' ? deleteSelection(composition, selection) : composition;
     const cursor =
         selection.kind === 'measures'
             ? cursorAtOffset(edited, selection.firstPart, selection.first, ZERO)
             : cursorAtOffset(edited, selection.firstPart, selection.start.measure, selection.start.offset);
-    return { state: { ...state, mode: 'normal', anchor: undefined, cursor }, composition: edited };
+    const done: EditorState = { ...state, mode: 'normal', anchor: undefined, cursor, register };
+    return operator === 'd' ? { state: done, composition: edited } : { state: done };
+}
+
+/**
+ * Like vim's `c`: deletes the selection (into the register) and starts inserting at its first
+ * beat. Only within one staff, since insert mode writes into one. The phantom starts as the
+ * note that was there, so the replacement starts from what it replaces.
+ */
+function changeSelected(state: EditorState, composition: Composition): KeyResult {
+    const selection = editorSelection(composition, state);
+    if (!selection || selection.firstPart !== selection.lastPart) return { state };
+
+    const [measure, offset] =
+        selection.kind === 'measures' ? [selection.first, ZERO] : [selection.start.measure, selection.start.offset];
+    const replaced = cursorAtOffset(composition, selection.firstPart, measure, offset);
+    const deleted = operate('d', state, composition, selection);
+    return {
+        ...deleted,
+        state: { ...deleted.state, mode: 'insert', phantom: phantomAt(composition, replaced) },
+    };
 }
 
 const VISUAL_ACTIONS: Record<string, Action> = {
     ...SHARED_ACTIONS,
     // Swap ends, to grow or shrink the selection from its other side
     o: (state) => ({ state: { ...state, cursor: state.anchor ?? state.cursor, anchor: state.cursor } }),
-    d: deleteSelected,
+    d: operateOnSelected('d'),
+    y: operateOnSelected('y'),
+    c: changeSelected,
     J: transpose(-1),
     K: transpose(1),
 };
@@ -218,7 +276,7 @@ const VISUAL_ACTIONS: Record<string, Action> = {
 /** A count can't start with 0, so a lone `0` is left free for a future motion */
 const COUNTED = /^([1-9][0-9]*)?(.*)$/;
 
-/** What `d` followed by a motion covers. Undefined when there's nothing there to delete */
+/** What `d` or `y` followed by a motion covers. Undefined when there's nothing there */
 type Range = (composition: Composition, cursor: Cursor, count: number | undefined) => Selection | undefined;
 
 const block = (composition: Composition, from: Cursor, to: Cursor) =>
@@ -239,7 +297,7 @@ const lastLeafOf = (composition: Composition, cursor: Cursor, measure: number) =
  * cursor, `dh` the one before, `d}` runs to the end of the measure. The measure motions are
  * linewise, like V, taking whole measures of the cursor's part.
  */
-const DELETE_RANGES: Record<string, Range> = {
+const RANGES: Record<string, Range> = {
     l: (c, cursor, count = 1) => block(c, cursor, moveLeaf(c, cursor, count - 1)),
     h: (c, cursor, count = 1) => before(c, cursor, moveLeaf(c, cursor, -count)),
     '}': (c, cursor, count = 1) => block(c, cursor, lastLeafOf(c, cursor, cursor.measure + count - 1)),
@@ -252,8 +310,8 @@ const DELETE_RANGES: Record<string, Range> = {
 };
 
 for (const direction of ['j', 'k']) {
-    DELETE_RANGES[`<C-w>${direction}`] = DELETE_RANGES[`<C-${direction}>`]!;
-    DELETE_RANGES[`<C-w><C-${direction}>`] = DELETE_RANGES[`<C-${direction}>`]!;
+    RANGES[`<C-w>${direction}`] = RANGES[`<C-${direction}>`]!;
+    RANGES[`<C-w><C-${direction}>`] = RANGES[`<C-${direction}>`]!;
 }
 
 /** Whole measures of the cursor's part, from its measure to another */
@@ -267,13 +325,19 @@ function measuresBetween({ part, measure }: Cursor, other: number): Selection {
     };
 }
 
-/** `d`, its own count, then a motion; the motion part may still be on its way */
-const OPERATOR = /^d([1-9][0-9]*)?(.*)$/;
+/** `d` or `y`, its own count, then a motion; the motion part may still be on its way */
+const OPERATOR = /^([dy])([1-9][0-9]*)?(.*)$/;
 
 /** Counts before and after the operator multiply, like vim's `2d3l` deleting six */
 function multiply(a: number | undefined, b: number | undefined): number | undefined {
     return a === undefined && b === undefined ? undefined : (a ?? 1) * (b ?? 1);
 }
+
+/** In visual mode, which selects whole measures, h and l step a measure at a time */
+const MEASURE_MOTIONS: Record<string, Motion> = {
+    h: (c, cursor, count = 1) => moveMeasure(c, cursor, -count),
+    l: (c, cursor, count = 1) => moveMeasure(c, cursor, count),
+};
 
 /** Normal and visual modes share the `[count] command` grammar and the motions */
 function commandKey(composition: Composition, state: EditorState, key: string, actions: Record<string, Action>): KeyResult {
@@ -284,7 +348,7 @@ function commandKey(composition: Composition, state: EditorState, key: string, a
     const count = digits === undefined ? undefined : Number(digits);
     const cleared = { ...state, pending: '' };
 
-    const motion = MOTIONS[command];
+    const motion = (state.mode === 'visual' ? MEASURE_MOTIONS[command] : undefined) ?? MOTIONS[command];
     if (motion) return { state: { ...cleared, cursor: motion(composition, state.cursor, count) } };
 
     const action = actions[command];
@@ -292,14 +356,15 @@ function commandKey(composition: Composition, state: EditorState, key: string, a
 
     const operation = state.mode === 'normal' ? OPERATOR.exec(command) : null;
     if (operation) {
-        const [, innerDigits, motionKeys = ''] = operation;
-        const range = DELETE_RANGES[motionKeys];
+        const [, operatorKey, innerDigits, motionKeys = ''] = operation;
+        const operator: Operator = operatorKey === 'y' ? 'y' : 'd';
+        const range = RANGES[motionKeys];
         if (range) {
             const innerCount = innerDigits === undefined ? undefined : Number(innerDigits);
             const selection = range(composition, state.cursor, multiply(count, innerCount));
-            return selection ? deleteRange(cleared, composition, selection) : { state: cleared };
+            return selection ? operate(operator, cleared, composition, selection) : { state: cleared };
         }
-        const waiting = motionKeys === '' || Object.keys(DELETE_RANGES).some((name) => name.startsWith(motionKeys));
+        const waiting = motionKeys === '' || Object.keys(RANGES).some((name) => name.startsWith(motionKeys));
         return { state: waiting ? { ...state, pending: typed } : cleared };
     }
 
@@ -343,14 +408,28 @@ function place(composition: Composition, state: EditorState, phantom: Phantom): 
     if (!result) return { state };
     if (!result.placed) return { state: { ...state, cursor: result.cursor }, composition: result.composition };
 
-    // The score grows as it fills, so the empty measure to move into has to exist first
-    const edited = withTrailingEmptyMeasure(result.composition);
-    const cursor = state.mode === 'insertMelody' ? moveLeaf(edited, result.cursor, 1) : result.cursor;
+    const { composition: edited, cursor } = moveOn(state, result.composition, result.cursor);
     return {
         state: { ...state, cursor },
         composition: edited,
-        effect: { kind: 'preview', pitches: result.placed.notes.map(({ pitch }) => pitch) },
+        effect: { kind: 'preview', pitches: result.placed.notes.map(({ pitch }) => pitch), part: cursor.part },
     };
+}
+
+/** `<S-Space>`: a rest as long as the phantom, then on to the next beat in melody mode */
+function placeRestKey(composition: Composition, state: EditorState, phantom: Phantom): KeyResult {
+    const result = placeRest(composition, state.cursor, phantom.duration);
+    if (!result) return { state };
+    const { composition: edited, cursor } = moveOn(state, result.composition, result.cursor);
+    return { state: { ...state, cursor }, composition: edited === composition ? undefined : edited };
+}
+
+/** After entering something: melody mode moves on to the next chord or rest */
+function moveOn(state: EditorState, composition: Composition, cursor: Cursor) {
+    if (state.mode !== 'insertMelody') return { composition, cursor };
+    // The score grows as it fills, so the empty measure to move into has to exist first
+    const grown = withTrailingEmptyMeasure(composition);
+    return { composition: grown, cursor: moveLeaf(grown, cursor, 1) };
 }
 
 function insertKey(composition: Composition, state: EditorState, key: string): KeyResult {
@@ -363,6 +442,12 @@ function insertKey(composition: Composition, state: EditorState, key: string): K
     const cleared = { ...state, pending: '' };
 
     if (command === '<Space>' && state.phantom) return place(composition, cleared, state.phantom);
+    if (command === '<S-Space>' && state.phantom) return placeRestKey(composition, cleared, state.phantom);
+    // Switches between staying on the note and moving on after each one, keeping the phantom
+    // The session takes back the last note entered; see undoInsertSteps
+    if (command === 'u') return { state: cleared, history: { direction: 'undo', count } };
+    if (command === 'z') return { state: cleared, effect: { kind: 'toggleZoom' } };
+    if (command === 'm') return { state: { ...cleared, mode: state.mode === 'insert' ? 'insertMelody' : 'insert' } };
     const adjust = PHANTOM_KEYS[command];
     const keySignature = resolveMeasures(composition.measures)[state.cursor.measure]?.keySignature;
     if (adjust && state.phantom && keySignature) {
@@ -372,33 +457,109 @@ function insertKey(composition: Composition, state: EditorState, key: string): K
 }
 
 /**
- * Typing into a prompt: `<CR>` applies it, `<Esc>` (or backspacing past the start) cancels.
- * `text` is the character the key typed, which for shifted keys only the keyboard knows.
+ * Typing on the `:` command line: `<CR>` runs it, `<Esc>` (or backspacing past the start)
+ * cancels. A command it can't read stays open with the error, to fix. `input.text` is the
+ * character the key typed, which for shifted keys only the keyboard knows.
  */
-function promptKey(composition: Composition, state: EditorState, key: string, text: string | undefined): KeyResult {
-    const { prompt } = state;
-    const closed: EditorState = { ...state, mode: 'normal', prompt: undefined };
-    if (!prompt || key === '<Esc>') return { state: closed };
+function commandLineKey(composition: Composition, state: EditorState, key: string, input: KeyInput): KeyResult {
+    const { commandLine } = state;
+    const closed: EditorState = { ...state, mode: 'normal', commandLine: undefined };
+    if (!commandLine || key === '<Esc>') return { state: closed };
 
     if (key === '<CR>') {
-        const result = applyPrompt(composition, prompt);
-        if ('error' in result) return { state: { ...state, prompt: { ...prompt, error: result.error } } };
-        // The measures may have been re-barred, so land on the first beat of the changed one
-        const cursor = cursorAtOffset(result, state.cursor.part, prompt.measure, ZERO);
-        return { state: { ...closed, cursor }, composition: result };
+        if (commandLine.text.trim() === '') return { state: closed };
+        const command = parseCommand(commandLine.text);
+        if ('error' in command) return { state: { ...state, commandLine: { ...commandLine, error: command.error } } };
+        if (isEditCommand(command)) return runEditCommand(composition, closed, command);
+        return { state: closed, effect: { kind: 'command', command } };
     }
 
     if (key === '<BS>') {
-        if (prompt.text === '') return { state: closed };
-        return { state: { ...state, prompt: { ...prompt, text: prompt.text.slice(0, -1), error: undefined } } };
+        if (commandLine.text === '') return { state: closed };
+        return { state: { ...state, commandLine: { text: commandLine.text.slice(0, -1) } } };
     }
 
-    const typed = key === '<Space>' ? ' ' : (text ?? (key.length === 1 ? key : undefined));
+    const typed = key === '<Space>' ? ' ' : (input.text ?? (key.length === 1 ? key : undefined));
     if (typed === undefined) return { state };
-    return { state: { ...state, prompt: { ...prompt, text: prompt.text + typed, error: undefined } } };
+    return { state: { ...state, commandLine: { text: commandLine.text + typed } } };
 }
 
-export function handleKey(composition: Composition, state: EditorState, key: string, text?: string): KeyResult {
+/** Besides the key itself */
+export interface KeyInput {
+    /** The character the key typed, for the command line and picker; shifted keys differ by layout */
+    text?: string;
+    /** What the picker offers: the soundfont's instruments, or General MIDI's without one */
+    instruments?: Instrument[];
+}
+
+/** Commands for parts, run straight away as edits */
+function runEditCommand(composition: Composition, state: EditorState, command: EditCommand): KeyResult {
+    const { part, measure } = state.cursor;
+    switch (command.name) {
+        case 'instrument':
+        case 'addPart': {
+            const picker: Picker = { purpose: command.name, query: command.query, selected: 0 };
+            return { state: { ...state, mode: 'picker', picker } };
+        }
+        case 'deletePart': {
+            // The cursor moves to the part that takes its place, or the one above at the bottom
+            const edited = deletePart(composition, part);
+            if (!edited) return { state };
+            return { state: { ...state, cursor: clampCursor(edited, state.cursor) }, composition: edited };
+        }
+        case 'rename':
+            return { state, composition: renamePart(composition, part, command.text) };
+        case 'clef':
+            return { state, composition: setClef(composition, part, command.clef) };
+        case 'keySignature':
+            return { state, composition: setKeySignature(composition, measure, command.value) };
+        case 'tempo': {
+            // A bare number keeps the beat the tempo counts there, like dotted quarters in 6/8
+            const beat = command.beat ?? resolveMeasures(composition.measures)[measure]?.tempo.beat;
+            if (!beat) return { state };
+            return { state, composition: setTempo(composition, measure, { bpm: command.bpm, beat }) };
+        }
+        case 'volume': {
+            const offset = cursorOffset(composition, state.cursor);
+            return { state, composition: setVolume(composition, part, measure, offset, command.percent) };
+        }
+        case 'timeSignature': {
+            // The measures may have been re-barred, so land on the first beat of the changed one
+            const edited = setTimeSignature(composition, measure, command.value);
+            return { state: { ...state, cursor: cursorAtOffset(edited, part, measure, ZERO) }, composition: edited };
+        }
+    }
+}
+
+function pickerModeKey(composition: Composition, state: EditorState, key: string, input: KeyInput): KeyResult {
+    const instruments = input.instruments ?? GENERAL_MIDI_INSTRUMENTS;
+    const closed: EditorState = { ...state, mode: 'normal', picker: undefined };
+    if (!state.picker) return { state: closed };
+
+    const outcome = pickerKey(state.picker, instruments, key, input.text);
+    if ('cancelled' in outcome) return { state: closed };
+    if ('picker' in outcome) {
+        const { audition } = outcome;
+        const effect: EditorEffect | undefined = audition && {
+            kind: 'audition',
+            instrument: audition,
+            pitch: auditionPitch(audition),
+        };
+        return { state: { ...state, picker: outcome.picker }, effect };
+    }
+
+    const { chosen } = outcome;
+    const { cursor } = state;
+    if (state.picker.purpose === 'instrument') {
+        return { state: closed, composition: setInstrument(composition, cursor.part, chosen, instruments) };
+    }
+    // The new part goes below the cursor's, and the cursor moves into it at the same time
+    const edited = addPart(composition, cursor.part + 1, chosen);
+    const moved = cursorAtOffset(edited, cursor.part + 1, cursor.measure, cursorOffset(composition, cursor));
+    return { state: { ...closed, cursor: moved }, composition: edited };
+}
+
+export function handleKey(composition: Composition, state: EditorState, key: string, input: KeyInput = {}): KeyResult {
     switch (state.mode) {
         case 'normal':
             return commandKey(composition, state, key, NORMAL_ACTIONS);
@@ -408,8 +569,10 @@ export function handleKey(composition: Composition, state: EditorState, key: str
         case 'insert':
         case 'insertMelody':
             return insertKey(composition, state, key);
-        case 'prompt':
-            return promptKey(composition, state, key, text);
+        case 'command':
+            return commandLineKey(composition, state, key, input);
+        case 'picker':
+            return pickerModeKey(composition, state, key, input);
     }
 }
 

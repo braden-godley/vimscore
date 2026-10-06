@@ -25,6 +25,12 @@
     "vitest": "^5.0.2"
   },
   "dependencies": {
+    "@breezystack/lamejs": "^1.2.7",
+    "@xmldom/xmldom": "^0.9.12",
+    "fflate": "^0.8.3",
+    "mediabunny": "^1.61.3",
+    "spessasynth_core": "^4.3.22",
+    "spessasynth_lib": "^4.3.14",
     "vexflow": "5.0.0"
   }
 }

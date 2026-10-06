@@ -3,7 +3,7 @@ import { exampleComposition } from '../composition/example-composition';
 import { Composition } from '../composition/Composition';
 import { cursorPitch } from '../cursor/Cursor';
 import { Duration } from '../duration/Duration';
-import { Event, leaves } from '../event/Event';
+import { leaves } from '../event/Event';
 import { Phantom } from '../phantom/Phantom';
 import { deleteNote, deleteSelection, placeNote, setLeafDuration, transposeNote, transposeSelection } from './Edit';
 import { written } from './written';

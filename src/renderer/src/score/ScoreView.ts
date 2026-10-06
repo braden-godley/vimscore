@@ -11,7 +11,7 @@ import { resolveMeasures } from '../../../services/measure/Measure';
 import { Phantom } from '../../../services/phantom/Phantom';
 import { Selection, TimePoint, selectedLeaves } from '../../../services/selection/Selection';
 import { drawPhantom } from './drawPhantom';
-import { Anchor, ScoreLayout, leafElementId, leafElementIdPrefix, noteElementId, renderScore } from './renderScore';
+import { LEFT_MARGIN, ScoreLayout, interpolate, leafElementId, leafElementIdPrefix, noteElementId, renderScore } from './renderScore';
 
 /** How far a block selection's shading reaches either side of its notes and staves */
 const SELECTION_PADDING = 10;
@@ -24,7 +24,14 @@ export class ScoreView {
     private readonly playhead: HTMLDivElement;
     private readonly selectionBox: HTMLDivElement;
     private readonly phantomLayer: HTMLDivElement;
+    /** Staff names pinned to the left edge, for when the ones in the score are scrolled away */
+    private readonly names: HTMLDivElement;
     private centeredMeasure = 0;
+    /** The part kept in view when the score is taller than the viewport; undefined keeps the last */
+    private centeredPart = 0;
+    private fitting = false;
+    /** How far the drawing reaches above and below, which notes on ledger lines can push past the layout */
+    private drawn = { top: 0, bottom: 0 };
 
     constructor(private readonly viewport: HTMLElement) {
         this.strip = document.createElement('div');
@@ -40,7 +47,9 @@ export class ScoreView {
         this.phantomLayer.className = 'phantom';
         // The shading goes first so the notes draw over it
         this.strip.append(this.selectionBox, this.score, this.phantomLayer, this.playhead);
-        viewport.append(this.strip);
+        this.names = document.createElement('div');
+        this.names.className = 'staff-names';
+        viewport.append(this.strip, this.names);
 
         new ResizeObserver(() => this.applyScroll(false)).observe(viewport);
     }
@@ -48,6 +57,11 @@ export class ScoreView {
     render(composition: Composition) {
         this.composition = composition;
         this.layout = renderScore(this.score, composition);
+        const box = this.score.querySelector('svg')?.getBBox();
+        this.drawn = {
+            top: Math.min(0, box?.y ?? 0),
+            bottom: Math.max(this.layout.height, box ? box.y + box.height : 0),
+        };
         this.playhead.style.height = `${this.layout.height}px`;
         this.applyScroll(false);
     }
@@ -128,9 +142,11 @@ export class ScoreView {
         });
     }
 
-    centerOn(measure: number) {
-        if (measure === this.centeredMeasure) return;
+    /** Scrolls to a measure, and up or down to a part's stave if they don't all fit */
+    centerOn(measure: number, part = this.centeredPart) {
+        if (measure === this.centeredMeasure && part === this.centeredPart) return;
         this.centeredMeasure = measure;
+        this.centeredPart = part;
         this.applyScroll(true);
     }
 
@@ -146,22 +162,73 @@ export class ScoreView {
         this.playhead.style.transform = `translateX(${interpolate(anchors, position.time)}px)`;
     }
 
+    /**
+     * The score sits centered in the viewport. When it's taller, this moves the centered part's
+     * stave to the middle instead, without scrolling past the top or bottom of the score.
+     */
+    private verticalOffset(): number {
+        const { layout } = this;
+        const stave = layout?.parts[this.centeredPart];
+        const spare = layout ? layout.height - this.viewport.clientHeight : 0;
+        if (!layout || !stave || spare <= 0) return 0;
+        const toStave = layout.height / 2 - (stave.top + stave.bottom) / 2;
+        return Math.max(-spare / 2, Math.min(spare / 2, toStave));
+    }
+
+    /**
+     * Shows the staff names at the left edge, beside each stave, once the score is scrolled far
+     * enough that its own names at the start are cut off. `left` and `top` are where the
+     * score's top left corner is on screen.
+     */
+    private showPinnedNames(left: number, top: number, scale: number) {
+        const { layout, composition } = this;
+        const cut = layout && left + LEFT_MARGIN * scale < 0;
+        this.names.hidden = !cut;
+        if (!cut || !composition) return;
+
+        const labels = composition.parts.map(({ name }, p) => {
+            const stave = layout.parts[p]!;
+            const label = document.createElement('div');
+            label.textContent = name;
+            label.style.top = `${top + ((stave.top + stave.bottom) / 2) * scale}px`;
+            return label;
+        });
+        this.names.replaceChildren(...labels);
+    }
+
+    /**
+     * Zooms out so every stave fits the viewport's height, or back to full size. Playback uses
+     * it, so all the parts can be followed at once.
+     */
+    fitHeight(fit: boolean) {
+        if (fit === this.fitting) return;
+        this.fitting = fit;
+        this.applyScroll(true);
+    }
+
+    /** How much the score is shrunk: below 1 only while fitting a score taller than the viewport */
+    private scale(): number {
+        const height = this.drawn.bottom - this.drawn.top;
+        return this.fitting && height > this.viewport.clientHeight ? this.viewport.clientHeight / height : 1;
+    }
+
     private applyScroll(animate: boolean) {
         const box = this.layout?.measures[this.centeredMeasure];
-        if (!box) return;
-        const offset = this.viewport.clientWidth / 2 - (box.x + box.width / 2);
+        if (!box || !this.layout) return;
+        const scale = this.scale();
+        // Scaled from the top left, so the measure's middle lands in the viewport's middle
+        const x = this.viewport.clientWidth / 2 - (box.x + box.width / 2) * scale;
+        // At full size the strip sits centered; shrunk, everything drawn is centered instead
+        const viewportHeight = this.viewport.clientHeight;
+        const top = (viewportHeight - this.layout.height) / 2;
+        const { top: drawnTop, bottom: drawnBottom } = this.drawn;
+        const y =
+            scale < 1
+                ? (viewportHeight - scale * (drawnBottom - drawnTop)) / 2 - scale * drawnTop - top
+                : this.verticalOffset();
         this.strip.classList.toggle('animate', animate);
-        this.strip.style.transform = `translateX(${offset}px)`;
+        this.strip.style.transformOrigin = '0 0';
+        this.strip.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+        this.showPinnedNames(x, y + (viewportHeight - this.layout.height) / 2, scale);
     }
-}
-
-/** Note spacing isn't proportional to time, so interpolate between the drawn note positions */
-function interpolate(anchors: Anchor[], time: number): number {
-    const after = anchors.findIndex((anchor) => anchor.time > time);
-    // At or past the last anchor (the barline), stay on it
-    if (after === -1) return anchors.at(-1)!.x;
-    const a = anchors[Math.max(0, after - 1)]!;
-    const b = anchors[after]!;
-    const t = b.time > a.time ? (time - a.time) / (b.time - a.time) : 0;
-    return a.x + t * (b.x - a.x);
 }

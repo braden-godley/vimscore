@@ -10,8 +10,12 @@ export interface Part {
     name: string;
     /** Defaults to treble */
     clef?: Clef;
-    /** Soundfont preset number */
+    /** Soundfont preset number, 0 to 127 */
     program: number;
+    /** The soundfont bank the program is in, when it's not the standard bank 0 */
+    bank?: number;
+    /** Plays a drum kit, where each pitch is a different drum */
+    drums?: boolean;
     /** Always the same length as the composition's measures */
     measures: PartMeasure[];
 }

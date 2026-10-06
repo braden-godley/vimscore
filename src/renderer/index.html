@@ -2,10 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- VexFlow embeds its music fonts as data: URLs -->
+    <!-- VexFlow embeds its music fonts as data: URLs. The soundfont synth compiles WebAssembly,
+         which needs wasm-unsafe-eval (not eval itself) -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
     />
     <title>vimscore</title>
     <style>
@@ -64,6 +65,26 @@
       .vf-stavenote.replacing {
         opacity: 0.25;
       }
+      .staff-names {
+        position: absolute;
+        inset: 0 auto 0 0;
+        pointer-events: none;
+      }
+      .staff-names[hidden] {
+        display: none;
+      }
+      .staff-names div {
+        position: absolute;
+        left: 0;
+        transform: translateY(-50%);
+        padding: 0.15rem 0.6rem 0.15rem 0.5rem;
+        background: rgba(255, 255, 255, 0.88);
+        border-right: 1px solid #ddd;
+        border-radius: 0 4px 4px 0;
+        font: 13px Georgia, serif;
+        color: #333;
+        white-space: nowrap;
+      }
       .playhead {
         position: absolute;
         top: 0;
@@ -84,6 +105,66 @@
       .vf-notehead.in-selection:not(.selected) * {
         fill: var(--visual);
         stroke: var(--visual);
+      }
+      #picker {
+        position: fixed;
+        top: 12%;
+        left: 50%;
+        transform: translateX(-50%);
+        width: min(440px, 90vw);
+        background: #fff;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+        font: 13px ui-monospace, Menlo, monospace;
+        overflow: hidden;
+      }
+      #picker[hidden] {
+        display: none;
+      }
+      .picker-heading {
+        padding: 0.5rem 0.8rem 0;
+        color: #666;
+      }
+      .picker-query {
+        padding: 0.3rem 0.8rem 0.5rem;
+        border-bottom: 1px solid #eee;
+        font-size: 15px;
+      }
+      .picker-query::before {
+        content: "> ";
+        color: #999;
+      }
+      .picker-query::after {
+        content: "▏";
+      }
+      #picker ul {
+        list-style: none;
+        margin: 0;
+        padding: 0.3rem 0;
+      }
+      #picker li {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.2rem 0.8rem;
+      }
+      #picker li span {
+        color: #999;
+      }
+      #picker li.selected {
+        background: var(--selected);
+        color: #fff;
+      }
+      #picker li.selected span {
+        color: #dde8fb;
+      }
+      #picker li.empty {
+        color: #999;
+      }
+      .picker-count {
+        padding: 0.3rem 0.8rem 0.5rem;
+        border-top: 1px solid #eee;
+        color: #999;
       }
       #status {
         display: flex;
@@ -107,17 +188,17 @@
       body[data-state="playing"] #mode {
         color: var(--playhead);
       }
-      body[data-state="prompt"] #mode {
+      body[data-state="command"] #mode {
         display: none;
       }
-      #prompt .prompt-text::after {
+      #command-line .command-text::after {
         content: "▏";
       }
-      #prompt .prompt-hint {
-        color: #999;
-      }
-      #prompt .prompt-error {
+      #command-line .command-error {
         margin-left: 1ch;
+        color: var(--playhead);
+      }
+      #message.error {
         color: var(--playhead);
       }
       #keys {
@@ -128,9 +209,11 @@
   </head>
   <body>
     <div id="viewport"></div>
+    <div id="picker" hidden></div>
     <div id="status">
       <span id="mode"></span>
-      <span id="prompt" hidden></span>
+      <span id="command-line" hidden></span>
+      <span id="message"></span>
       <span id="keys"></span>
       <span id="position"></span>
     </div>

@@ -15,6 +15,10 @@ const NAMED: Record<string, string> = {
     Enter: '<CR>',
     Backspace: '<BS>',
     Tab: '<Tab>',
+    ArrowUp: '<Up>',
+    ArrowDown: '<Down>',
+    ArrowLeft: '<Left>',
+    ArrowRight: '<Right>',
 };
 
 /**
@@ -26,6 +30,8 @@ export function keyName({ key, code, ctrlKey, shiftKey, metaKey, altKey }: KeyPr
     // Shifted digits print as symbols that differ by layout (`!` or `+`), so go by the key itself
     const digit = code?.match(/^Digit([0-9])$/)?.[1];
     if (shiftKey && !ctrlKey && digit !== undefined) return `<S-${digit}>`;
+    if (shiftKey && key === 'Tab') return '<S-Tab>';
+    if (shiftKey && !ctrlKey && key === ' ') return '<S-Space>';
     const name = NAMED[key] ?? (key.length === 1 ? key : undefined);
     if (name === undefined) return undefined;
     if (ctrlKey) {

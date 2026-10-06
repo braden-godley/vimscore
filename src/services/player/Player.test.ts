@@ -1,17 +1,37 @@
 import { describe, expect, it } from 'vitest';
 import { exampleComposition } from '../composition/example-composition';
+import { Instrument } from '../instrument/Instrument';
 import { Synth } from '../synth/Synth';
 import { Player } from './Player';
 
 /** Just enough of an AudioContext for the scheduler: a clock that stands still at zero */
 const ctx = { currentTime: 0, resume: async () => {} } as unknown as AudioContext;
 
-function playFrom(from: number) {
-    const played: { pitch: number; when: number; duration: number }[] = [];
-    const synth: Synth = {
-        playNote: (pitch, when, duration) => played.push({ pitch, when, duration }),
-        stopAll: () => {},
+/** A synth that writes down what it's asked to do */
+function recordingSynth() {
+    const played: { part: number; pitch: number; when: number; duration: number }[] = [];
+    const record = {
+        played,
+        instruments: [] as Instrument[],
+        auditions: [] as { instrument: Instrument; pitch: number }[],
+        stops: 0,
     };
+    const synth: Synth = {
+        setInstruments: (instruments) => {
+            record.instruments = instruments;
+        },
+        playNote: (part, pitch, when, duration) => played.push({ part, pitch, when, duration }),
+        audition: (instrument, pitch) => record.auditions.push({ instrument, pitch }),
+        stopAll: () => {
+            record.stops++;
+        },
+    };
+    return { synth, record };
+}
+
+function playFrom(from: number) {
+    const { synth, record } = recordingSynth();
+    const { played } = record;
     const player = new Player(ctx, synth);
     player.setComposition(exampleComposition);
     player.play(from);
@@ -38,13 +58,43 @@ describe('Player.play', () => {
 });
 
 describe('Player.preview', () => {
-    it('sounds the pitches together right away, cutting off the last preview', () => {
-        const played: number[] = [];
-        let stops = 0;
-        const synth: Synth = { playNote: (pitch, when) => played.push(when === 0 ? pitch : -1), stopAll: () => stops++ };
+    it("sounds the pitches together right away on the part's instrument, cutting off the last preview", () => {
+        const { synth, record } = recordingSynth();
         const player = new Player(ctx, synth);
-        player.preview([60, 64]);
-        expect(played).toEqual([60, 64]);
-        expect(stops).toBe(1);
+        player.preview([60, 64], 1);
+        expect(record.played).toEqual([
+            { part: 1, pitch: 60, when: 0, duration: 0.35 },
+            { part: 1, pitch: 64, when: 0, duration: 0.35 },
+        ]);
+        expect(record.stops).toBe(1);
+    });
+});
+
+describe('Player.setComposition', () => {
+    it('tells the synth what each part plays, and plays notes on their part', () => {
+        const { synth, record } = recordingSynth();
+        const player = new Player(ctx, synth);
+        const withViolin = {
+            ...exampleComposition,
+            parts: exampleComposition.parts.map((part, i) => (i === 0 ? { ...part, program: 40 } : part)),
+        };
+        player.setComposition(withViolin);
+        expect(record.instruments.map(({ name, program }) => [name, program])).toEqual([
+            ['Violin', 40],
+            ['Acoustic Grand Piano', 0],
+        ]);
+        player.play(2);
+        expect(record.played.map(({ part, pitch }) => [part, pitch]).sort()).toEqual([
+            [0, 76],
+            [1, 43],
+        ]);
+    });
+});
+
+describe('Player.audition', () => {
+    it('plays a note on any instrument', () => {
+        const { synth, record } = recordingSynth();
+        new Player(ctx, synth).audition({ name: 'Cello', program: 42, bank: 0, drums: false }, 60);
+        expect(record.auditions).toEqual([{ instrument: expect.objectContaining({ program: 42 }), pitch: 60 }]);
     });
 });

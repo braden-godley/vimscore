@@ -4,19 +4,21 @@
  */
 
 import { Composition } from '../composition/Composition';
-import { durationsFilling, restsFilling } from '../duration/Duration';
-import { Chord, Event, Rest, eventsLength } from '../event/Event';
-import { Fraction, ZERO, add, compare, fraction, mul, sub } from '../fraction/Fraction';
+import { durationsFilling } from '../duration/Duration';
+import { Event } from '../event/Event';
+import { Fraction, add, compare, fraction, mul, sub } from '../fraction/Fraction';
 import { KeySignature } from '../key/KeySignature';
 import {
     MeasureInfo,
     PartMeasure,
     Tempo,
     TimeSignature,
+    VolumeMark,
     measureLength,
     resolveMeasures,
 } from '../measure/Measure';
 import { mergeRests } from './Edit';
+import { cutIntoMeasures, rests } from './Stream';
 
 const FIELDS = ['timeSignature', 'keySignature', 'tempo'] as const;
 type Field = (typeof FIELDS)[number];
@@ -51,74 +53,21 @@ export function setTempo(composition: Composition, measure: number, tempo: Tempo
     return withField(composition, measure, 'tempo', tempo);
 }
 
-const rests = (durations: ReturnType<typeof durationsFilling>): Rest[] =>
-    durations.map((duration) => ({ kind: 'rest', duration }));
-
-/** Splits a chord or rest into pieces with these values; a chord's pieces are tied together */
-function pieces(event: Chord | Rest, durations: ReturnType<typeof durationsFilling>): (Chord | Rest)[] {
-    return durations.map((duration, i) => {
-        if (event.kind === 'rest') return { kind: 'rest', duration };
-        const last = i === durations.length - 1;
-        // Only the last piece keeps the note's own tie onward, and its staccato
-        const notes = event.notes.map((note) => (last ? note : { pitch: note.pitch, tie: true }));
-        return { kind: 'chord', duration, notes };
-    });
-}
-
 /**
- * Lays events out in measures of `length`. A chord or rest crossing a barline is split there,
- * tied if it's a chord. A tuplet can't be split, so one that doesn't fit is moved to the next
- * measure, with rests before it.
+ * Moves volume markings to the measures their moment falls in after re-barring, so they stay
+ * with the music.
  */
-function cutIntoMeasures(events: Event[], length: Fraction): Event[][] {
-    const measures: Event[][] = [];
-    let current: Event[] = [];
-    let used: Fraction = ZERO;
-    const close = () => {
-        measures.push(mergeRests(current));
-        current = [];
-        used = ZERO;
-    };
-
-    const queue = [...events];
-    while (queue.length > 0) {
-        const event = queue.shift()!;
-        const size = eventsLength([event]);
-        const room = sub(length, used);
-
-        if (compare(size, room) <= 0 || (current.length === 0 && event.kind === 'tuplet')) {
-            // A tuplet longer than a whole measure overfills one rather than vanish
-            current.push(event);
-            used = add(used, size);
-            if (compare(used, length) >= 0) close();
-            continue;
+function rebarVolumes(stretch: PartMeasure[], oldLength: Fraction, newLength: Fraction, count: number): VolumeMark[][] {
+    const result: VolumeMark[][] = Array.from({ length: count }, () => []);
+    stretch.forEach((partMeasure, i) => {
+        for (const { offset, percent } of partMeasure.volumes ?? []) {
+            const time = add(mul(oldLength, fraction(i)), offset);
+            const measures = Math.floor((time.num * newLength.den) / (time.den * newLength.num));
+            const index = Math.min(count - 1, measures);
+            result[index]!.push({ offset: sub(time, mul(newLength, fraction(index))), percent });
         }
-
-        try {
-            if (event.kind === 'tuplet') {
-                current.push(...rests(restsFilling(used, room)));
-                queue.unshift(event);
-            } else {
-                // Filling a whole measure takes the fewest values (a dotted half in 3/4); partway in,
-                // they fall on the beat
-                const head = compare(used, ZERO) === 0 ? durationsFilling(room) : restsFilling(used, room);
-                const tail = durationsFilling(sub(size, room));
-                const split = pieces(event, [...head, ...tail]);
-                current.push(...split.slice(0, head.length));
-                queue.unshift(...split.slice(head.length));
-            }
-        } catch {
-            // Lengths no note values can write: leave the event whole and overfill the measure
-            current.push(event);
-        }
-        close();
-    }
-
-    if (current.length > 0) {
-        current.push(...rests(restsFilling(used, sub(length, used))));
-        close();
-    }
-    return measures;
+    });
+    return result;
 }
 
 /**
@@ -145,20 +94,37 @@ export function setTimeSignature(composition: Composition, measure: number, time
         return Array.from({ length: voiceCount }, (_, v) =>
             cutIntoMeasures(
                 stretch.flatMap((partMeasure) => partMeasure.voices[v]?.events ?? rests(durationsFilling(oldLength))),
-                newLength,
-            ),
+                () => newLength,
+            )!,
         );
     });
-    const count = Math.max(...flows.flat().map((cut) => cut.length));
+    // A last measure that only exists to hold the end of the rests, in every part, isn't kept:
+    // an empty 4/4 measure becomes one 3/4 measure, not two
+    const fullCount = Math.max(...flows.flat().map((cut) => cut.length));
+    const onlyRests = (events: Event[] | undefined) => !events || events.every(({ kind }) => kind === 'rest');
+    const spilled =
+        fullCount > 1 &&
+        // Longer than the music it holds, so the last measure was filled out
+        compare(mul(newLength, fraction(fullCount)), mul(oldLength, fraction(end - measure))) > 0 &&
+        flows.flat().every((cut) => onlyRests(cut[fullCount - 1]));
+    const count = spilled ? fullCount - 1 : fullCount;
     const emptyMeasure = () => mergeRests(rests(durationsFilling(newLength)));
 
     // Tempo and key changes move to the measure their moment now falls in
     const stretchInfos: MeasureInfo[] = Array.from({ length: count }, () => ({}));
+    const measureAt = (time: Fraction) =>
+        Math.min(count - 1, Math.floor((time.num * newLength.den) / (time.den * newLength.num)));
     for (let i = measure; i < end; i++) {
-        const { timeSignature: _, ...carried } = infos[i]!;
-        const offset = mul(oldLength, fraction(i - measure));
-        const target = Math.min(count - 1, Math.floor((offset.num * newLength.den) / (offset.den * newLength.num)));
+        const { timeSignature: _, repeatEnd, ...carried } = infos[i]!;
+        const target = measureAt(mul(oldLength, fraction(i - measure)));
         stretchInfos[target] = { ...stretchInfos[target], ...carried };
+        // A repeat end goes with the end of its measure: the measure holding its last moment
+        if (repeatEnd) {
+            const time = mul(oldLength, fraction(i - measure + 1));
+            // The last measure starting before that moment: ceil(time / newLength) - 1
+            const last = Math.floor((time.num * newLength.den - 1) / (time.den * newLength.num));
+            stretchInfos[Math.max(0, Math.min(count - 1, last))]!.repeatEnd = true;
+        }
     }
     stretchInfos[0] = { ...stretchInfos[0], timeSignature };
 
@@ -166,8 +132,10 @@ export function setTimeSignature(composition: Composition, measure: number, time
         ...composition,
         measures: [...infos.slice(0, measure), ...stretchInfos, ...infos.slice(end)],
         parts: composition.parts.map((part, p) => {
+            const volumes = rebarVolumes(part.measures.slice(measure, end), oldLength, newLength, count);
             const newMeasures: PartMeasure[] = Array.from({ length: count }, (_, i) => ({
                 voices: flows[p]!.map((cut) => ({ events: cut[i] ?? emptyMeasure() })),
+                ...(volumes[i]!.length > 0 && { volumes: volumes[i] }),
             }));
             return { ...part, measures: [...part.measures.slice(0, measure), ...newMeasures, ...part.measures.slice(end)] };
         }),

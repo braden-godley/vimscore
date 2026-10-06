@@ -23,6 +23,10 @@ export interface MeasureInfo {
     timeSignature?: TimeSignature;
     tempo?: Tempo;
     keySignature?: KeySignature;
+    /** A repeated section starts here, at a repeat barline */
+    repeatStart?: boolean;
+    /** A repeated section ends here: it plays once more, then goes on */
+    repeatEnd?: boolean;
 }
 
 /** A sequence of events. Voice N continues into voice N of the next measure */
@@ -30,10 +34,26 @@ export interface Voice {
     events: Event[];
 }
 
+/**
+ * A volume marking, like a dynamic: the part plays at this volume from here until the next
+ * one. Kept by time rather than on a note, so editing the notes doesn't move or lose it.
+ */
+export interface VolumeMark {
+    /** Whole notes from the start of the measure */
+    offset: Fraction;
+    /** 0 to 100 */
+    percent: number;
+}
+
 /** One part's contents for one measure */
 export interface PartMeasure {
     voices: Voice[];
+    /** In time order, at most one at an offset */
+    volumes?: VolumeMark[];
 }
+
+/** How loud a part plays before its first volume marking, about as loud as mezzo-forte */
+export const DEFAULT_VOLUME = 80;
 
 /** Used when the first measure doesn't set its own */
 export const DEFAULT_TIME_SIGNATURE: TimeSignature = { beats: 4, beatValue: 4 };

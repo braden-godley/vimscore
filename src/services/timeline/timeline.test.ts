@@ -32,7 +32,7 @@ function rounded(notes: TimedNote[]) {
 describe('timeline', () => {
     it('places notes back to back after rests', () => {
         const notes = timeline(compose([[chord(quarter, { pitch: 60 }), { kind: 'rest', duration: quarter }, chord(quarter, { pitch: 62 })]]));
-        expect(notes).toEqual([
+        expect(notes).toMatchObject([
             { pitch: 60, start: 0, duration: 1 },
             { pitch: 62, start: 2, duration: 1 },
         ]);
@@ -69,7 +69,7 @@ describe('timeline', () => {
                 ],
             ),
         );
-        expect(notes).toEqual([
+        expect(notes).toMatchObject([
             { pitch: 67, start: 0, duration: 1 },
             { pitch: 60, start: 3, duration: 2 },
             { pitch: 64, start: 3, duration: 1 },
@@ -79,7 +79,7 @@ describe('timeline', () => {
     });
 
     it('shortens staccato notes', () => {
-        expect(timeline(compose([[chord(quarter, { pitch: 60, staccato: true })]]))).toEqual([
+        expect(timeline(compose([[chord(quarter, { pitch: 60, staccato: true })]]))).toMatchObject([
             { pitch: 60, start: 0, duration: 0.5 },
         ]);
     });

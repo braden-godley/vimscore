@@ -1,3 +1,5 @@
+import { Instrument } from '../instrument/Instrument';
+import { DEFAULT_VOLUME } from '../measure/Measure';
 import { Synth } from './Synth';
 
 /** Short fades on each note so the oscillator doesn't click when it starts and stops */
@@ -10,7 +12,8 @@ function pitchToFrequency(pitch: number): number {
 }
 
 /**
- * Plays every note as a plain triangle wave. A stand-in until soundfont playback exists.
+ * Plays every note as a plain triangle wave, whatever the instrument: what plays until a
+ * soundfont is loaded.
  */
 export class ToneSynth implements Synth {
     private output: GainNode;
@@ -22,7 +25,13 @@ export class ToneSynth implements Synth {
         this.output.connect(ctx.destination);
     }
 
-    playNote(pitch: number, when: number, duration: number) {
+    setInstruments(_instruments: Instrument[]) {}
+
+    audition(_instrument: Instrument, pitch: number, duration: number) {
+        this.playNote(0, pitch, this.ctx.currentTime, duration, DEFAULT_VOLUME / 100);
+    }
+
+    playNote(_part: number, pitch: number, when: number, duration: number, volume: number) {
         const osc = this.ctx.createOscillator();
         osc.type = 'triangle';
         osc.frequency.value = pitchToFrequency(pitch);
@@ -30,8 +39,10 @@ export class ToneSynth implements Synth {
         const envelope = this.ctx.createGain();
         const releaseAt = Math.max(when + ATTACK_SECONDS, when + duration - RELEASE_SECONDS);
         envelope.gain.setValueAtTime(0, when);
-        envelope.gain.linearRampToValueAtTime(1, when + ATTACK_SECONDS);
-        envelope.gain.setValueAtTime(1, releaseAt);
+        // As loud as it's always been at the default volume
+        const level = volume / (DEFAULT_VOLUME / 100);
+        envelope.gain.linearRampToValueAtTime(level, when + ATTACK_SECONDS);
+        envelope.gain.setValueAtTime(level, releaseAt);
         envelope.gain.linearRampToValueAtTime(0, releaseAt + RELEASE_SECONDS);
 
         osc.connect(envelope).connect(this.output);

@@ -1,4 +1,6 @@
 import { Composition } from "../composition/Composition";
+import { Instrument, partInstrument } from "../instrument/Instrument";
+import { DEFAULT_VOLUME } from "../measure/Measure";
 import { Synth } from "../synth/Synth";
 import { TimedNote, timeline } from "../timeline/timeline";
 
@@ -14,6 +16,8 @@ const START_DELAY_SECONDS = 0.05;
 
 /** How long a preview sounds: long enough to hear the pitches, short enough to nudge again */
 const PREVIEW_SECONDS = 0.35;
+/** Long enough to hear an instrument's attack and some of how it holds */
+const AUDITION_SECONDS = 0.8;
 
 export class Player {
     private notes: TimedNote[] = [];
@@ -46,6 +50,7 @@ export class Player {
         this.stop();
 
         this.notes = timeline(composition);
+        this.synth.setInstruments(composition.parts.map(partInstrument));
         this.endTime = Math.max(0, ...this.notes.map((note) => note.start + note.duration));
     }
 
@@ -74,12 +79,25 @@ export class Player {
         this.schedule();
     }
 
-    /** Sounds pitches together right away, cutting off any earlier preview. Ignored while playing */
-    preview(pitches: number[]) {
+    /**
+     * Sounds pitches together right away on a part's instrument, cutting off any earlier preview.
+     * Ignored while playing
+     */
+    preview(pitches: number[], part: number) {
         if (this.playing) return;
         void this.ctx.resume();
         this.synth.stopAll();
-        for (const pitch of pitches) this.synth.playNote(pitch, this.ctx.currentTime, PREVIEW_SECONDS);
+        for (const pitch of pitches) {
+            this.synth.playNote(part, pitch, this.ctx.currentTime, PREVIEW_SECONDS, DEFAULT_VOLUME / 100);
+        }
+    }
+
+    /** Plays a note on an instrument no part needs to have, to hear what it sounds like */
+    audition(instrument: Instrument, pitch: number) {
+        if (this.playing) return;
+        void this.ctx.resume();
+        this.synth.stopAll();
+        this.synth.audition(instrument, pitch, AUDITION_SECONDS);
     }
 
     stop() {
@@ -98,7 +116,7 @@ export class Player {
             const when = this.startTime + note.start;
             if (when > horizon) break;
 
-            this.synth.playNote(note.pitch, when, note.duration);
+            this.synth.playNote(note.part, note.pitch, when, note.duration, note.volume);
             this.nextNoteIndex++;
         }
 

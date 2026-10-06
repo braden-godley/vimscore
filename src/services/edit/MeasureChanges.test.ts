@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { newComposition, withTrailingEmptyMeasure } from '../composition/Composition';
 import { exampleComposition } from '../composition/example-composition';
 import { setKeySignature, setTempo, setTimeSignature } from './MeasureChanges';
 import { written } from './written';
@@ -67,5 +68,19 @@ describe('repeated changes', () => {
         const changed = setTimeSignature(exampleComposition, 0, { beats: 3, beatValue: 4 });
         expect(changed.measures[2]?.timeSignature).toBeUndefined();
         expect(changed.measures[3]?.timeSignature).toEqual({ beats: 6, beatValue: 8 });
+    });
+});
+
+describe('re-barring rests', () => {
+    it("doesn't add a measure just for the end of the rests", () => {
+        const empty = withTrailingEmptyMeasure(newComposition());
+        const changed = setTimeSignature(empty, 0, { beats: 3, beatValue: 4 });
+        expect(changed.measures).toHaveLength(1);
+        expect(written(changed, 0, 0)).toBe('r/h.');
+    });
+
+    it('keeps a measure the music spills into', () => {
+        // The bass's whole note needs a second 3/4 measure for its last beat
+        expect(setTimeSignature(exampleComposition, 0, { beats: 3, beatValue: 4 }).measures).toHaveLength(4);
     });
 });

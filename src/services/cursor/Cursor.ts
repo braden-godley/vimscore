@@ -8,6 +8,7 @@ import { Composition } from '../composition/Composition';
 import { Leaf, leaves } from '../event/Event';
 import { Fraction, ZERO, add, compare, toNumber } from '../fraction/Fraction';
 import { resolveMeasures, secondsPerWholeNote } from '../measure/Measure';
+import { performance } from '../timeline/performance';
 
 export interface Cursor {
     part: number;
@@ -77,11 +78,15 @@ export function cursorOffset(composition: Composition, cursor: Cursor): Fraction
     return offset;
 }
 
-/** When the cursor's leaf starts, in seconds from the start of the composition */
+/**
+ * When the cursor's leaf starts, in seconds from the start of the composition, the first time
+ * its measure is played
+ */
 export function cursorSeconds(composition: Composition, cursor: Cursor): number {
     const measure = resolveMeasures(composition.measures)[cursor.measure];
-    if (!measure) return 0;
-    return measure.startSeconds + toNumber(cursorOffset(composition, cursor)) * secondsPerWholeNote(measure.tempo);
+    const played = performance(composition).find(({ measure: m }) => m === cursor.measure);
+    if (!measure || !played) return 0;
+    return played.startSeconds + toNumber(cursorOffset(composition, cursor)) * secondsPerWholeNote(measure.tempo);
 }
 
 /** The leaf sounding at `offset`: the last one starting at or before it */

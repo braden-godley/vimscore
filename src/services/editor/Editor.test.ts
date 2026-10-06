@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { exampleComposition } from '../composition/example-composition';
 import { Cursor } from '../cursor/Cursor';
 import { EditorState, KeyResult, editorSelection, handleKey, initialEditorState } from './Editor';
+import { parseCommand } from './CommandLine';
 import { KeyPress, keyName } from './keys';
 
 /** Feeds keys one at a time, returning the final result */
@@ -151,10 +152,10 @@ describe('keyName', () => {
 
 describe('visual modes', () => {
     it('anchors where V was pressed and moves the cursor', () => {
-        const { state } = type(['l', 'V', '}', 'l']);
+        const { state } = type(['l', 'V', '}']);
         expect(state.mode).toBe('visual');
         expect(where(state.anchor!)).toEqual(at(0, 1));
-        expect(where(state.cursor)).toEqual(at(1, 1));
+        expect(where(state.cursor)).toEqual(at(1, 0));
         expect(editorSelection(exampleComposition, state)).toEqual({
             kind: 'measures',
             firstPart: 0,
@@ -206,9 +207,9 @@ describe('transposing in visual modes', () => {
 describe('previewing transposed notes', () => {
     it('plays a single chord, even across parts', () => {
         // Melody's first chord and the bass's whole note start together but last differently
-        expect(type(['<C-v>', 'K']).effect).toEqual({ kind: 'preview', pitches: [61, 65, 68] });
+        expect(type(['<C-v>', 'K']).effect).toMatchObject({ kind: 'preview', pitches: [61, 65, 68] });
         expect(type(['<C-v>', '<C-j>', 'K']).effect).toBeUndefined();
-        expect(type(['G', '<C-v>', 'K']).effect).toEqual({ kind: 'preview', pitches: [73] });
+        expect(type(['G', '<C-v>', 'K']).effect).toMatchObject({ kind: 'preview', pitches: [73] });
     });
 
     it('stays quiet for notes at different times or of different lengths', () => {
@@ -228,8 +229,8 @@ describe('transposing in normal mode', () => {
         expect(up.composition?.parts[0]!.measures[0]!.voices[0]!.events[0]).toMatchObject({
             notes: [{ pitch: 60 }, { pitch: 64 }, { pitch: 68 }],
         });
-        expect(up.effect).toEqual({ kind: 'preview', pitches: [68] });
-        expect(type(['2', 'J']).effect).toEqual({ kind: 'preview', pitches: [65] });
+        expect(up.effect).toMatchObject({ kind: 'preview', pitches: [68] });
+        expect(type(['2', 'J']).effect).toMatchObject({ kind: 'preview', pitches: [65] });
     });
 
     it('does nothing onto a pitch the chord already has', () => {
@@ -241,7 +242,7 @@ describe('transposing in normal mode', () => {
 
 describe('placing notes', () => {
     it('plays the chord the note joined', () => {
-        expect(type(['i', 'k', '<Space>']).effect).toEqual({ kind: 'preview', pitches: [60, 64, 67, 69] });
+        expect(type(['i', 'k', '<Space>']).effect).toMatchObject({ kind: 'preview', pitches: [60, 64, 67, 69] });
     });
 
     it('stays put and plays nothing when removing', () => {
@@ -412,12 +413,121 @@ describe('number keys in normal mode', () => {
             { kind: 'chord', duration: { base: 2, dots: 0 }, notes: [{ pitch: 60 }, { pitch: 64 }, { pitch: 67 }] },
             { kind: 'chord', duration: { base: 2, dots: 0 }, notes: [{ pitch: 60 }, { pitch: 64 }, { pitch: 67 }] },
         ]);
-        expect(half.effect).toEqual({ kind: 'preview', pitches: [60, 64, 67] });
+        expect(half.effect).toMatchObject({ kind: 'preview', pitches: [60, 64, 67] });
         expect(half.state.cursor).toEqual(type([]).state.cursor);
     });
 
     it('do nothing without Shift, where they are counts', () => {
         expect(type(['5']).composition).toBeUndefined();
         expect(type(['5']).state.pending).toBe('5');
+    });
+});
+
+describe('yanking and putting', () => {
+    const melody = (result: KeyResult, measure: number) =>
+        result.composition?.parts[0]!.measures[measure]!.voices[0]!.events.map((event) =>
+            event.kind === 'chord' ? event.notes.map(({ pitch }) => pitch) : event.kind,
+        );
+
+    it('yy yanks the note, and p puts it into another chord', () => {
+        const put = type(['y', 'y', 'l', 'p']);
+        expect(put.state.register).toMatchObject({ kind: 'note', note: { pitch: 67 } });
+        expect(melody(put, 0)).toEqual([[60, 64, 67], [55, 59, 62, 67], [60, 64, 67]]);
+    });
+
+    it('y with a motion yanks without changing anything, landing at the start', () => {
+        const yanked = type(['l', 'l', 'y', 'h']);
+        expect(yanked.composition).toBeUndefined();
+        expect(where(yanked.state.cursor)).toEqual(at(0, 1));
+        expect(yanked.state.register).toMatchObject({ kind: 'clip', measures: false });
+    });
+
+    it('puts clips at the cursor with P and after its chord with p, counted', () => {
+        // The G-B-D chord, over the first chord, then three times from the start
+        expect(melody(type(['l', 'y', 'l', 'h', 'P']), 0)).toEqual([[55, 59, 62], [55, 59, 62], [60, 64, 67]]);
+        expect(melody(type(['l', 'y', 'l', 'h', '3', 'P']), 0)).toEqual([
+            [55, 59, 62],
+            [55, 59, 62],
+            [55, 59, 62],
+            'rest',
+        ]);
+        expect(melody(type(['l', 'y', 'l', 'p']), 0)).toEqual([[60, 64, 67], [55, 59, 62], [55, 59, 62], 'rest']);
+    });
+
+    it('d with a motion and visual d fill the register, ready to put back', () => {
+        expect(melody(type(['d', 'l', 'P']), 0)).toEqual([[60, 64, 67], [55, 59, 62], [60, 64, 67]]);
+        expect(melody(type(['V', 'd', 'P']), 0)).toEqual([[60, 64, 67], [55, 59, 62], [60, 64, 67]]);
+    });
+
+    it('visual y yanks and goes back to normal mode at the start', () => {
+        const yanked = type(['}', 'V', '{', 'y']);
+        expect(yanked.state.mode).toBe('normal');
+        expect(yanked.composition).toBeUndefined();
+        expect(where(yanked.state.cursor)).toEqual(at(0, 0));
+        expect(yanked.state.register).toMatchObject({ kind: 'clip', measures: true });
+    });
+
+    it('does nothing with an empty register', () => {
+        expect(type(['p']).composition).toBeUndefined();
+    });
+});
+
+describe('parseCommand for parts', () => {
+    it('reads instrument, part and soundfont commands', () => {
+        expect(parseCommand('addpart')).toEqual({ name: 'addPart', query: '' });
+        expect(parseCommand('inst  string ens')).toEqual({ name: 'instrument', query: 'string ens' });
+        expect(parseCommand('delpart')).toEqual({ name: 'deletePart' });
+        expect(parseCommand('rename Violin I')).toEqual({ name: 'rename', text: 'Violin I' });
+        expect(parseCommand('clef alto')).toEqual({ error: 'Expected :clef treble or bass' });
+        expect(parseCommand('rename')).toEqual({ error: 'Rename to what? :rename Violin I' });
+        expect(parseCommand('soundfont')).toEqual({ name: 'soundfont', path: undefined });
+    });
+});
+
+describe('keyName for Shift-Space', () => {
+    it('is <S-Space>', () => {
+        expect(keyName({ key: ' ', ctrlKey: false, shiftKey: true, metaKey: false, altKey: false })).toBe('<S-Space>');
+    });
+});
+
+describe('parseCommand for export', () => {
+    it('reads a format and an optional file', () => {
+        expect(parseCommand('export mp3')).toEqual({ name: 'export', format: 'mp3', path: undefined, force: false });
+        expect(parseCommand('export! mp3 ~/out/a b.mp3')).toEqual({
+            name: 'export',
+            format: 'mp3',
+            path: '~/out/a b.mp3',
+            force: true,
+        });
+        expect(parseCommand('export mp4')).toEqual({ name: 'export', format: 'mp4', path: undefined, force: false });
+        expect(parseCommand('export midi')).toEqual({ name: 'export', format: 'midi', path: undefined, force: false });
+        expect(parseCommand('export mid')).toEqual({ name: 'export', format: 'midi', path: undefined, force: false });
+        expect(parseCommand('export wav')).toEqual({ error: 'Expected :export mp3, mp4 or midi [file]' });
+        expect(parseCommand('export')).toEqual({ error: 'Expected :export mp3, mp4 or midi [file]' });
+    });
+});
+
+describe('z', () => {
+    it('asks to toggle zooming out, in normal and insert mode', () => {
+        expect(type(['z']).effect).toEqual({ kind: 'toggleZoom' });
+        const inserting = type(['i', 'z']);
+        expect(inserting.effect).toEqual({ kind: 'toggleZoom' });
+        expect(inserting.state.mode).toBe('insert');
+        // Not as a pitch or anything else
+        expect(inserting.state.phantom).toEqual(type(['i']).state.phantom);
+    });
+});
+
+describe('h and l in visual mode', () => {
+    it('move by whole measures, with counts', () => {
+        expect(where(type(['V', 'l']).state.cursor)).toEqual(at(1, 0));
+        expect(where(type(['V', '2', 'l']).state.cursor)).toEqual(at(2, 0));
+        expect(where(type(['G', 'V', 'h']).state.cursor)).toEqual(at(1, 0));
+        expect(editorSelection(exampleComposition, type(['V', 'l']).state)).toMatchObject({ first: 0, last: 1 });
+    });
+
+    it('still move by chords in visual block mode and normal mode', () => {
+        expect(where(type(['<C-v>', 'l']).state.cursor)).toEqual(at(0, 1));
+        expect(where(type(['l']).state.cursor)).toEqual(at(0, 1));
     });
 });

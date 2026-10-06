@@ -50,7 +50,7 @@ export function transposeSelection(composition: Composition, selection: Selectio
 }
 
 /** Swaps in new events for the cursor's voice in its measure, sharing everything else */
-function withVoiceEvents(composition: Composition, { part, measure, voice }: Cursor, events: Event[]): Composition {
+export function withVoiceEvents(composition: Composition, { part, measure, voice }: Cursor, events: Event[]): Composition {
     const replace = <T>(list: T[], index: number, fn: (item: T) => T) => list.map((item, i) => (i === index ? fn(item) : item));
     return {
         ...composition,
@@ -58,7 +58,11 @@ function withVoiceEvents(composition: Composition, { part, measure, voice }: Cur
             ...p,
             measures: replace(p.measures, measure, (m) => ({
                 ...m,
-                voices: replace(m.voices, voice, (v) => ({ ...v, events })),
+                // A voice the measure doesn't have yet is added
+                voices:
+                    voice < m.voices.length
+                        ? replace(m.voices, voice, (v) => ({ ...v, events }))
+                        : [...m.voices, { events }],
             })),
         })),
     };
@@ -130,7 +134,7 @@ function overwrite(list: Event[], index: number, replacement: Chord | Rest, capa
  * Puts a chord or rest in place of the cursor's, writing over what follows or leaving rests if
  * its value changed (see `overwrite`). Undefined if it doesn't fit.
  */
-function replaceLeaf(composition: Composition, cursor: Cursor, replacement: Chord | Rest): Composition | undefined {
+export function replaceLeaf(composition: Composition, cursor: Cursor, replacement: Chord | Rest): Composition | undefined {
     const events = composition.parts[cursor.part]?.measures[cursor.measure]?.voices[cursor.voice]?.events;
     const measureLength = resolveMeasures(composition.measures)[cursor.measure]?.length;
     if (!events || !measureLength) return undefined;
@@ -344,4 +348,20 @@ export function setLeafDuration(composition: Composition, cursor: Cursor, durati
     const event = voiceLeaves(composition, cursor.part, cursor.measure, cursor.voice)[cursor.leaf]?.event;
     if (!event || sameDuration(event.duration, duration)) return undefined;
     return replaceLeaf(composition, cursor, { ...event, duration });
+}
+
+/**
+ * Puts a rest of `duration` in place of the cursor's chord or rest, writing over what follows
+ * or leaving rests like placing a note does. Undefined if it doesn't fit.
+ */
+export function placeRest(
+    composition: Composition,
+    cursor: Cursor,
+    duration: Duration,
+): { composition: Composition; cursor: Cursor } | undefined {
+    const event = voiceLeaves(composition, cursor.part, cursor.measure, cursor.voice)[cursor.leaf]?.event;
+    if (!event) return undefined;
+    if (event.kind === 'rest' && sameDuration(event.duration, duration)) return { composition, cursor };
+    const edited = replaceLeaf(composition, cursor, { kind: 'rest', duration });
+    return edited && { composition: edited, cursor: clampCursor(edited, { ...cursor, note: 0 }) };
 }

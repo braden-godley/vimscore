@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseKeySignature, parseTempo, parseTimeSignature } from './Prompt';
+import { parseKeySignature, parseTempo, parseTimeSignature } from './MeasureValues';
 
 describe('parseTimeSignature', () => {
     it('reads beats over a note value', () => {
@@ -38,21 +38,18 @@ describe('parseKeySignature', () => {
 });
 
 describe('parseTempo', () => {
-    const quarter = { base: 4, dots: 0 } as const;
-
-    it('keeps the current beat for a bare number', () => {
-        expect(parseTempo('90', quarter)).toEqual({ bpm: 90, beat: quarter });
-        expect(parseTempo('60', { base: 4, dots: 1 })).toEqual({ bpm: 60, beat: { base: 4, dots: 1 } });
+    it('leaves the beat to keep for a bare number', () => {
+        expect(parseTempo('90')).toEqual({ bpm: 90 });
     });
 
     it('takes a beat before an equals sign', () => {
-        expect(parseTempo('q.=60', quarter)).toEqual({ bpm: 60, beat: { base: 4, dots: 1 } });
-        expect(parseTempo('h = 72', quarter)).toEqual({ bpm: 72, beat: { base: 2, dots: 0 } });
+        expect(parseTempo('q.=60')).toEqual({ bpm: 60, beat: { base: 4, dots: 1 } });
+        expect(parseTempo('h = 72')).toEqual({ bpm: 72, beat: { base: 2, dots: 0 } });
     });
 
     it('rejects anything else', () => {
-        expect(parseTempo('fast', quarter)).toBeUndefined();
-        expect(parseTempo('0', quarter)).toBeUndefined();
-        expect(parseTempo('x=60', quarter)).toBeUndefined();
+        expect(parseTempo('fast')).toBeUndefined();
+        expect(parseTempo('0')).toBeUndefined();
+        expect(parseTempo('x=60')).toBeUndefined();
     });
 });

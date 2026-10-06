@@ -7,10 +7,13 @@
 import {
     Accidental,
     Articulation,
+    BarlineType,
     Beam,
+    CanvasContext,
     Dot,
     Formatter,
     Modifier,
+    RenderContext,
     Renderer,
     Stave,
     StaveConnector,
@@ -29,7 +32,10 @@ import { TimeSignature, resolveMeasures } from '../../../services/measure/Measur
 import { Clef } from '../../../services/part/Part';
 import { REST_KEYS, durationCode, keySpec, pitchKey } from './notation';
 
-const LEFT_MARGIN = 30;
+export const LEFT_MARGIN = 30;
+/** Staff names sit left of the first measure, this far from its start */
+const NAME_GAP = 24;
+export const NAME_FONT = '13px Georgia, serif';
 const RIGHT_MARGIN = 30;
 const TOP_MARGIN = 30;
 const PART_SPACING = 120;
@@ -38,6 +44,9 @@ const NOTE_STRETCH = 1.6;
 const MIN_NOTES_WIDTH = 80;
 /** Gap between the last note and the barline */
 const END_PADDING = 20;
+/** Volume markings sit this far under the bottom stave line, clear of most stems and ledger lines */
+const VOLUME_TEXT_GAP = 32;
+const VOLUME_FONT_SIZE = 12;
 /** How far above the top stave line tempo marks sit, in VexFlow's offset from the stave */
 const TEMPO_Y = -10;
 
@@ -61,8 +70,31 @@ export interface ScoreLayout {
     measures: MeasureBox[];
     /** Where each part's stave is: its y for VexFlow, and its top and bottom lines */
     parts: { y: number; top: number; bottom: number }[];
+    /** Where the staff names end, at the left of the first measure */
+    namesRight: number;
     /** Where each chord or rest is drawn, by `leafElementId` */
     leafX: Map<string, number>;
+}
+
+let measuring: CanvasRenderingContext2D | null | undefined;
+
+/** How wide text is in the staff name font */
+export function textWidth(text: string): number {
+    measuring ??= document.createElement('canvas').getContext('2d');
+    if (!measuring) return text.length * 7;
+    measuring.font = NAME_FONT;
+    return Math.ceil(measuring.measureText(text).width);
+}
+
+/** Note spacing isn't proportional to time, so interpolate between the drawn note positions */
+export function interpolate(anchors: Anchor[], time: number): number {
+    const after = anchors.findIndex((anchor) => anchor.time > time);
+    // At or past the last anchor (the barline), stay on it
+    if (after === -1) return anchors.at(-1)!.x;
+    const a = anchors[Math.max(0, after - 1)]!;
+    const b = anchors[after]!;
+    const t = b.time > a.time ? (time - a.time) / (b.time - a.time) : 0;
+    return a.x + t * (b.x - a.x);
 }
 
 /** The id VexFlow gets for a notehead; it prefixes `vf-` to make the DOM id */
@@ -178,14 +210,24 @@ function stemDirectionFor(voice: number, voiceCount: number): number | undefined
     return voice % 2 === 0 ? Stem.UP : Stem.DOWN;
 }
 
-export function renderScore(container: HTMLElement, composition: Composition): ScoreLayout {
+/**
+ * Where to draw: an SVG in a container, as the editor shows it, or a canvas showing the part of
+ * the score from `left` (in score units), at `scale`, as video frames are made from.
+ */
+export type ScoreTarget =
+    | HTMLElement
+    | { canvas: CanvasRenderingContext2D; left: number; top: number; scale: number };
+
+export function renderScore(target: ScoreTarget, composition: Composition): ScoreLayout {
     const resolved = resolveMeasures(composition.measures);
     const clefs = composition.parts.map((part) => part.clef ?? 'treble');
 
     const staves: Stave[][] = []; // [measure][part]
     const built: BuiltVoice[][][] = []; // [measure][part][voice], with empty voices kept
     const boxes: MeasureBox[] = [];
-    let x = LEFT_MARGIN;
+    // Room on the left for the longest staff name
+    const namesRight = LEFT_MARGIN + Math.max(0, ...composition.parts.map(({ name }) => textWidth(name)));
+    let x = namesRight + NAME_GAP;
 
     resolved.forEach(({ timeSignature, keySignature, tempo, length }, m) => {
         const showTimeSignature = m === 0 || composition.measures[m]?.timeSignature !== undefined;
@@ -206,6 +248,9 @@ export function renderScore(container: HTMLElement, composition: Composition): S
             const previousKey = resolved[m - 1]?.keySignature;
             if (showKeySignature) stave.addKeySignature(keySpec(keySignature), previousKey && keySpec(previousKey));
             if (showTimeSignature) stave.addTimeSignature(`${timeSignature.beats}/${timeSignature.beatValue}`);
+            const info = composition.measures[m];
+            if (info?.repeatStart) stave.setBegBarType(BarlineType.REPEAT_BEGIN);
+            if (info?.repeatEnd) stave.setEndBarType(BarlineType.REPEAT_END);
             // A metronome mark over the top stave, like ♩ = 120
             if (showTempo && p === 0) {
                 stave.setTempo({ duration: durationCode(tempo.beat), dots: tempo.beat.dots, bpm: tempo.bpm }, TEMPO_Y);
@@ -267,6 +312,7 @@ export function renderScore(container: HTMLElement, composition: Composition): S
             bottom: stave.getYForLine(4),
         })),
         leafX: new Map(),
+        namesRight,
     };
     built.forEach((column, measure) =>
         column.forEach((voices, part) =>
@@ -278,12 +324,29 @@ export function renderScore(container: HTMLElement, composition: Composition): S
         ),
     );
 
-    container.replaceChildren();
-    const renderer = new Renderer(container as HTMLDivElement, Renderer.Backends.SVG);
-    renderer.resize(layout.width, layout.height);
-    const ctx = renderer.getContext();
+    let ctx: RenderContext;
+    if (target instanceof HTMLElement) {
+        target.replaceChildren();
+        const renderer = new Renderer(target as HTMLDivElement, Renderer.Backends.SVG);
+        renderer.resize(layout.width, layout.height);
+        ctx = renderer.getContext();
+    } else {
+        // Everything is drawn in score units; the transform puts the wanted part on the canvas
+        const { canvas, left, top, scale } = target;
+        canvas.setTransform(scale, 0, 0, scale, -left * scale, -top * scale);
+        ctx = new CanvasContext(canvas);
+    }
 
     for (const columnStaves of staves) for (const stave of columnStaves) stave.setContext(ctx).draw();
+
+    // Each staff's name, right-aligned up to the first measure and centered on the stave
+    ctx.save();
+    ctx.setFont(NAME_FONT);
+    composition.parts.forEach(({ name }, p) => {
+        const stave = layout.parts[p];
+        if (stave) ctx.fillText(name, namesRight - textWidth(name), (stave.top + stave.bottom) / 2 + 4);
+    });
+    ctx.restore();
 
     const firstColumn = staves[0];
     if (firstColumn && firstColumn.length > 1) {
@@ -317,14 +380,32 @@ export function renderScore(container: HTMLElement, composition: Composition): S
     );
 
     drawTies(ctx, composition, built);
+    drawVolumes(ctx, composition, layout);
     return layout;
+}
+
+/** Each volume marking as text under its stave, at its beat: `v=60%` */
+function drawVolumes(ctx: RenderContext, composition: Composition, layout: ScoreLayout) {
+    ctx.save();
+    ctx.setFont('Georgia, serif', VOLUME_FONT_SIZE, 'normal', 'italic');
+    composition.parts.forEach((part, p) => {
+        const stave = layout.parts[p];
+        part.measures.forEach((partMeasure, m) => {
+            const anchors = layout.measures[m]?.anchors;
+            if (!stave || !anchors?.length) return;
+            for (const { offset, percent } of partMeasure.volumes ?? []) {
+                ctx.fillText(`v=${percent}%`, interpolate(anchors, toNumber(offset)), stave.bottom + VOLUME_TEXT_GAP);
+            }
+        });
+    });
+    ctx.restore();
 }
 
 /**
  * Ties a note to the same pitch in the next chord of its voice, which may be in the next
  * measure. Matches how playback merges ties, so what you see is what you hear.
  */
-function drawTies(ctx: ReturnType<Renderer['getContext']>, composition: Composition, built: BuiltVoice[][][]) {
+function drawTies(ctx: RenderContext, composition: Composition, built: BuiltVoice[][][]) {
     composition.parts.forEach((part, p) => {
         const voiceCount = Math.max(0, ...part.measures.map((measure) => measure.voices.length));
 

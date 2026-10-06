@@ -7,6 +7,7 @@
  */
 
 import { durationsFilling } from '../duration/Duration';
+import { PIANO } from '../instrument/Instrument';
 import { Rest, leaves } from '../event/Event';
 import { DEFAULT_TIME_SIGNATURE, MeasureInfo, measureLength, resolveMeasures } from '../measure/Measure';
 import { Part } from '../part/Part';
@@ -20,7 +21,7 @@ export interface Composition {
 }
 
 /**
- * A blank score to start from: a treble and a bass stave, each with nothing in it yet. With no
+ * A blank score to start from: a piano's treble and bass staves, with nothing in them yet. With no
  * measures of its own it takes the defaults, 4/4 at quarter = 120 in C, and `startSession` gives
  * it its first empty measure.
  */
@@ -28,9 +29,10 @@ export function newComposition(): Composition {
     return {
         title: 'Untitled',
         measures: [],
+        // A piano's two staves, named after it so choosing an instrument renames them
         parts: [
-            { name: 'Treble', clef: 'treble', program: 0, measures: [] },
-            { name: 'Bass', clef: 'bass', program: 0, measures: [] },
+            { name: PIANO.name, clef: 'treble', program: 0, measures: [] },
+            { name: PIANO.name, clef: 'bass', program: 0, measures: [] },
         ],
         soundfont: { filePath: '' },
     };
