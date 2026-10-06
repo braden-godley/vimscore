@@ -13,6 +13,7 @@ import {
     setLeafDuration,
     toggleArpeggios,
     toggleGlissandi,
+    toggleStaccatos,
     transposeNote,
     transposeSelection,
 } from '../edit/Edit';
@@ -232,6 +233,20 @@ const toggleSelectedGlissandi: Action = (state, composition) => {
     return edited ? { state, composition: edited } : { state };
 };
 
+/** `gs`: makes the cursor's chord staccato, or holds it full length again */
+const toggleCursorStaccato: Action = (state, composition) => {
+    const { part, measure, voice, leaf } = state.cursor;
+    const edited = toggleStaccatos(composition, [{ part, measure, voice, leaf }]);
+    return edited ? { state, composition: edited } : { state };
+};
+
+/** `gs` in visual mode: makes every selected chord staccato, or none if they all are already */
+const toggleSelectedStaccatos: Action = (state, composition) => {
+    const selection = editorSelection(composition, state);
+    const edited = selection && toggleStaccatos(composition, selectedLeaves(composition, selection));
+    return edited ? { state, composition: edited } : { state };
+};
+
 /**
  * Puts a hairpin over a selection, in each of its parts, or takes it off if it's already there.
  * Measures are covered from the start of the first to the end of the last.
@@ -279,6 +294,7 @@ const NORMAL_ACTIONS: Record<string, Action> = {
     re: (state, composition) => ({ state, composition: toggleRepeat(composition, state.cursor.measure, 'end') }),
     ga: toggleCursorArpeggio,
     gl: toggleCursorGlissando,
+    gs: toggleCursorStaccato,
     '<': hairpinFromCursor('crescendo'),
     '>': hairpinFromCursor('diminuendo'),
     U: (state, _, count = 1) => ({ state, history: { direction: 'redo', count } }),
@@ -361,6 +377,7 @@ const VISUAL_ACTIONS: Record<string, Action> = {
     K: transpose(1),
     ga: toggleSelectedArpeggios,
     gl: toggleSelectedGlissandi,
+    gs: toggleSelectedStaccatos,
     '<': hairpinOverSelected('crescendo'),
     '>': hairpinOverSelected('diminuendo'),
 };

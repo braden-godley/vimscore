@@ -116,6 +116,28 @@ export function toggleGlissandi(composition: Composition, refs: (LeafRef & { not
     }));
 }
 
+/**
+ * Makes every note of the chords among `refs` staccato, or if every one already is, plays them
+ * full length again. The whole chord, since it's drawn with one dot. Rests are skipped.
+ * Undefined when there's no chord to change.
+ */
+export function toggleStaccatos(composition: Composition, refs: LeafRef[]): Composition | undefined {
+    const notes = refs.flatMap(({ part, measure, voice, leaf }) => {
+        const event = voiceLeaves(composition, part, measure, voice)[leaf]?.event;
+        return event?.kind === 'chord' ? event.notes : [];
+    });
+    if (notes.length === 0) return undefined;
+    const staccato = !notes.every((note) => note.staccato);
+
+    return mapChords(composition, refs, (event) => ({
+        ...event,
+        notes: event.notes.map((note) => {
+            const { staccato: _, ...held } = note;
+            return staccato ? { ...held, staccato } : held;
+        }),
+    }));
+}
+
 /** Swaps in new events for the cursor's voice in its measure, sharing everything else */
 export function withVoiceEvents(composition: Composition, { part, measure, voice }: Cursor, events: Event[]): Composition {
     const replace = <T>(list: T[], index: number, fn: (item: T) => T) => list.map((item, i) => (i === index ? fn(item) : item));

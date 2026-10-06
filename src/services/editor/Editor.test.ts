@@ -294,6 +294,29 @@ describe('gl', () => {
     });
 });
 
+describe('gs', () => {
+    const first = (result: KeyResult, leaf = 0) => result.composition?.parts[0]!.measures[0]!.voices[0]!.events[leaf];
+
+    it("makes every note of the cursor's chord staccato, and back", () => {
+        const short = type(['g', 's']);
+        expect((first(short) as Chord).notes.map((note) => !!note.staccato)).toEqual([true, true, true]);
+
+        const pending = handleKey(short.composition!, short.state, 'g');
+        const back = handleKey(short.composition!, pending.state, 's');
+        expect((first(back) as Chord).notes.some((note) => 'staccato' in note)).toBe(false);
+    });
+
+    it('does nothing on a rest', () => {
+        expect(type(['G', 'l', 'l', 'l', 'g', 's']).composition).toBeUndefined();
+    });
+
+    it('makes every selected chord staccato in visual mode', () => {
+        const short = type(['<C-v>', 'l', 'g', 's']);
+        const staccatos = [0, 1].map((leaf) => (first(short, leaf) as Chord).notes.map((note) => !!note.staccato));
+        expect(staccatos).toEqual([[true, true, true], [true, true, true]]);
+    });
+});
+
 describe('placing notes', () => {
     it('plays the chord the note joined', () => {
         expect(type(['i', 'k', '<Space>']).effect).toMatchObject({ kind: 'preview', pitches: [60, 64, 67, 69] });
