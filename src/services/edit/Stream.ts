@@ -24,7 +24,8 @@ export function pieces(event: Chord | Rest, durations: Duration[], keepTie = tru
             const { tie: _, ...untied } = note;
             return untied;
         });
-        return { kind: 'chord', duration, notes };
+        // It's rolled where it's struck, not where it's held on
+        return { kind: 'chord', duration, notes, ...(i === 0 && event.arpeggio && { arpeggio: true }) };
     });
 }
 

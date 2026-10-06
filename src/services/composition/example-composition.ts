@@ -8,6 +8,7 @@ import { Duration } from '../duration/Duration';
 import { Chord, Event, Rest, Tuplet } from '../event/Event';
 import { Note } from '../note/Note';
 import { Part } from '../part/Part';
+import { spell } from '../pitch/Pitch';
 import { Soundfont } from '../soundfont/Soundfont';
 import { Composition } from './Composition';
 
@@ -15,7 +16,7 @@ function chord(duration: Duration, ...notes: (number | Note)[]): Chord {
     return {
         kind: 'chord',
         duration,
-        notes: notes.map((note) => (typeof note === 'number' ? { pitch: note } : note)),
+        notes: notes.map((note) => (typeof note === 'number' ? { pitch: spell(note) } : note)),
     };
 }
 
@@ -53,9 +54,9 @@ const melody: Part = {
         ] }] },
         // 6/8: a C tied over the beat, then a staccato C
         { voices: [{ events: [
-            chord(dottedQuarter, { pitch: 72, tie: true }),
+            chord(dottedQuarter, { pitch: spell(72), tie: true }),
             chord(eighth, 72),
-            chord(eighth, { pitch: 72, staccato: true }),
+            chord(eighth, { pitch: spell(72), staccato: true }),
             rest(eighth),
         ] }] },
     ],

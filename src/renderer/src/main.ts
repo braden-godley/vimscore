@@ -16,6 +16,7 @@ import { writeMidi } from '../../services/export/midi';
 import { Renderer, runExport } from '../../services/export/runExport';
 import { SoundfontSynth } from './audio/SoundfontSynth';
 import { exportMp3, renderPcm } from './audio/exportAudio';
+import { exportMusanim } from './video/exportMusanim';
 import { exportVideo } from './video/exportVideo';
 import { SwitchableSynth } from './audio/SwitchableSynth';
 import { ScoreView } from './score/ScoreView';
@@ -194,8 +195,7 @@ function showEditing() {
     showCommandLine(editor.commandLine);
     showPicker(editor.picker);
     const place = `${composition.parts[cursor.part]?.name ?? ''}  m${cursor.measure + 1}`;
-    const key = measures[cursor.measure]?.keySignature;
-    positionLabel.textContent = editor.phantom ? `${describePhantom(editor.phantom, key)}  ${place}` : place;
+    positionLabel.textContent = editor.phantom ? `${describePhantom(editor.phantom)}  ${place}` : place;
 
     view.setPlayhead(undefined);
     view.select(cursor);
@@ -248,8 +248,9 @@ async function runExportCommand(command: Extract<Command, { name: 'export' }>) {
         if (!path) throw new Error('no soundfont to play it with; load one with :soundfont');
         const data = await window.files.readBinary(path);
         if (format === 'mp3') return exportMp3(composition, data, progress(0, 1));
-        // A video's sound first, in the worker, then its frames here, where the score can be drawn
+        // A video's sound first, in the worker, then its frames here, where they can be drawn
         const audio = await renderPcm(composition, data, progress(0, 0.25));
+        if (format === 'musanim') return exportMusanim(composition, audio, progress(0.25, 1));
         return exportVideo(composition, audio, progress(0.25, 1));
     };
     showMessage('Exporting…');
@@ -316,7 +317,7 @@ window.addEventListener('keydown', (event) => {
     current = { ...current, session: next };
     // Edits, undo and redo all arrive as a new composition
     if (next.composition !== session.composition) showComposition();
-    if (effect?.kind === 'preview') player.preview(effect.pitches, effect.part);
+    if (effect?.kind === 'preview') player.preview(effect.pitches, effect.part, effect.rolled);
     if (effect?.kind === 'audition') player.audition(effect.instrument, effect.pitch);
     if (effect?.kind === 'toggleZoom') zoomedOut = !zoomedOut;
     if (effect?.kind === 'command') void run(effect.command);

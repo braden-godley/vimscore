@@ -5,6 +5,7 @@ import { written } from '../edit/written';
 import { fraction } from '../fraction/Fraction';
 import { Selection } from '../selection/Selection';
 import { Register, put, yankNote, yankSelection } from './Register';
+import { midi, spell } from '../pitch/Pitch';
 
 const at = (part: number, measure: number, leaf: number, note = 0): Cursor => ({ part, measure, voice: 0, leaf, note });
 const block = (part: number, measure: number, from: [number, number], to: [number, number]): Selection => ({
@@ -21,7 +22,7 @@ describe('notes', () => {
     it('yanks the note under the cursor with its value', () => {
         expect(yankNote(exampleComposition, at(0, 0, 0, 2))).toEqual({
             kind: 'note',
-            note: { pitch: 67 },
+            note: { pitch: spell(67) },
             duration: { base: 4, dots: 0 },
         });
         expect(yankNote(exampleComposition, at(0, 2, 3))).toBeUndefined();
@@ -31,7 +32,7 @@ describe('notes', () => {
         const g = yankNote(exampleComposition, at(0, 0, 0, 2))!;
         const put1 = put(exampleComposition, at(0, 0, 1), g, true)!;
         expect(written(put1.composition, 0, 0)).toBe('60,64,67/q 55,59,62,67/q 60,64,67/h');
-        expect(cursorPitch(put1.composition, put1.cursor)).toBe(67);
+        expect(midi(cursorPitch(put1.composition, put1.cursor)!)).toBe(67);
         expect(put(exampleComposition, at(0, 0, 2), g, true)).toBeUndefined();
     });
 

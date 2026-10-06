@@ -12,6 +12,8 @@ export interface Chord {
     kind: 'chord';
     duration: Duration;
     notes: Note[];
+    /** Rolled from the bottom note up, rather than struck all at once */
+    arpeggio?: boolean;
 }
 
 export interface Rest {

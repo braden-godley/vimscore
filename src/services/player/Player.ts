@@ -2,7 +2,7 @@ import { Composition } from "../composition/Composition";
 import { Instrument, partInstrument } from "../instrument/Instrument";
 import { DEFAULT_VOLUME } from "../measure/Measure";
 import { Synth } from "../synth/Synth";
-import { TimedNote, timeline } from "../timeline/timeline";
+import { ARPEGGIO_STEP, TimedNote, timeline } from "../timeline/timeline";
 
 /**
  * How often the scheduler wakes up. Lateness here doesn't affect note timing, because notes
@@ -81,15 +81,20 @@ export class Player {
 
     /**
      * Sounds pitches together right away on a part's instrument, cutting off any earlier preview.
-     * Ignored while playing
+     * `rolled` brings them in from the bottom up, like an arpeggio. Ignored while playing
      */
-    preview(pitches: number[], part: number) {
+    preview(pitches: number[], part: number, rolled = false) {
         if (this.playing) return;
         void this.ctx.resume();
         this.synth.stopAll();
-        for (const pitch of pitches) {
-            this.synth.playNote(part, pitch, this.ctx.currentTime, PREVIEW_SECONDS, DEFAULT_VOLUME / 100);
-        }
+        const now = this.ctx.currentTime;
+        [...pitches]
+            .sort((a, b) => a - b)
+            .forEach((pitch, i) => {
+                // Every note still sounds for the whole preview, ending after the last comes in
+                const delay = rolled ? i * ARPEGGIO_STEP : 0;
+                this.synth.playNote(part, pitch, now + delay, PREVIEW_SECONDS, DEFAULT_VOLUME / 100);
+            });
     }
 
     /** Plays a note on an instrument no part needs to have, to hear what it sounds like */

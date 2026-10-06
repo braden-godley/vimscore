@@ -4,6 +4,7 @@ import { Fraction, ZERO, add, compare, toNumber } from '../fraction/Fraction';
 import { DEFAULT_VOLUME, ResolvedMeasure, resolveMeasures, secondsPerWholeNote } from '../measure/Measure';
 import { Part } from '../part/Part';
 import { performance } from './performance';
+import { midi } from '../pitch/Pitch';
 
 /** A note as it sounds, in seconds from the start of the composition */
 export interface TimedNote {
@@ -33,9 +34,18 @@ function volumeAt(changes: { time: Fraction; percent: number }[], time: Fraction
     return percent / 100;
 }
 
+/** Seconds between the notes of a rolled chord */
+export const ARPEGGIO_STEP = 0.05;
+
+/** A roll takes at most half its chord, so a fast one still lands every note before the next */
+function arpeggioStep(notes: number, seconds: number): number {
+    return notes < 2 ? 0 : Math.min(ARPEGGIO_STEP, seconds / 2 / (notes - 1));
+}
+
 /**
  * Resolves a composition into the notes it plays, sorted by start time, playing repeats. Tied
- * notes are merged into one, and staccato notes sound for half their written length.
+ * notes are merged into one, staccato notes sound for half their written length, and an arpeggio's
+ * notes come in one after another from the bottom, all ending together.
  */
 export function timeline(composition: Composition): TimedNote[] {
     const measures = resolveMeasures(composition.measures);
@@ -70,16 +80,23 @@ export function timeline(composition: Composition): TimedNote[] {
                     const tiedOut = new Map<number, TimedNote>();
 
                     if (event.kind === 'chord') {
+                        // An arpeggio rolls up through the notes it strikes; held ties are already sounding
+                        const struck = event.notes.map(({ pitch }) => midi(pitch)).filter((pitch) => !tiedIn?.has(pitch));
+                        struck.sort((a, b) => a - b);
+                        const step = event.arpeggio ? arpeggioStep(struck.length, seconds) : 0;
+
                         for (const note of event.notes) {
-                            let timed = tiedIn?.get(note.pitch);
+                            const pitch = midi(note.pitch);
+                            let timed = tiedIn?.get(pitch);
                             if (!timed) {
                                 const volume = volumeAt(volumes, add(measure.start, offset));
-                                timed = { part: partIndex, pitch: note.pitch, start, duration: 0, volume };
+                                const delay = struck.indexOf(pitch) * step;
+                                timed = { part: partIndex, pitch, start: start + delay, duration: 0, volume };
                                 notes.push(timed);
                             }
                             const end = start + (note.staccato ? seconds / 2 : seconds);
                             timed.duration = end - timed.start;
-                            if (note.tie) tiedOut.set(note.pitch, timed);
+                            if (note.tie) tiedOut.set(pitch, timed);
                         }
                     }
 

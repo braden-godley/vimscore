@@ -4,6 +4,7 @@ import { Cursor } from '../cursor/Cursor';
 import { EditorState, KeyResult, editorSelection, handleKey, initialEditorState } from './Editor';
 import { parseCommand } from './CommandLine';
 import { KeyPress, keyName } from './keys';
+import { midi, pitch, spell } from '../pitch/Pitch';
 
 /** Feeds keys one at a time, returning the final result */
 function type(keys: string[], state: EditorState = initialEditorState(exampleComposition)): KeyResult {
@@ -87,9 +88,10 @@ describe('insert mode', () => {
 
     it('starts the phantom as the selected note and shapes it', () => {
         // The top note of the first chord: a quarter G4
-        expect(type(['i']).state.phantom).toEqual({ pitch: 67, duration: { base: 4, dots: 0 }, staccato: false });
+        expect(type(['i']).state.phantom).toEqual({ pitch: spell(67), duration: { base: 4, dots: 0 }, staccato: false });
+        // Up to A by sharps, then down a half step to a flat
         expect(type(['i', 'K', 'K', 'J', 'l', 'w', 's']).state.phantom).toEqual({
-            pitch: 68,
+            pitch: pitch('Ab4'),
             duration: { base: 2, dots: 1 },
             staccato: true,
         });
@@ -101,7 +103,7 @@ describe('insert mode', () => {
         const placed = type(['i', 'k', '<Space>']);
         expect(placed.state.mode).toBe('insert');
         expect(placed.composition?.parts[0]!.measures[0]!.voices[0]!.events[0]).toMatchObject({
-            notes: [{ pitch: 60 }, { pitch: 64 }, { pitch: 67 }, { pitch: 69 }],
+            notes: [{ pitch: spell(60) }, { pitch: spell(64) }, { pitch: spell(67) }, { pitch: spell(69) }],
         });
         expect(placed.state.cursor.note).toBe(3);
         // A place that doesn't fit changes nothing
@@ -110,12 +112,13 @@ describe('insert mode', () => {
 
     it('steps the phantom through the scale with j and k, and by half steps with J and K', () => {
         // From G4 in C major
-        expect(type(['i', 'k']).state.phantom?.pitch).toBe(69);
-        expect(type(['i', 'j']).state.phantom?.pitch).toBe(65);
-        expect(type(['i', 'K']).state.phantom?.pitch).toBe(68);
-        expect(type(['i', 'J']).state.phantom?.pitch).toBe(66);
+        expect(type(['i', 'k']).state.phantom?.pitch).toEqual(pitch('A4'));
+        expect(type(['i', 'j']).state.phantom?.pitch).toEqual(pitch('F4'));
+        // A half step spells a sharp going up and a flat going down
+        expect(type(['i', 'K']).state.phantom?.pitch).toEqual(pitch('G#4'));
+        expect(type(['i', 'J']).state.phantom?.pitch).toEqual(pitch('Gb4'));
         // From off the scale, back onto it
-        expect(type(['i', 'K', 'k']).state.phantom?.pitch).toBe(69);
+        expect(type(['i', 'K', 'k']).state.phantom?.pitch).toEqual(pitch('A4'));
     });
 
     it('drops the phantom on leaving', () => {
@@ -194,11 +197,11 @@ describe('transposing in visual modes', () => {
     it('moves the selection by half steps, counted, and stays in visual mode', () => {
         const down = type(['V', '<C-j>', 'J']);
         expect(down.state.mode).toBe('visual');
-        expect(down.composition?.parts[1]!.measures[0]!.voices[0]!.events[0]).toMatchObject({ notes: [{ pitch: 47 }] });
+        expect(down.composition?.parts[1]!.measures[0]!.voices[0]!.events[0]).toMatchObject({ notes: [{ pitch: spell(47) }] });
 
         const up = type(['<C-v>', '3', 'K']);
         expect(up.composition?.parts[0]!.measures[0]!.voices[0]!.events[0]).toMatchObject({
-            notes: [{ pitch: 63 }, { pitch: 67 }, { pitch: 70 }],
+            notes: [{ pitch: spell(63) }, { pitch: spell(67) }, { pitch: spell(70) }],
         });
         expect(up.composition?.parts[1]!.measures[0]).toBe(exampleComposition.parts[1]!.measures[0]);
     });
@@ -227,7 +230,7 @@ describe('transposing in normal mode', () => {
         const up = type(['K']);
         expect(up.state.mode).toBe('normal');
         expect(up.composition?.parts[0]!.measures[0]!.voices[0]!.events[0]).toMatchObject({
-            notes: [{ pitch: 60 }, { pitch: 64 }, { pitch: 68 }],
+            notes: [{ pitch: spell(60) }, { pitch: spell(64) }, { pitch: spell(68) }],
         });
         expect(up.effect).toMatchObject({ kind: 'preview', pitches: [68] });
         expect(type(['2', 'J']).effect).toMatchObject({ kind: 'preview', pitches: [65] });
@@ -237,6 +240,32 @@ describe('transposing in normal mode', () => {
         const blocked = type(['3', 'J']);
         expect(blocked.composition).toBeUndefined();
         expect(blocked.effect).toBeUndefined();
+    });
+});
+
+describe('ga', () => {
+    const first = (result: KeyResult, leaf = 0) => result.composition?.parts[0]!.measures[0]!.voices[0]!.events[leaf];
+
+    it("rolls the cursor's chord as an arpeggio, playing it rolled, and back", () => {
+        const rolled = type(['g', 'a']);
+        expect(first(rolled)).toMatchObject({ arpeggio: true });
+        expect(rolled.effect).toMatchObject({ kind: 'preview', pitches: [60, 64, 67], rolled: true });
+
+        const unrolled = handleKey(rolled.composition!, rolled.state, 'g');
+        const back = handleKey(rolled.composition!, unrolled.state, 'a');
+        expect(back.composition?.parts[0]!.measures[0]!.voices[0]!.events[0]).not.toHaveProperty('arpeggio');
+        expect(back.effect).toMatchObject({ kind: 'preview', rolled: undefined });
+    });
+
+    it('does nothing on a rest', () => {
+        expect(type(['G', 'l', 'l', 'l', 'g', 'a']).composition).toBeUndefined();
+    });
+
+    it('rolls every selected chord in visual mode, staying in it', () => {
+        const rolled = type(['<C-v>', 'l', 'g', 'a']);
+        expect(rolled.state.mode).toBe('visualBlock');
+        expect([0, 1, 2].map((leaf) => first(rolled, leaf))).toMatchObject([{ arpeggio: true }, { arpeggio: true }, {}]);
+        expect(first(rolled, 2)).not.toHaveProperty('arpeggio');
     });
 });
 
@@ -256,7 +285,7 @@ describe('placing notes', () => {
         const placed = type(['a', 'k', '<Space>']);
         expect(placed.state.mode).toBe('insertMelody');
         expect(where(placed.state.cursor)).toEqual(at(0, 1));
-        expect(placed.state.phantom?.pitch).toBe(69);
+        expect(placed.state.phantom?.pitch).toEqual(pitch('A4'));
         // Plain insert mode stays on the note
         expect(where(type(['i', 'k', '<Space>']).state.cursor)).toEqual(at(0, 0));
     });
@@ -295,7 +324,7 @@ describe('dd', () => {
         const deleted = type(['d', 'd']);
         expect(deleted.state.pending).toBe('');
         expect(deleted.composition?.parts[0]!.measures[0]!.voices[0]!.events[0]).toMatchObject({
-            notes: [{ pitch: 60 }, { pitch: 64 }],
+            notes: [{ pitch: spell(60) }, { pitch: spell(64) }],
         });
         // On to the nearest note left, the E
         expect(type(['d', 'd']).state.cursor.note).toBe(1);
@@ -310,7 +339,7 @@ describe('d with a motion', () => {
     /** The melody's (or another part's) events in a measure, as pitches per chord and null for rests */
     const pitches = (result: KeyResult, measure: number, part = 0) =>
         result.composition?.parts[part]!.measures[measure]!.voices[0]!.events.map((event) =>
-            event.kind === 'chord' ? event.notes.map(({ pitch }) => pitch) : event.kind === 'rest' ? null : 'tuplet',
+            event.kind === 'chord' ? event.notes.map(({ pitch }) => midi(pitch)) : event.kind === 'rest' ? null : 'tuplet',
         );
 
     // Melody measure 1 (4/4): C-E-G quarter, G-B-D quarter, C-E-G half
@@ -389,10 +418,10 @@ describe('number keys in insert mode', () => {
 
     it('are counts without Shift', () => {
         // From G4: three scale steps up is C5, two half steps down is F4
-        expect(type(['i', '3', 'k']).state.phantom?.pitch).toBe(72);
-        expect(type(['i', '2', 'J']).state.phantom?.pitch).toBe(65);
-        expect(type(['i', '1', '2', 'K']).state.phantom?.pitch).toBe(79);
-        expect(type(['i', '2', 'j']).state.phantom?.pitch).toBe(64);
+        expect(type(['i', '3', 'k']).state.phantom?.pitch).toEqual(pitch('C5'));
+        expect(type(['i', '2', 'J']).state.phantom?.pitch).toEqual(pitch('F4'));
+        expect(type(['i', '1', '2', 'K']).state.phantom?.pitch).toEqual(pitch('G5'));
+        expect(type(['i', '2', 'j']).state.phantom?.pitch).toEqual(pitch('E4'));
         expect(type(['i', '2', 'l']).state.phantom?.duration.base).toBe(1);
     });
 
@@ -402,7 +431,7 @@ describe('number keys in insert mode', () => {
         expect(escaped.state.pending).toBe('');
         expect(escaped.state.mode).toBe('normal');
         // A count before something that doesn't take one is dropped
-        expect(type(['i', '3', 'w', 'k']).state.phantom?.pitch).toBe(69);
+        expect(type(['i', '3', 'w', 'k']).state.phantom?.pitch).toEqual(pitch('A4'));
     });
 });
 
@@ -410,8 +439,8 @@ describe('number keys in normal mode', () => {
     it('change the selected chord with Shift, and play it', () => {
         const half = type(['<S-5>']);
         expect(half.composition?.parts[0]!.measures[0]!.voices[0]!.events).toEqual([
-            { kind: 'chord', duration: { base: 2, dots: 0 }, notes: [{ pitch: 60 }, { pitch: 64 }, { pitch: 67 }] },
-            { kind: 'chord', duration: { base: 2, dots: 0 }, notes: [{ pitch: 60 }, { pitch: 64 }, { pitch: 67 }] },
+            { kind: 'chord', duration: { base: 2, dots: 0 }, notes: [{ pitch: spell(60) }, { pitch: spell(64) }, { pitch: spell(67) }] },
+            { kind: 'chord', duration: { base: 2, dots: 0 }, notes: [{ pitch: spell(60) }, { pitch: spell(64) }, { pitch: spell(67) }] },
         ]);
         expect(half.effect).toMatchObject({ kind: 'preview', pitches: [60, 64, 67] });
         expect(half.state.cursor).toEqual(type([]).state.cursor);
@@ -426,12 +455,12 @@ describe('number keys in normal mode', () => {
 describe('yanking and putting', () => {
     const melody = (result: KeyResult, measure: number) =>
         result.composition?.parts[0]!.measures[measure]!.voices[0]!.events.map((event) =>
-            event.kind === 'chord' ? event.notes.map(({ pitch }) => pitch) : event.kind,
+            event.kind === 'chord' ? event.notes.map(({ pitch }) => midi(pitch)) : event.kind,
         );
 
     it('yy yanks the note, and p puts it into another chord', () => {
         const put = type(['y', 'y', 'l', 'p']);
-        expect(put.state.register).toMatchObject({ kind: 'note', note: { pitch: 67 } });
+        expect(put.state.register).toMatchObject({ kind: 'note', note: { pitch: spell(67) } });
         expect(melody(put, 0)).toEqual([[60, 64, 67], [55, 59, 62, 67], [60, 64, 67]]);
     });
 
@@ -500,10 +529,11 @@ describe('parseCommand for export', () => {
             force: true,
         });
         expect(parseCommand('export mp4')).toEqual({ name: 'export', format: 'mp4', path: undefined, force: false });
+        expect(parseCommand('export musanim')).toEqual({ name: 'export', format: 'musanim', path: undefined, force: false });
         expect(parseCommand('export midi')).toEqual({ name: 'export', format: 'midi', path: undefined, force: false });
         expect(parseCommand('export mid')).toEqual({ name: 'export', format: 'midi', path: undefined, force: false });
-        expect(parseCommand('export wav')).toEqual({ error: 'Expected :export mp3, mp4 or midi [file]' });
-        expect(parseCommand('export')).toEqual({ error: 'Expected :export mp3, mp4 or midi [file]' });
+        expect(parseCommand('export wav')).toEqual({ error: 'Expected :export mp3, mp4, musanim or midi [file]' });
+        expect(parseCommand('export')).toEqual({ error: 'Expected :export mp3, mp4, musanim or midi [file]' });
     });
 });
 

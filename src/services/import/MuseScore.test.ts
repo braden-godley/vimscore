@@ -2,7 +2,8 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { strToU8, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import { Composition } from '../composition/Composition';
-import { Event, eventsLength } from '../event/Event';
+import { Event, eventsLength, leaves } from '../event/Event';
+import { midi, pitchName } from '../pitch/Pitch';
 import { compare } from '../fraction/Fraction';
 import { resolveMeasures } from '../measure/Measure';
 import { timeline } from '../timeline/timeline';
@@ -38,7 +39,7 @@ function show(events: Event[]): string {
             if (event.kind === 'tuplet') return `[${event.actual}:${event.normal} ${show(event.events)}]`;
             const value = `${event.duration.base}${'.'.repeat(event.duration.dots)}`;
             if (event.kind === 'rest') return `r/${value}`;
-            return `${event.notes.map((n) => `${n.pitch}${n.tie ? '~' : ''}${n.staccato ? '!' : ''}`).join(',')}/${value}`;
+            return `${event.notes.map((n) => `${midi(n.pitch)}${n.tie ? '~' : ''}${n.staccato ? '!' : ''}`).join(',')}/${value}`;
         })
         .join(' ');
 }
@@ -64,7 +65,7 @@ describe('readMuseScore', () => {
           <Tuplet><normalNotes>2</normalNotes><actualNotes>3</actualNotes><baseNote>eighth</baseNote></Tuplet>
           <Chord><durationType>eighth</durationType><Articulation><subtype>articStaccatoAbove</subtype></Articulation><Note><pitch>69</pitch></Note><Note><pitch>72</pitch></Note></Chord>
           <Rest><durationType>eighth</durationType></Rest>
-          <Chord><durationType>eighth</durationType><Note><pitch>70</pitch></Note></Chord>
+          <Chord><durationType>eighth</durationType><Note><pitch>70</pitch><tpc>24</tpc></Note></Chord>
           <endTuplet/>
         </voice>
         <voice>
@@ -92,8 +93,8 @@ describe('readMuseScore', () => {
     it('reads the title, and a part of two staves as two parts', () => {
         expect(score.title).toBe('Little Piece');
         expect(score.parts.map(({ name, clef, program }) => [name, clef, program])).toEqual([
-            ['Piano', 'treble', 0],
-            ['Piano', 'bass', 0],
+            ['Acoustic Grand Piano', 'treble', 0],
+            ['Acoustic Grand Piano', 'bass', 0],
         ]);
     });
 
@@ -109,6 +110,18 @@ describe('readMuseScore', () => {
         expect(voice(score, 1, 0)).toBe('41/2.');
     });
 
+    it('keeps MuseScore’s spelling of each note', () => {
+        const spelled = (m: number, leaf: number) => {
+            const event = [...leaves(score.parts[0]!.measures[m]!.voices[0]!.events)][leaf]!.event;
+            return event.kind === 'chord' ? event.notes.map(({ pitch }) => pitchName(pitch)) : [];
+        };
+        expect(spelled(0, 0)).toEqual(['F4']);
+        // A♯, not the B♭ the key would suggest, because that's how it was written
+        expect(spelled(0, 4)).toEqual(['A#4']);
+        // Without a spelling, a white key is natural
+        expect(spelled(0, 2)).toEqual(['A4', 'C5']);
+    });
+
     it('fills the gaps voices leave with rests', () => {
         expect(voice(score, 0, 0, 1)).toBe('r/4 60/4 r/4');
     });
@@ -117,6 +130,20 @@ describe('readMuseScore', () => {
         expect(score.parts[0]!.measures[0]!.volumes).toEqual([{ offset: { num: 0, den: 1 }, percent: 39 }]);
         expect(score.parts[0]!.measures[1]!.volumes?.[0]?.percent).toBe(76);
         expect(voice(score, 0, 1)).toBe('r/2.');
+    });
+
+    it('reads arpeggios, but not the bracket that says to play a chord together', () => {
+        const chord = (arpeggio: string) =>
+            `<Chord><durationType>half</durationType><Note><pitch>60</pitch></Note><Note><pitch>64</pitch></Note>${arpeggio}</Chord>`;
+        const rolled = read(
+            mscx(`<Staff id="1"><Measure><voice>
+                ${chord('<Arpeggio><subtype>0</subtype></Arpeggio>')}
+                ${chord('<Arpeggio><subtype>3</subtype></Arpeggio>')}
+            </voice></Measure></Staff>`),
+        );
+        const [first, second] = rolled.parts[0]!.measures[0]!.voices[0]!.events;
+        expect(first).toMatchObject({ arpeggio: true });
+        expect(second).not.toHaveProperty('arpeggio');
     });
 
     it('reads the zipped form too', () => {
@@ -132,7 +159,7 @@ describe('readMuseScore', () => {
         const bass = read(
             mscx(
                 '<Staff id="1"><Measure><voice><Rest><durationType>measure</durationType><duration>4/4</duration></Rest></voice></Measure></Staff>',
-                `<Part><Staff id="1"><defaultConcertClef>F8vb</defaultConcertClef></Staff><trackName>Acoustic Bass</trackName>
+                `<Part><Staff id="1"><defaultConcertClef>F8vb</defaultConcertClef></Staff><trackName>Bass Line</trackName>
                    <Instrument><concertClef>F8vb</concertClef><Channel><program value="32"/></Channel></Instrument></Part>`,
             ),
         );

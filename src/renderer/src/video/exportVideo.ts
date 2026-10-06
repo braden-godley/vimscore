@@ -1,21 +1,15 @@
 /**
  * Makes an MP4 of the score playing: every stave fitted to the frame, the music scrolling past
- * a centered red playhead, staff names kept at the left, and the title across the top. Frames
- * are drawn as fast as they encode rather than in real time, so the video is smooth and in
- * sync on any machine. Encoding is Chromium's (H.264 and AAC through WebCodecs); mediabunny
- * puts them in the MP4.
+ * a centered red playhead, staff names kept at the left, and the title across the top.
  */
 
-import { AudioBufferSource, BufferTarget, CanvasSource, Mp4OutputFormat, Output, Quality } from 'mediabunny';
 import { Composition } from '../../../services/composition/Composition';
 import { RenderedAudio } from '../../../services/export/renderAudio';
 import { resolveMeasures, secondsPerWholeNote } from '../../../services/measure/Measure';
 import { performance, playedMeasureAt } from '../../../services/timeline/performance';
 import { LEFT_MARGIN, NAME_FONT, ScoreLayout, interpolate, renderScore } from '../score/renderScore';
+import { HEIGHT, WIDTH, encodeVideo } from './encode';
 
-const WIDTH = 1920;
-const HEIGHT = 1080;
-const FPS = 30;
 /** Room across the top for the title */
 const TITLE_HEIGHT = 120;
 const MARGIN = 40;
@@ -142,9 +136,6 @@ function drawFrame(
     }
 }
 
-/** Gives the page a moment to show progress */
-const breathe = () => new Promise((resolve) => setTimeout(resolve, 0));
-
 export async function exportVideo(
     composition: Composition,
     audio: RenderedAudio,
@@ -153,37 +144,10 @@ export async function exportVideo(
     const framing = measure(composition);
     const tiles = drawTiles(composition, framing);
     onProgress(0.05);
-
-    const canvas = document.createElement('canvas');
-    canvas.width = WIDTH;
-    canvas.height = HEIGHT;
-    const context = canvas.getContext('2d')!;
-
-    const output = new Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }), target: new BufferTarget() });
-    const video = new CanvasSource(canvas, { codec: 'avc', quality: new Quality('high') });
-    const sound = new AudioBufferSource({ codec: 'aac', quality: new Quality('high') });
-    output.addVideoTrack(video, { frameRate: FPS });
-    output.addAudioTrack(sound);
-    await output.start();
-
     const playheadAt = playheadFor(composition, framing.layout);
-    const seconds = audio.left.length / audio.sampleRate;
-    const frames = Math.ceil(seconds * FPS);
-    for (let frame = 0; frame < frames; frame++) {
-        const time = frame / FPS;
-        drawFrame(context, composition, framing, tiles, playheadAt(time));
-        await video.add(time, 1 / FPS);
-        if (frame % FPS === 0) {
-            onProgress(0.05 + 0.9 * (frame / frames));
-            await breathe();
-        }
-    }
-
-    const buffer = new AudioBuffer({ numberOfChannels: 2, length: audio.left.length, sampleRate: audio.sampleRate });
-    buffer.copyToChannel(audio.left as Float32Array<ArrayBuffer>, 0);
-    buffer.copyToChannel(audio.right as Float32Array<ArrayBuffer>, 1);
-    await sound.add(buffer);
-    await output.finalize();
-    onProgress(1);
-    return new Uint8Array(output.target.buffer!);
+    return encodeVideo(
+        audio,
+        (context, seconds) => drawFrame(context, composition, framing, tiles, playheadAt(seconds)),
+        (fraction) => onProgress(0.05 + 0.95 * fraction),
+    );
 }

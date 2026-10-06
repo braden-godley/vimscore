@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { Duration, durationValue, durationsFilling, restsFilling } from '../duration/Duration';
 import { fraction } from '../fraction/Fraction';
 import { Event, eventsLength, leaves } from './Event';
+import { spell } from '../pitch/Pitch';
 
 const note = (base: Duration['base'], dots: Duration['dots'] = 0): Event => ({
     kind: 'chord',
     duration: { base, dots },
-    notes: [{ pitch: 60 }],
+    notes: [{ pitch: spell(60) }],
 });
 
 describe('durationValue', () => {

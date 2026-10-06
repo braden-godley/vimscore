@@ -6,22 +6,21 @@
 import { Composition } from '../composition/Composition';
 import { Cursor, cursorPitch, voiceLeaves } from '../cursor/Cursor';
 import { Duration } from '../duration/Duration';
-import { KeySignature, scaleStep } from '../key/KeySignature';
+import { KeySignature } from '../key/KeySignature';
 import { Clef } from '../part/Part';
+import { HIGHEST_MIDI, LOWEST_MIDI, Pitch, midi, pitch, scaleStep, transpose } from '../pitch/Pitch';
 
 export interface Phantom {
-    pitch: number;
+    pitch: Pitch;
     duration: Duration;
     staccato: boolean;
 }
 
 /** Where a phantom starts when the cursor is on a rest: the middle line of the stave */
-const MIDDLE_LINE_PITCH: Record<Clef, number> = { treble: 71, bass: 50 };
+const MIDDLE_LINE_PITCH: Record<Clef, Pitch> = { treble: pitch('B4'), bass: pitch('D3') };
 
 const QUARTER: Duration = { base: 4, dots: 0 };
 const BASES: Duration['base'][] = [64, 32, 16, 8, 4, 2, 1];
-const LOWEST_PITCH = 0;
-const HIGHEST_PITCH = 127;
 
 /** A phantom copying the pitch and written duration of the cursor's note */
 export function phantomAt(composition: Composition, cursor: Cursor): Phantom {
@@ -34,10 +33,14 @@ export function phantomAt(composition: Composition, cursor: Cursor): Phantom {
     };
 }
 
-/** Raises (positive) or lowers it by half steps, stopping at the ends of MIDI's range */
+/**
+ * Raises (positive) or lowers it by half steps, stopping at the ends of MIDI's range. A black
+ * key is spelled the way it moved: a sharp going up, a flat going down.
+ */
 export function shiftPitch(phantom: Phantom, semitones: number): Phantom {
-    const pitch = Math.max(LOWEST_PITCH, Math.min(HIGHEST_PITCH, phantom.pitch + semitones));
-    return { ...phantom, pitch };
+    const from = midi(phantom.pitch);
+    const to = Math.max(LOWEST_MIDI, Math.min(HIGHEST_MIDI, from + semitones));
+    return { ...phantom, pitch: transpose(phantom.pitch, to - from) ?? phantom.pitch };
 }
 
 /** Steps through note values, keeping dots: positive goes longer (quarter to half) */

@@ -23,6 +23,10 @@ describe('besideScore', () => {
         expect(besideScore('/music/song.vimscore', 'mp3')).toBe('/music/song.mp3');
         expect(besideScore('/music/v1.2/song', 'mp3')).toBe('/music/v1.2/song.mp3');
     });
+
+    it('keeps the animation apart from the score video', () => {
+        expect(besideScore('/music/song.vimscore', 'musanim')).toBe('/music/song.musanim.mp4');
+    });
 });
 
 describe('runExport', () => {

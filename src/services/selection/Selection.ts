@@ -6,6 +6,7 @@
 import { Composition } from '../composition/Composition';
 import { Cursor, cursorOffset, voiceLeaves } from '../cursor/Cursor';
 import { Fraction, ZERO, add, compare } from '../fraction/Fraction';
+import { midi } from '../pitch/Pitch';
 
 /** A moment in the score: a measure and whole notes into it */
 export interface TimePoint {
@@ -97,7 +98,7 @@ export function selectedChordPitches(composition: Composition, selection: Select
         const time = leafStart(composition, { ...ref, note: 0 });
         first ??= { time, length: leaf.length };
         if (compareTime(time, first.time) !== 0 || compare(leaf.length, first.length) !== 0) return undefined;
-        pitches.push(...leaf.event.notes.map(({ pitch }) => pitch));
+        pitches.push(...leaf.event.notes.map(({ pitch }) => midi(pitch)));
     }
     return pitches.length > 0 ? pitches : undefined;
 }

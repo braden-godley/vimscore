@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { newComposition } from '../composition/Composition';
 import { exampleComposition } from '../composition/example-composition';
 import { Session, sessionKey, startSession } from './Session';
+import { midi, spell } from '../pitch/Pitch';
 
 function type(keys: string[], session: Session = startSession(exampleComposition)): Session {
     return keys.reduce((current, key) => sessionKey(current, key).session, session);
@@ -10,7 +11,7 @@ function type(keys: string[], session: Session = startSession(exampleComposition
 /** The melody's first chord, as pitches, or null for a rest */
 const firstChord = ({ composition }: Session) => {
     const event = composition.parts[0]!.measures[0]!.voices[0]!.events[0]!;
-    return event.kind === 'chord' ? event.notes.map(({ pitch }) => pitch) : null;
+    return event.kind === 'chord' ? event.notes.map(({ pitch }) => midi(pitch)) : null;
 };
 
 describe('undo and redo', () => {
@@ -130,7 +131,7 @@ describe('a new composition', () => {
         expect(written.composition.measures).toHaveLength(2);
         expect(written.composition.parts[0]!.measures[0]!.voices[0]!.events[0]).toMatchObject({
             kind: 'chord',
-            notes: [{ pitch: 71 }],
+            notes: [{ pitch: spell(71) }],
         });
     });
 });
@@ -138,7 +139,7 @@ describe('a new composition', () => {
 describe('yanking and putting across edits', () => {
     const melody = ({ composition }: Session, measure: number) =>
         composition.parts[0]!.measures[measure]!.voices[0]!.events.map((event) =>
-            event.kind === 'chord' ? event.notes.map(({ pitch }) => pitch) : event.kind,
+            event.kind === 'chord' ? event.notes.map(({ pitch }) => midi(pitch)) : event.kind,
         );
 
     it('moves a note with dd and p', () => {
@@ -209,7 +210,7 @@ describe('parts and instruments', () => {
 describe('changing a selection', () => {
     const melody = ({ composition }: Session, measure: number) =>
         composition.parts[0]!.measures[measure]!.voices[0]!.events.map((event) =>
-            event.kind === 'chord' ? event.notes.map(({ pitch }) => pitch) : event.kind,
+            event.kind === 'chord' ? event.notes.map(({ pitch }) => midi(pitch)) : event.kind,
         );
 
     it('deletes it and inserts from its first beat, starting from the note that was there', () => {
@@ -217,7 +218,7 @@ describe('changing a selection', () => {
         const changing = type(['l', '<C-v>', 'l', 'c']);
         expect(changing.editor.mode).toBe('insert');
         expect(changing.editor.cursor).toMatchObject({ part: 0, measure: 0, leaf: 1 });
-        expect(changing.editor.phantom).toMatchObject({ pitch: 62, duration: { base: 4, dots: 0 } });
+        expect(changing.editor.phantom).toMatchObject({ pitch: spell(62), duration: { base: 4, dots: 0 } });
         expect(melody(changing, 0)).toEqual([[60, 64, 67], 'rest', 'rest']);
         expect(changing.editor.register).toMatchObject({ kind: 'clip' });
     });
@@ -240,7 +241,7 @@ describe('changing a selection', () => {
 describe('switching insert modes', () => {
     it('toggles with m, keeping the phantom, and undoes as one stay', () => {
         const melody = type(['i', 'k', 'm']);
-        expect(melody.editor).toMatchObject({ mode: 'insertMelody', phantom: { pitch: 69 } });
+        expect(melody.editor).toMatchObject({ mode: 'insertMelody', phantom: { pitch: spell(69) } });
         expect(type(['m'], melody).editor.mode).toBe('insert');
         expect(type(['A'], melody).editor.mode).toBe('insertMelody');
 
@@ -254,7 +255,7 @@ describe('switching insert modes', () => {
 describe('entering rests', () => {
     const melody = ({ composition }: Session, measure: number) =>
         composition.parts[0]!.measures[measure]!.voices[0]!.events.map((event) =>
-            event.kind === 'chord' ? event.notes.map(({ pitch }) => pitch) : `r/${event.kind === 'rest' ? event.duration.base : ''}`,
+            event.kind === 'chord' ? event.notes.map(({ pitch }) => midi(pitch)) : `r/${event.kind === 'rest' ? event.duration.base : ''}`,
         );
 
     it('puts a rest as long as the phantom with <S-Space>, staying put in insert mode', () => {
@@ -285,7 +286,7 @@ describe('undo in insert mode', () => {
     /** The melody's first measure, as pitches per chord, with null for rests */
     const bar = ({ composition }: Session) =>
         composition.parts[0]!.measures[0]!.voices[0]!.events.map((event) =>
-            event.kind === 'chord' ? event.notes.map(({ pitch }) => pitch) : null,
+            event.kind === 'chord' ? event.notes.map(({ pitch }) => midi(pitch)) : null,
         );
 
     it('takes back the last note placed, staying in insert mode', () => {

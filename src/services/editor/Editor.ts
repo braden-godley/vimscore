@@ -5,7 +5,16 @@
  */
 
 import { Composition, withTrailingEmptyMeasure } from '../composition/Composition';
-import { deleteNote, deleteSelection, placeNote, placeRest, setLeafDuration, transposeNote, transposeSelection } from '../edit/Edit';
+import {
+    deleteNote,
+    deleteSelection,
+    placeNote,
+    placeRest,
+    setLeafDuration,
+    toggleArpeggios,
+    transposeNote,
+    transposeSelection,
+} from '../edit/Edit';
 import { Duration } from '../duration/Duration';
 import { ZERO } from '../fraction/Fraction';
 import { KeySignature } from '../key/KeySignature';
@@ -36,7 +45,7 @@ import {
     toggleStaccato,
 } from '../phantom/Phantom';
 import { Register, put, yankNote, yankSelection } from '../register/Register';
-import { Selection, VisualKind, selectedChordPitches, visualSelection } from '../selection/Selection';
+import { Selection, VisualKind, selectedChordPitches, selectedLeaves, visualSelection } from '../selection/Selection';
 import { setKeySignature, setTempo, setTimeSignature } from '../edit/MeasureChanges';
 import { addPart, deletePart, renamePart, setClef, setInstrument } from '../edit/Parts';
 import { toggleRepeat } from '../edit/Repeats';
@@ -44,6 +53,7 @@ import { setVolume } from '../edit/Volume';
 import { GENERAL_MIDI_INSTRUMENTS, Instrument } from '../instrument/Instrument';
 import { Command, EditCommand, isEditCommand, parseCommand } from './CommandLine';
 import { Picker, auditionPitch, pickerKey } from './Picker';
+import { midi } from '../pitch/Pitch';
 
 /**
  * `normal` navigates; the insert modes enter notes, `insertMelody` moving on after each one; the
@@ -80,8 +90,8 @@ export type EditorEffect =
     | { kind: 'audition'; instrument: Instrument; pitch: number }
     /** Switch between showing every staff at once and the normal size */
     | { kind: 'toggleZoom' }
-    /** Sound these pitches briefly, so you hear what you just changed */
-    | { kind: 'preview'; pitches: number[]; part: number };
+    /** Sound these MIDI pitches briefly, so you hear what you just changed; `rolled` as an arpeggio */
+    | { kind: 'preview'; pitches: number[]; part: number; rolled?: boolean };
 
 export interface KeyResult {
     state: EditorState;
@@ -164,7 +174,7 @@ const transposeCursorNote =
         return {
             state: { ...state, cursor: moved.cursor },
             composition: moved.composition,
-            effect: pitch === undefined ? undefined : { kind: 'preview', pitches: [pitch], part: moved.cursor.part },
+            effect: pitch === undefined ? undefined : { kind: 'preview', pitches: [midi(pitch)], part: moved.cursor.part },
         };
     };
 
@@ -181,10 +191,28 @@ function changeDuration(base: Duration['base']): Action {
         const edited = setLeafDuration(composition, cursor, { base, dots: 0 });
         if (!edited) return { state };
         const event = voiceLeaves(edited, cursor.part, cursor.measure, cursor.voice)[cursor.leaf]?.event;
-        const pitches = event?.kind === 'chord' ? event.notes.map(({ pitch }) => pitch) : undefined;
+        const pitches = event?.kind === 'chord' ? event.notes.map(({ pitch }) => midi(pitch)) : undefined;
         return { state, composition: edited, effect: pitches && { kind: 'preview', pitches, part: cursor.part } };
     };
 }
+
+/** `ga`: rolls the cursor's chord as an arpeggio or back, and plays it */
+const toggleCursorArpeggio: Action = (state, composition) => {
+    const { cursor } = state;
+    const edited = toggleArpeggios(composition, [cursor]);
+    if (!edited) return { state };
+    const event = voiceLeaves(edited, cursor.part, cursor.measure, cursor.voice)[cursor.leaf]?.event;
+    if (event?.kind !== 'chord') return { state, composition: edited };
+    const pitches = event.notes.map(({ pitch }) => midi(pitch));
+    return { state, composition: edited, effect: { kind: 'preview', pitches, part: cursor.part, rolled: event.arpeggio } };
+};
+
+/** `ga` in visual mode: rolls every selected chord, or unrolls them if they all are already */
+const toggleSelectedArpeggios: Action = (state, composition) => {
+    const selection = editorSelection(composition, state);
+    const edited = selection && toggleArpeggios(composition, selectedLeaves(composition, selection));
+    return edited ? { state, composition: edited } : { state };
+};
 
 const NORMAL_ACTIONS: Record<string, Action> = {
     ...SHARED_ACTIONS,
@@ -193,6 +221,7 @@ const NORMAL_ACTIONS: Record<string, Action> = {
     // Repeat barlines at the cursor's measure, on or off
     rs: (state, composition) => ({ state, composition: toggleRepeat(composition, state.cursor.measure, 'start') }),
     re: (state, composition) => ({ state, composition: toggleRepeat(composition, state.cursor.measure, 'end') }),
+    ga: toggleCursorArpeggio,
     U: (state, _, count = 1) => ({ state, history: { direction: 'redo', count } }),
     // Just the note under the cursor. A lone `d` or `y` waits for a motion
     dd: (state, composition) => {
@@ -271,6 +300,7 @@ const VISUAL_ACTIONS: Record<string, Action> = {
     c: changeSelected,
     J: transpose(-1),
     K: transpose(1),
+    ga: toggleSelectedArpeggios,
 };
 
 /** A count can't start with 0, so a lone `0` is left free for a future motion */
@@ -412,7 +442,12 @@ function place(composition: Composition, state: EditorState, phantom: Phantom): 
     return {
         state: { ...state, cursor },
         composition: edited,
-        effect: { kind: 'preview', pitches: result.placed.notes.map(({ pitch }) => pitch), part: cursor.part },
+        effect: {
+            kind: 'preview',
+            pitches: result.placed.notes.map(({ pitch }) => midi(pitch)),
+            part: cursor.part,
+            rolled: result.placed.arpeggio,
+        },
     };
 }
 

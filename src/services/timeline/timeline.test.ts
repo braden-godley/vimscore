@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { Composition } from '../composition/Composition';
 import { exampleComposition } from '../composition/example-composition';
 import { Duration } from '../duration/Duration';
-import { Event } from '../event/Event';
+import { Chord, Event } from '../event/Event';
 import { Note } from '../note/Note';
-import { TimedNote, timeline } from './timeline';
+import { ARPEGGIO_STEP, TimedNote, timeline } from './timeline';
+import { spell } from '../pitch/Pitch';
 
 const quarter: Duration = { base: 4, dots: 0 };
 const eighth: Duration = { base: 8, dots: 0 };
@@ -29,9 +30,37 @@ function rounded(notes: TimedNote[]) {
     }));
 }
 
+const rolled = (duration: Duration, ...notes: Note[]): Chord => ({ kind: 'chord', duration, notes, arpeggio: true });
+
 describe('timeline', () => {
+    it('rolls an arpeggio up from the bottom note, every note ending together', () => {
+        // Written top first, but still rolled from the bottom
+        const notes = timeline(compose([[rolled(quarter, { pitch: spell(67) }, { pitch: spell(60) }, { pitch: spell(64) })]]));
+        expect(rounded(notes)).toEqual([
+            { pitch: 60, start: 0, duration: 1 },
+            { pitch: 64, start: ARPEGGIO_STEP, duration: 1 - ARPEGGIO_STEP },
+            { pitch: 67, start: 2 * ARPEGGIO_STEP, duration: 1 - 2 * ARPEGGIO_STEP },
+        ]);
+    });
+
+    it('squeezes a roll into the first half of a short chord', () => {
+        const thirtySecond: Duration = { base: 32, dots: 0 };
+        // A 32nd lasts 1/8 second here, so five notes come in 1/64 second apart
+        const notes = timeline(compose([[rolled(thirtySecond, ...[60, 64, 67, 72, 76].map((pitch) => ({ pitch: spell(pitch) })))]]));
+        expect(notes.at(-1)!.start).toBeCloseTo(1 / 16);
+    });
+
+    it("doesn't roll notes tied in from before, which are already sounding", () => {
+        const notes = timeline(compose([[chord(quarter, { pitch: spell(60), tie: true }), rolled(quarter, { pitch: spell(60) }, { pitch: spell(64) }, { pitch: spell(67) })]]));
+        expect(rounded(notes)).toEqual([
+            { pitch: 60, start: 0, duration: 2 },
+            { pitch: 64, start: 1, duration: 1 },
+            { pitch: 67, start: 1 + ARPEGGIO_STEP, duration: 1 - ARPEGGIO_STEP },
+        ]);
+    });
+
     it('places notes back to back after rests', () => {
-        const notes = timeline(compose([[chord(quarter, { pitch: 60 }), { kind: 'rest', duration: quarter }, chord(quarter, { pitch: 62 })]]));
+        const notes = timeline(compose([[chord(quarter, { pitch: spell(60) }), { kind: 'rest', duration: quarter }, chord(quarter, { pitch: spell(62) })]]));
         expect(notes).toMatchObject([
             { pitch: 60, start: 0, duration: 1 },
             { pitch: 62, start: 2, duration: 1 },
@@ -43,9 +72,9 @@ describe('timeline', () => {
             kind: 'tuplet',
             actual: 3,
             normal: 2,
-            events: [60, 62, 64].map((pitch) => chord(eighth, { pitch })),
+            events: [60, 62, 64].map((pitch) => chord(eighth, { pitch: spell(pitch) })),
         };
-        expect(rounded(timeline(compose([[triplet, chord(quarter, { pitch: 65 })]])))).toEqual([
+        expect(rounded(timeline(compose([[triplet, chord(quarter, { pitch: spell(65) })]])))).toEqual([
             { pitch: 60, start: 0, duration: 0.333333 },
             { pitch: 62, start: 0.333333, duration: 0.333333 },
             { pitch: 64, start: 0.666667, duration: 0.333333 },
@@ -58,14 +87,14 @@ describe('timeline', () => {
         const notes = timeline(
             compose(
                 [
-                    [rest, chord(quarter, { pitch: 60, tie: true }, { pitch: 64, tie: true })],
-                    [chord(quarter, { pitch: 67 })],
+                    [rest, chord(quarter, { pitch: spell(60), tie: true }, { pitch: spell(64), tie: true })],
+                    [chord(quarter, { pitch: spell(67) })],
                 ],
                 [
                     // 60 continues; 64 isn't in the next chord, so its tie is dropped
-                    [chord(quarter, { pitch: 60 }), chord(quarter, { pitch: 64 })],
+                    [chord(quarter, { pitch: spell(60) }), chord(quarter, { pitch: spell(64) })],
                     // Same pitch, but a different voice
-                    [chord(quarter, { pitch: 64 })],
+                    [chord(quarter, { pitch: spell(64) })],
                 ],
             ),
         );
@@ -79,7 +108,7 @@ describe('timeline', () => {
     });
 
     it('shortens staccato notes', () => {
-        expect(timeline(compose([[chord(quarter, { pitch: 60, staccato: true })]]))).toMatchObject([
+        expect(timeline(compose([[chord(quarter, { pitch: spell(60), staccato: true })]]))).toMatchObject([
             { pitch: 60, start: 0, duration: 0.5 },
         ]);
     });

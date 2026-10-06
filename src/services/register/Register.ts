@@ -14,6 +14,7 @@ import { Fraction, ZERO, add, compare, fraction, mul, sub } from '../fraction/Fr
 import { ResolvedMeasure, resolveMeasures } from '../measure/Measure';
 import { Note } from '../note/Note';
 import { Selection } from '../selection/Selection';
+import { comparePitch, midi } from '../pitch/Pitch';
 
 export type Register =
     | { kind: 'note'; note: Note; duration: Duration }
@@ -88,8 +89,8 @@ function putNote(
     let edited: Composition | undefined;
     if (event.kind === 'rest') {
         edited = replaceLeaf(composition, cursor, { kind: 'chord', duration, notes: [note] });
-    } else if (!event.notes.some(({ pitch }) => pitch === note.pitch)) {
-        const notes = [...event.notes, note].sort((a, b) => a.pitch - b.pitch);
+    } else if (!event.notes.some(({ pitch }) => midi(pitch) === midi(note.pitch))) {
+        const notes = [...event.notes, note].sort((a, b) => comparePitch(a.pitch, b.pitch));
         const events = composition.parts[cursor.part]!.measures[cursor.measure]!.voices[cursor.voice]!.events;
         const joined = mapLeaves(events, (other, i) => (i === cursor.leaf ? { ...event, notes } : other));
         edited = withVoiceEvents(composition, cursor, joined);

@@ -1,20 +1,15 @@
 /** Conversions from the data model to VexFlow's string formats */
 
 import { Duration } from '../../../services/duration/Duration';
-import { C_MAJOR, KeySignature } from '../../../services/key/KeySignature';
+import { KeySignature } from '../../../services/key/KeySignature';
 import { Clef } from '../../../services/part/Part';
 import { Phantom } from '../../../services/phantom/Phantom';
+import { Pitch } from '../../../services/pitch/Pitch';
 
-const SHARP_NAMES = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b'];
-const FLAT_NAMES = ['c', 'db', 'd', 'eb', 'e', 'f', 'gb', 'g', 'ab', 'a', 'bb', 'b'];
-
-/**
- * MIDI pitch to a VexFlow key like `c#/4`, where c/4 is middle C. Black keys are spelled with
- * flats in flat keys and sharps otherwise, until the model records spelling itself.
- */
-export function pitchKey(pitch: number, key: KeySignature = C_MAJOR): string {
-    const names = key.fifths < 0 ? FLAT_NAMES : SHARP_NAMES;
-    return `${names[pitch % 12]}/${Math.floor(pitch / 12) - 1}`;
+/** A pitch as a VexFlow key like `c#/4` or `bb/3`, where c/4 is middle C */
+export function pitchKey({ letter, alter, octave }: Pitch): string {
+    const accidental = alter > 0 ? '#'.repeat(alter) : 'b'.repeat(-alter);
+    return `${letter.toLowerCase()}${accidental}/${octave}`;
 }
 
 /** VexFlow's name for a key signature, by its major key: `-7` (Cb) through `7` (C#) */
@@ -55,12 +50,11 @@ const VALUE_NAMES: Record<Duration['base'], string> = {
     64: '64th',
 };
 
-/** Reads like `C♯4 dotted quarter staccato`, for the status bar, spelled for the key */
-export function describePhantom({ pitch, duration, staccato }: Phantom, key: KeySignature = C_MAJOR): string {
-    const [name = '', octave] = pitchKey(pitch, key).split('/');
-    const spelled = name[0]!.toUpperCase() + name.slice(1).replace('#', '♯').replace('b', '♭');
+/** Reads like `C♯4 dotted quarter staccato`, for the status bar */
+export function describePhantom({ pitch, duration, staccato }: Phantom): string {
+    const accidental = pitch.alter > 0 ? '♯'.repeat(pitch.alter) : '♭'.repeat(-pitch.alter);
     return [
-        `${spelled}${octave}`,
+        `${pitch.letter}${accidental}${pitch.octave}`,
         ['', 'dotted ', 'double-dotted '][duration.dots] + VALUE_NAMES[duration.base],
         staccato ? 'staccato' : '',
     ]

@@ -11,14 +11,12 @@ import { Fraction, ZERO, add, compare, sub } from '../fraction/Fraction';
 import { resolveMeasures } from '../measure/Measure';
 import { Note } from '../note/Note';
 import { Phantom } from '../phantom/Phantom';
-import { Selection, selectedLeaves } from '../selection/Selection';
-
-const LOWEST_PITCH = 0;
-const HIGHEST_PITCH = 127;
+import { comparePitch, midi, samePitch, transpose } from '../pitch/Pitch';
+import { LeafRef, Selection, selectedLeaves } from '../selection/Selection';
 
 /**
- * Moves every note in the selection by `semitones`. If that would take any note out of MIDI's
- * range, nothing moves, so chords keep their shape.
+ * Moves every note in the selection by `semitones`, spelled as `transpose` does. If that would
+ * take any note out of MIDI's range, nothing moves, so chords keep their shape.
  */
 export function transposeSelection(composition: Composition, selection: Selection, semitones: number): Composition {
     const leafRefs = selectedLeaves(composition, selection);
@@ -37,8 +35,11 @@ export function transposeSelection(composition: Composition, selection: Selectio
                     ...voice,
                     events: mapLeaves(voice.events, (event, leaf) => {
                         if (event.kind !== 'chord' || !selected.has(`${p}-${m}-${v}-${leaf}`)) return event;
-                        const notes = event.notes.map((note) => ({ ...note, pitch: note.pitch + semitones }));
-                        if (notes.some(({ pitch }) => pitch < LOWEST_PITCH || pitch > HIGHEST_PITCH)) outOfRange = true;
+                        const notes = event.notes.map((note) => {
+                            const pitch = transpose(note.pitch, semitones);
+                            if (!pitch) outOfRange = true;
+                            return { ...note, pitch: pitch ?? note.pitch };
+                        });
                         return { ...event, notes };
                     }),
                 })),
@@ -47,6 +48,39 @@ export function transposeSelection(composition: Composition, selection: Selectio
     }));
 
     return outOfRange ? composition : { ...composition, parts };
+}
+
+/**
+ * Rolls the chords among `refs` as arpeggios, or if every one already is, plays them straight
+ * again. Rests are skipped. Undefined when there's no chord to change.
+ */
+export function toggleArpeggios(composition: Composition, refs: LeafRef[]): Composition | undefined {
+    const keys = new Set(refs.map(({ part, measure, voice, leaf }) => `${part}-${measure}-${voice}-${leaf}`));
+    const chords = refs.flatMap(({ part, measure, voice, leaf }) => {
+        const event = voiceLeaves(composition, part, measure, voice)[leaf]?.event;
+        return event?.kind === 'chord' ? [event] : [];
+    });
+    if (chords.length === 0) return undefined;
+    const arpeggio = !chords.every((chord) => chord.arpeggio);
+
+    const parts = composition.parts.map((part, p) => ({
+        ...part,
+        measures: part.measures.map((partMeasure, m) => {
+            if (!refs.some((ref) => ref.part === p && ref.measure === m)) return partMeasure;
+            return {
+                ...partMeasure,
+                voices: partMeasure.voices.map((voice, v) => ({
+                    ...voice,
+                    events: mapLeaves(voice.events, (event, leaf) => {
+                        if (event.kind !== 'chord' || !keys.has(`${p}-${m}-${v}-${leaf}`)) return event;
+                        const { arpeggio: _, ...straight } = event;
+                        return arpeggio ? { ...straight, arpeggio } : straight;
+                    }),
+                })),
+            };
+        }),
+    }));
+    return { ...composition, parts };
 }
 
 /** Swaps in new events for the cursor's voice in its measure, sharing everything else */
@@ -163,36 +197,43 @@ export function placeNote(
     if (!event) return undefined;
 
     const notes = event.kind === 'chord' ? event.notes : [];
-    const existing = notes.find(({ pitch }) => pitch === phantom.pitch);
+    const existing = notes.find(({ pitch }) => midi(pitch) === midi(phantom.pitch));
     const others = notes.filter((note) => note !== existing);
+    // A rolled chord stays rolled as notes come and go
+    const rolled = event.kind === 'chord' && event.arpeggio && { arpeggio: true };
 
     let replacement: Chord | Rest;
-    if (existing && sameDuration(event.duration, phantom.duration) && !!existing.staccato === phantom.staccato) {
+    if (
+        existing &&
+        samePitch(existing.pitch, phantom.pitch) &&
+        sameDuration(event.duration, phantom.duration) &&
+        !!existing.staccato === phantom.staccato
+    ) {
         replacement =
             others.length > 0
-                ? { kind: 'chord', duration: event.duration, notes: others }
+                ? { kind: 'chord', duration: event.duration, notes: others, ...rolled }
                 : { kind: 'rest', duration: event.duration };
     } else {
-        // Keeps a tie the note already had
-        const { staccato: _, ...kept }: Note = existing ?? { pitch: phantom.pitch };
+        // Keeps a tie the note already had, taking the phantom's spelling
+        const { staccato: _, ...kept }: Note = { ...existing, pitch: phantom.pitch };
         const placed: Note = phantom.staccato ? { ...kept, staccato: true } : kept;
-        const sorted = [...others, placed].sort((a, b) => a.pitch - b.pitch);
-        replacement = { kind: 'chord', duration: phantom.duration, notes: sorted };
+        const sorted = [...others, placed].sort((a, b) => comparePitch(a.pitch, b.pitch));
+        replacement = { kind: 'chord', duration: phantom.duration, notes: sorted, ...rolled };
     }
 
     const edited = replaceLeaf(composition, cursor, replacement);
     if (!edited) return undefined;
     const placed =
-        replacement.kind === 'chord' && replacement.notes.some(({ pitch }) => pitch === phantom.pitch)
+        replacement.kind === 'chord' && replacement.notes.some(({ pitch }) => samePitch(pitch, phantom.pitch))
             ? replacement
             : undefined;
     return { composition: edited, cursor: withNote(edited, clampCursor(edited, cursor), phantom.pitch), placed };
 }
 
 /**
- * Moves the cursor's note by `semitones`, keeping the chord sorted by pitch and the cursor on
- * the note that moved. Undefined on a rest, past MIDI's range, or onto a pitch the chord
- * already has.
+ * Moves the cursor's note by `semitones`, spelled as `transpose` does, keeping the chord sorted
+ * by pitch and the cursor on the note that moved. Undefined on a rest, past MIDI's range, or
+ * onto a pitch the chord already has.
  */
 export function transposeNote(
     composition: Composition,
@@ -205,12 +246,14 @@ export function transposeNote(
     const moving = event?.kind === 'chord' ? event.notes[cursor.note] : undefined;
     if (!event || event.kind !== 'chord' || !events || !moving) return undefined;
 
-    const pitch = moving.pitch + semitones;
-    if (pitch < LOWEST_PITCH || pitch > HIGHEST_PITCH) return undefined;
-    if (event.notes.some((note) => note !== moving && note.pitch === pitch)) return undefined;
+    const pitch = transpose(moving.pitch, semitones);
+    if (!pitch) return undefined;
+    if (event.notes.some((note) => note !== moving && midi(note.pitch) === midi(pitch))) return undefined;
 
     const moved = { ...moving, pitch };
-    const notes = event.notes.map((note) => (note === moving ? moved : note)).sort((a, b) => a.pitch - b.pitch);
+    const notes = event.notes
+        .map((note) => (note === moving ? moved : note))
+        .sort((a, b) => comparePitch(a.pitch, b.pitch));
     const edited = withVoiceEvents(
         composition,
         cursor,

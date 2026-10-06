@@ -5,13 +5,15 @@ import { cursorPitch } from '../cursor/Cursor';
 import { Duration } from '../duration/Duration';
 import { leaves } from '../event/Event';
 import { Phantom } from '../phantom/Phantom';
-import { deleteNote, deleteSelection, placeNote, setLeafDuration, transposeNote, transposeSelection } from './Edit';
+import { deleteNote, deleteSelection, placeNote, setLeafDuration, toggleArpeggios, transposeNote, transposeSelection } from './Edit';
+import { pieces } from './Stream';
 import { written } from './written';
+import { midi, pitch, pitchName, spell } from '../pitch/Pitch';
 
 /** Every pitch in a part's measure, chord by chord, with null for rests */
 function pitches(composition: Composition, part: number, measure: number) {
     const events = composition.parts[part]!.measures[measure]!.voices[0]!.events;
-    return [...leaves(events)].map(({ event }) => (event.kind === 'chord' ? event.notes.map((n) => n.pitch) : null));
+    return [...leaves(events)].map(({ event }) => (event.kind === 'chord' ? event.notes.map((n) => midi(n.pitch)) : null));
 }
 
 const at = (part: number, measure: number, leaf: number) => ({ part, measure, voice: 0, leaf, note: 0 });
@@ -23,17 +25,29 @@ describe('transposeSelection', () => {
         expect(pitches(moved, 1, 2)).toEqual([[47]]);
         expect(moved.parts[0]!.measures[0]).toBe(exampleComposition.parts[0]!.measures[0]);
         // Ties and staccato come along
-        expect(moved.parts[0]!.measures[2]!.voices[0]!.events[0]).toMatchObject({ notes: [{ pitch: 71, tie: true }] });
+        expect(moved.parts[0]!.measures[2]!.voices[0]!.events[0]).toMatchObject({ notes: [{ pitch: spell(71), tie: true }] });
+    });
+
+    it('spells the way it moves, keeping the spelling by octaves', () => {
+        const selection = { kind: 'measures', firstPart: 0, lastPart: 0, first: 0, last: 0 } as const;
+        const names = (composition: typeof exampleComposition) => {
+            const event = composition.parts[0]!.measures[0]!.voices[0]!.events[0]!;
+            return event.kind === 'chord' ? event.notes.map((note) => pitchName(note.pitch)) : [];
+        };
+        const down = transposeSelection(exampleComposition, selection, -1);
+        expect(names(down)).toEqual(['B3', 'Eb4', 'Gb4']);
+        expect(names(transposeSelection(exampleComposition, selection, 1))).toEqual(['C#4', 'F4', 'G#4']);
+        expect(names(transposeSelection(down, selection, 12))).toEqual(['B4', 'Eb5', 'Gb5']);
     });
 
     it('moves only what a block covers, inside tuplets too', () => {
         const start = { measure: 1, offset: { num: 1, den: 12 } };
         const end = { measure: 1, offset: { num: 1, den: 6 } };
         const moved = transposeSelection(exampleComposition, { kind: 'block', firstPart: 0, lastPart: 1, start, end }, 2);
-        expect(cursorPitch(moved, at(0, 1, 0))).toBe(76);
-        expect(cursorPitch(moved, at(0, 1, 1))).toBe(76);
-        expect(cursorPitch(moved, at(0, 1, 2))).toBe(72);
-        expect(cursorPitch(moved, at(1, 1, 0))).toBe(43);
+        expect(midi(cursorPitch(moved, at(0, 1, 0))!)).toBe(76);
+        expect(midi(cursorPitch(moved, at(0, 1, 1))!)).toBe(76);
+        expect(midi(cursorPitch(moved, at(0, 1, 2))!)).toBe(72);
+        expect(midi(cursorPitch(moved, at(1, 1, 0))!)).toBe(43);
     });
 
     it('leaves everything alone if a note would leave the MIDI range', () => {
@@ -42,8 +56,8 @@ describe('transposeSelection', () => {
     });
 });
 
-const phantom = (pitch: number, base: Duration['base'], dots: Duration['dots'] = 0, staccato = false): Phantom => ({
-    pitch,
+const phantom = (note: number, base: Duration['base'], dots: Duration['dots'] = 0, staccato = false): Phantom => ({
+    pitch: spell(note),
     duration: { base, dots },
     staccato,
 });
@@ -54,7 +68,7 @@ describe('placeNote', () => {
         const placed = placeNote(exampleComposition, at(0, 0, 0), phantom(67, 4))!;
         expect(written(placed.composition, 0, 0)).toBe('60,64/q 55,59,62/q 60,64,67/h');
         // The cursor moves to the nearest note left
-        expect(cursorPitch(placed.composition, placed.cursor)).toBe(64);
+        expect(midi(cursorPitch(placed.composition, placed.cursor)!)).toBe(64);
     });
 
     it('leaves a rest when the last note goes', () => {
@@ -64,7 +78,7 @@ describe('placeNote', () => {
     it('adds a pitch to a chord, and selects it', () => {
         const placed = placeNote(exampleComposition, at(0, 0, 0), phantom(72, 4))!;
         expect(written(placed.composition, 0, 0)).toBe('60,64,67,72/q 55,59,62/q 60,64,67/h');
-        expect(cursorPitch(placed.composition, placed.cursor)).toBe(72);
+        expect(midi(cursorPitch(placed.composition, placed.cursor)!)).toBe(72);
     });
 
     it('fills a rest', () => {
@@ -104,6 +118,13 @@ describe('placeNote', () => {
         );
     });
 
+    it('respells a note placed again with another spelling, rather than removing it', () => {
+        const fFlat: Phantom = { ...phantom(64, 4), pitch: pitch('Fb4') };
+        const placed = placeNote(exampleComposition, at(0, 0, 0), fFlat)!;
+        expect(written(placed.composition, 0, 0)).toBe('60,64,67/q 55,59,62/q 60,64,67/h');
+        expect(cursorPitch(placed.composition, placed.cursor)).toEqual(pitch('Fb4'));
+    });
+
     it('works within a tuplet, in its written values', () => {
         const placed = placeNote(exampleComposition, at(0, 1, 0), phantom(76, 4))!;
         expect(written(placed.composition, 0, 1)).toMatch(/^\[76\/q 72\/8\] \[/);
@@ -115,18 +136,60 @@ describe('placeNote', () => {
     });
 });
 
+describe('toggleArpeggios', () => {
+    const leaf = (measure: number, leaf: number) => ({ part: 0, measure, voice: 0, leaf });
+
+    it('rolls chords, and unrolls them when every one already is', () => {
+        const rolled = toggleArpeggios(exampleComposition, [leaf(0, 0), leaf(0, 1)])!;
+        expect(written(rolled, 0, 0)).toBe('arp:60,64,67/q arp:55,59,62/q 60,64,67/h');
+        expect(written(toggleArpeggios(rolled, [leaf(0, 0), leaf(0, 1)])!, 0, 0)).toBe('60,64,67/q 55,59,62/q 60,64,67/h');
+        // Only some rolled: they all roll
+        expect(written(toggleArpeggios(rolled, [leaf(0, 1), leaf(0, 2)])!, 0, 0)).toBe('arp:60,64,67/q arp:55,59,62/q arp:60,64,67/h');
+    });
+
+    it('skips rests, doing nothing with only rests', () => {
+        expect(toggleArpeggios(exampleComposition, [leaf(2, 3)])).toBeUndefined();
+        expect(written(toggleArpeggios(exampleComposition, [leaf(2, 2), leaf(2, 3)])!, 0, 2)).toBe('72~/q. 72/8 arp:72!/8 r/8');
+    });
+
+    it('stays rolled as notes are added and taken away', () => {
+        const rolled = toggleArpeggios(exampleComposition, [leaf(0, 0)])!;
+        expect(written(placeNote(rolled, at(0, 0, 0), phantom(72, 4))!.composition, 0, 0)).toBe('arp:60,64,67,72/q 55,59,62/q 60,64,67/h');
+        expect(written(placeNote(rolled, at(0, 0, 0), phantom(67, 4))!.composition, 0, 0)).toBe('arp:60,64/q 55,59,62/q 60,64,67/h');
+    });
+
+    it('rolls only the first piece of a split chord, where it is struck', () => {
+        const half: Duration = { base: 2, dots: 0 };
+        const split = pieces({ kind: 'chord', duration: half, notes: [{ pitch: spell(60) }, { pitch: spell(64) }], arpeggio: true }, [
+            { base: 4, dots: 0 },
+            { base: 4, dots: 0 },
+        ]);
+        expect(split.map((piece) => piece.kind === 'chord' && !!piece.arpeggio)).toEqual([true, false]);
+    });
+});
+
 describe('transposeNote', () => {
     const note = (measure: number, leaf: number, index: number) => ({ ...at(0, measure, leaf), note: index });
 
     it('moves one note of a chord, keeping it sorted and selected', () => {
         const up = transposeNote(exampleComposition, note(0, 0, 2), 1)!;
         expect(written(up.composition, 0, 0)).toBe('60,64,68/q 55,59,62/q 60,64,67/h');
-        expect(cursorPitch(up.composition, up.cursor)).toBe(68);
+        expect(midi(cursorPitch(up.composition, up.cursor)!)).toBe(68);
 
         // E up past G reorders the chord
         const past = transposeNote(exampleComposition, note(0, 0, 1), 5)!;
         expect(written(past.composition, 0, 0)).toBe('60,67,69/q 55,59,62/q 60,64,67/h');
         expect(past.cursor.note).toBe(2);
+    });
+
+    it('spells a black key sharp going up and flat going down', () => {
+        const up = transposeNote(exampleComposition, note(0, 0, 2), 1)!;
+        expect(cursorPitch(up.composition, up.cursor)).toEqual(pitch('G#4'));
+        const down = transposeNote(exampleComposition, note(0, 0, 2), -1)!;
+        expect(cursorPitch(down.composition, down.cursor)).toEqual(pitch('Gb4'));
+        // Back to a white key, it's natural again
+        const back = transposeNote(down.composition, down.cursor, 1)!;
+        expect(cursorPitch(back.composition, back.cursor)).toEqual(pitch('G4'));
     });
 
     it('refuses rests, doubled pitches and leaving MIDI range', () => {
@@ -173,7 +236,7 @@ describe('deleteNote', () => {
     it('takes one note out of a chord, moving to the nearest one left', () => {
         const deleted = deleteNote(exampleComposition, note(0, 0, 0, 2))!;
         expect(written(deleted.composition, 0, 0)).toBe('60,64/q 55,59,62/q 60,64,67/h');
-        expect(cursorPitch(deleted.composition, deleted.cursor)).toBe(64);
+        expect(midi(cursorPitch(deleted.composition, deleted.cursor)!)).toBe(64);
     });
 
     it('leaves a rest for the last note, merged with rests beside it', () => {

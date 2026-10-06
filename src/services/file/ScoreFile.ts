@@ -3,21 +3,24 @@
  * what they're reading. It's written to be read too: values are short strings like `q.` and
  * `3/4`, and each event sits on its own line.
  *
- *     { "chord": [60, 64, { "pitch": 67, "tie": true }], "duration": "q" }
+ *     { "chord": ["C4", "Eb4", { "pitch": "G4", "tie": true }], "duration": "q" }
  *     { "rest": "8." }
  *     { "tuplet": "3:2", "events": [...] }
  */
 
 import { Composition } from '../composition/Composition';
 import { Duration } from '../duration/Duration';
-import { Event } from '../event/Event';
+import { Chord, Event } from '../event/Event';
 import { fraction } from '../fraction/Fraction';
 import { MeasureInfo, PartMeasure, Tempo, TimeSignature, VolumeMark } from '../measure/Measure';
+import { C_MAJOR, KeySignature } from '../key/KeySignature';
 import { Note } from '../note/Note';
 import { Clef, Part } from '../part/Part';
+import { Pitch, parsePitch, pitchName, spell } from '../pitch/Pitch';
 
 export const FORMAT = 'vimscore';
-export const VERSION = 1;
+/** Version 2 spells pitches like `Bb4`; version 1 had MIDI numbers, which it reads in the key */
+export const VERSION = 2;
 export const EXTENSION = 'vimscore';
 
 const DURATION_CODES: Record<Duration['base'], string> = {
@@ -39,13 +42,18 @@ const durationText = ({ base, dots }: Duration) => DURATION_CODES[base] + '.'.re
 // Writing
 
 function noteData({ pitch, tie, staccato }: Note): unknown {
-    return tie || staccato ? { pitch, ...(tie && { tie }), ...(staccato && { staccato }) } : pitch;
+    const name = pitchName(pitch);
+    return tie || staccato ? { pitch: name, ...(tie && { tie }), ...(staccato && { staccato }) } : name;
 }
 
 function eventData(event: Event): unknown {
     switch (event.kind) {
         case 'chord':
-            return { chord: event.notes.map(noteData), duration: durationText(event.duration) };
+            return {
+                chord: event.notes.map(noteData),
+                duration: durationText(event.duration),
+                ...(event.arpeggio && { arpeggio: true }),
+            };
         case 'rest':
             return { rest: durationText(event.duration) };
         case 'tuplet':
@@ -156,21 +164,30 @@ function readDuration(value: unknown, path: Path): Duration {
     return { base: CODE_BASES.get(match[1]!)!, dots: match[2]!.length as Duration['dots'] };
 }
 
-function readNote(value: unknown, path: Path): Note {
-    if (typeof value === 'number') return { pitch: integer(value, path, 0, 127) };
-    const data = object(value, path);
-    const note: Note = { pitch: integer(data['pitch'], `${path}.pitch`, 0, 127) };
+/** A name like `Bb4`, or from an older file a MIDI number, spelled the key's way */
+function readPitch(value: unknown, path: Path, key: KeySignature): Pitch {
+    if (typeof value === 'number') return spell(integer(value, path, 0, 127), key);
+    const name = string(value, path);
+    return parsePitch(name) ?? fail(path, `"${name}" isn't a pitch like C4, F#3 or Bb5`);
+}
+
+function readNote(value: unknown, path: Path, key: KeySignature): Note {
+    if (!isObject(value)) return { pitch: readPitch(value, path, key) };
+    const data = value;
+    const note: Note = { pitch: readPitch(data['pitch'], `${path}.pitch`, key) };
     if (data['tie'] === true) note.tie = true;
     if (data['staccato'] === true) note.staccato = true;
     return note;
 }
 
-function readEvent(value: unknown, path: Path): Event {
+function readEvent(value: unknown, path: Path, key: KeySignature): Event {
     const data = object(value, path);
     if ('chord' in data) {
-        const notes = array(data['chord'], `${path}.chord`).map((note, i) => readNote(note, `${path}.chord[${i}]`));
+        const notes = array(data['chord'], `${path}.chord`).map((note, i) => readNote(note, `${path}.chord[${i}]`, key));
         if (notes.length === 0) fail(`${path}.chord`, 'a chord needs at least one note');
-        return { kind: 'chord', notes, duration: readDuration(data['duration'], `${path}.duration`) };
+        const chord: Chord = { kind: 'chord', notes, duration: readDuration(data['duration'], `${path}.duration`) };
+        if (data['arpeggio'] === true) chord.arpeggio = true;
+        return chord;
     }
     if ('rest' in data) return { kind: 'rest', duration: readDuration(data['rest'], `${path}.rest`) };
     if ('tuplet' in data) {
@@ -179,7 +196,7 @@ function readEvent(value: unknown, path: Path): Event {
         if (!match || Number(match[1]) < 1 || Number(match[2]) < 1) {
             fail(`${path}.tuplet`, `"${ratio}" isn't a ratio like 3:2`);
         }
-        const events = array(data['events'], `${path}.events`).map((event, i) => readEvent(event, `${path}.events[${i}]`));
+        const events = array(data['events'], `${path}.events`).map((event, i) => readEvent(event, `${path}.events[${i}]`, key));
         return { kind: 'tuplet', actual: Number(match[1]), normal: Number(match[2]), events };
     }
     return fail(path, 'expected a chord, rest or tuplet');
@@ -224,12 +241,12 @@ function readVolumeMark(value: unknown, path: Path): VolumeMark {
     };
 }
 
-function readPartMeasure(value: unknown, path: Path): PartMeasure {
+function readPartMeasure(value: unknown, path: Path, key: KeySignature): PartMeasure {
     const data = object(value, path);
     const voices = array(data['voices'], `${path}.voices`);
     const partMeasure: PartMeasure = {
         voices: voices.map((voice, v) => ({
-            events: array(voice, `${path}.voices[${v}]`).map((event, i) => readEvent(event, `${path}.voices[${v}][${i}]`)),
+            events: array(voice, `${path}.voices[${v}]`).map((event, i) => readEvent(event, `${path}.voices[${v}][${i}]`, key)),
         })),
     };
     if (data['volume'] !== undefined) {
@@ -239,12 +256,13 @@ function readPartMeasure(value: unknown, path: Path): PartMeasure {
     return partMeasure;
 }
 
-function readPart(value: unknown, path: Path, measureCount: number): Part {
+/** `keys` is the key signature in force in each measure */
+function readPart(value: unknown, path: Path, keys: KeySignature[]): Part {
     const data = object(value, path);
     const part: Part = {
         name: string(data['name'], `${path}.name`),
         program: integer(data['program'] ?? 0, `${path}.program`, 0, 127),
-        measures: array(data['measures'], `${path}.measures`).map((m, i) => readPartMeasure(m, `${path}.measures[${i}]`)),
+        measures: array(data['measures'], `${path}.measures`).map((m, i) => readPartMeasure(m, `${path}.measures[${i}]`, keys[i] ?? C_MAJOR)),
     };
     if (data['bank'] !== undefined) part.bank = integer(data['bank'], `${path}.bank`, 0, 16383);
     if (data['drums'] === true) part.drums = true;
@@ -253,8 +271,8 @@ function readPart(value: unknown, path: Path, measureCount: number): Part {
         if (!CLEFS.includes(clef as Clef)) fail(`${path}.clef`, `"${clef}" isn't a clef (${CLEFS.join(' or ')})`);
         part.clef = clef as Clef;
     }
-    if (part.measures.length !== measureCount) {
-        fail(`${path}.measures`, `has ${part.measures.length} measures but the score has ${measureCount}`);
+    if (part.measures.length !== keys.length) {
+        fail(`${path}.measures`, `has ${part.measures.length} measures but the score has ${keys.length}`);
     }
     return part;
 }
@@ -277,10 +295,12 @@ export function readScore(text: string): Composition | { error: string } {
         }
 
         const measures = array(data['measures'], 'measures').map((m, i) => readMeasureInfo(m, `measures[${i}]`));
+        let key = C_MAJOR;
+        const keys = measures.map((info) => (key = info.keySignature ?? key));
         return {
             title: data['title'] === undefined ? 'Untitled' : string(data['title'], 'title'),
             measures,
-            parts: array(data['parts'], 'parts').map((part, i) => readPart(part, `parts[${i}]`, measures.length)),
+            parts: array(data['parts'], 'parts').map((part, i) => readPart(part, `parts[${i}]`, keys)),
             soundfont: { filePath: data['soundfont'] === undefined ? '' : string(data['soundfont'], 'soundfont') },
         };
     } catch (error) {

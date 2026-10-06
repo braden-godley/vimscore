@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { exampleComposition } from '../composition/example-composition';
 import { Instrument } from '../instrument/Instrument';
 import { Synth } from '../synth/Synth';
+import { ARPEGGIO_STEP } from '../timeline/timeline';
 import { Player } from './Player';
 
 /** Just enough of an AudioContext for the scheduler: a clock that stands still at zero */
@@ -67,6 +68,16 @@ describe('Player.preview', () => {
             { part: 1, pitch: 64, when: 0, duration: 0.35 },
         ]);
         expect(record.stops).toBe(1);
+    });
+
+    it('rolls them up from the bottom when asked', () => {
+        const { synth, record } = recordingSynth();
+        new Player(ctx, synth).preview([67, 60, 64], 0, true);
+        expect(record.played.map(({ pitch, when }) => [pitch, when])).toEqual([
+            [60, 0],
+            [64, ARPEGGIO_STEP],
+            [67, 2 * ARPEGGIO_STEP],
+        ]);
     });
 });
 

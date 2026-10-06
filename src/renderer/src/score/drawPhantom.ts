@@ -16,7 +16,7 @@ export interface PhantomPlace {
     /** Where the note it stands in for is drawn */
     x: number;
     clef: Clef;
-    /** Decides spelling and which accidentals show */
+    /** Decides which accidentals show */
     keySignature: KeySignature;
 }
 
@@ -34,7 +34,7 @@ export function drawPhantom(container: HTMLElement, layout: ScoreLayout, phantom
     const stave = new Stave(box.x, stavePlace.y, box.width);
     const { duration, pitch, staccato } = phantom;
     const note = new StaveNote({
-        keys: [pitchKey(pitch, place.keySignature)],
+        keys: [pitchKey(pitch)],
         duration: durationCode(duration),
         dots: duration.dots,
         clef: place.clef,

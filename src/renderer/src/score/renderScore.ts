@@ -20,17 +20,18 @@ import {
     StaveNote,
     StaveTie,
     Stem,
+    Stroke,
     Tuplet,
     Voice,
 } from 'vexflow/bravura';
 import { Composition } from '../../../services/composition/Composition';
-import { KeySignature } from '../../../services/key/KeySignature';
 import { Cursor } from '../../../services/cursor/Cursor';
 import { Chord, Event, Rest, leaves } from '../../../services/event/Event';
 import { ZERO, add, toNumber } from '../../../services/fraction/Fraction';
 import { TimeSignature, resolveMeasures } from '../../../services/measure/Measure';
 import { Clef } from '../../../services/part/Part';
 import { REST_KEYS, durationCode, keySpec, pitchKey } from './notation';
+import { midi } from '../../../services/pitch/Pitch';
 
 export const LEFT_MARGIN = 30;
 /** Staff names sit left of the first measure, this far from its start */
@@ -134,10 +135,10 @@ interface BuiltVoice {
     beams: Beam[];
 }
 
-function makeNote(event: Chord | Rest, clef: Clef, key: KeySignature, stemDirection: number | undefined): StaveNote {
+function makeNote(event: Chord | Rest, clef: Clef, stemDirection: number | undefined): StaveNote {
     const { duration } = event;
     const note = new StaveNote({
-        keys: event.kind === 'chord' ? event.notes.map(({ pitch }) => pitchKey(pitch, key)) : [REST_KEYS[clef]],
+        keys: event.kind === 'chord' ? event.notes.map(({ pitch }) => pitchKey(pitch)) : [REST_KEYS[clef]],
         duration: durationCode(duration) + (event.kind === 'rest' ? 'r' : ''),
         dots: duration.dots,
         clef,
@@ -146,13 +147,16 @@ function makeNote(event: Chord | Rest, clef: Clef, key: KeySignature, stemDirect
     });
     if (duration.dots) Dot.buildAndAttach([note], { all: true });
     if (event.kind === 'chord' && event.notes.some((n) => n.staccato)) note.addModifier(new Articulation('a.'), 0);
+    // Only this chord's notes, not another voice's sharing the stave
+    if (event.kind === 'chord' && event.arpeggio) {
+        note.addModifier(new Stroke(Stroke.Type.ARPEGGIO_DIRECTIONLESS, { allVoices: false }), 0);
+    }
     return note;
 }
 
 function buildVoice(
     events: Event[],
     clef: Clef,
-    key: KeySignature,
     { beats, beatValue }: TimeSignature,
     stemDirection: number | undefined,
 ): BuiltVoice {
@@ -176,7 +180,7 @@ function buildVoice(
                 }
                 return notes;
             }
-            const note = makeNote(event, clef, key, stemDirection);
+            const note = makeNote(event, clef, stemDirection);
             built.notes.push(note);
             built.events.push(event);
             return [note];
@@ -237,7 +241,7 @@ export function renderScore(target: ScoreTarget, composition: Composition): Scor
         const column = composition.parts.map((part, p) => {
             const voices = part.measures[m]?.voices ?? [];
             return voices.map((voice, v) =>
-                buildVoice(voice.events, clefs[p]!, keySignature, timeSignature, stemDirectionFor(v, voices.length)),
+                buildVoice(voice.events, clefs[p]!, timeSignature, stemDirectionFor(v, voices.length)),
             );
         });
 
@@ -419,10 +423,10 @@ function drawTies(ctx: RenderContext, composition: Composition, built: BuiltVoic
             sequence.forEach(({ event, note }, i) => {
                 const next = sequence[i + 1];
                 if (event.kind !== 'chord' || next?.event.kind !== 'chord') return;
-                const nextPitches = next.event.notes.map(({ pitch }) => pitch);
+                const nextPitches = next.event.notes.map(({ pitch }) => midi(pitch));
 
                 event.notes.forEach(({ pitch, tie }, index) => {
-                    const lastIndex = nextPitches.indexOf(pitch);
+                    const lastIndex = nextPitches.indexOf(midi(pitch));
                     if (!tie || lastIndex === -1) return;
                     new StaveTie({ firstNote: note, lastNote: next.note, firstIndexes: [index], lastIndexes: [lastIndex] })
                         .setContext(ctx)

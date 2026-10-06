@@ -8,6 +8,7 @@ import { Composition } from '../composition/Composition';
 import { Leaf, leaves } from '../event/Event';
 import { Fraction, ZERO, add, compare, toNumber } from '../fraction/Fraction';
 import { resolveMeasures, secondsPerWholeNote } from '../measure/Measure';
+import { Pitch, comparePitch, midi } from '../pitch/Pitch';
 import { performance } from '../timeline/performance';
 
 export interface Cursor {
@@ -37,13 +38,13 @@ function cursorLeaf(composition: Composition, cursor: Cursor): Leaf | undefined 
 }
 
 /** Pitch of the selected note, or undefined on a rest */
-export function cursorPitch(composition: Composition, cursor: Cursor): number | undefined {
+export function cursorPitch(composition: Composition, cursor: Cursor): Pitch | undefined {
     const event = cursorLeaf(composition, cursor)?.event;
     return event?.kind === 'chord' ? event.notes[cursor.note]?.pitch : undefined;
 }
 
 /** Which note of a chord to land on: the one closest to a pitch, or the top or bottom one */
-type NoteChoice = number | 'top' | 'bottom';
+type NoteChoice = Pitch | 'top' | 'bottom';
 
 /**
  * Picks the note to select in the cursor's chord. Following a pitch keeps stepping through
@@ -54,11 +55,12 @@ export function withNote(composition: Composition, cursor: Cursor, choice: NoteC
     if (event?.kind !== 'chord' || event.notes.length === 0) return { ...cursor, note: 0 };
 
     const distance = (pitch: number) =>
-        choice === 'top' ? -pitch : choice === 'bottom' ? pitch : Math.abs(pitch - choice);
+        choice === 'top' ? -pitch : choice === 'bottom' ? pitch : Math.abs(pitch - midi(choice));
 
     let best = 0;
-    event.notes.forEach(({ pitch }, i) => {
-        const current = event.notes[best]!.pitch;
+    event.notes.forEach((note, i) => {
+        const pitch = midi(note.pitch);
+        const current = midi(event.notes[best]!.pitch);
         if (distance(pitch) < distance(current) || (distance(pitch) === distance(current) && pitch > current)) best = i;
     });
     return { ...cursor, note: best };
@@ -153,7 +155,7 @@ export function moveNote(composition: Composition, cursor: Cursor, delta: number
     for (let remaining = Math.abs(delta); remaining > 0; remaining--) {
         const event = cursorLeaf(composition, current)?.event;
         if (event?.kind === 'chord') {
-            const byPitch = event.notes.map((_, i) => i).sort((a, b) => event.notes[a]!.pitch - event.notes[b]!.pitch);
+            const byPitch = event.notes.map((_, i) => i).sort((a, b) => comparePitch(event.notes[a]!.pitch, event.notes[b]!.pitch));
             const next = byPitch[byPitch.indexOf(current.note) + step];
             if (next !== undefined) {
                 current = { ...current, note: next };

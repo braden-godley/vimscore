@@ -16,7 +16,7 @@ export type Command =
     | { name: 'quit'; force: boolean }
     /** `:wq` and `:x` */
     | { name: 'writeQuit'; path?: string }
-    /** `:export mp3|mp4|midi [path]`, beside the score file when there's no path; `!` to replace a file */
+    /** `:export mp3|mp4|musanim|midi [path]`, beside the score file when there's no path; `!` to replace a file */
     | { name: 'export'; format: ExportFormat; path?: string; force: boolean }
     /** `:soundfont [path]`, asking with a dialog when there's no path */
     | { name: 'soundfont'; path?: string }
@@ -37,11 +37,12 @@ export type Command =
 
 /** The commands the editor runs itself; the rest need files, dialogs or the window */
 /** What `:export` can write */
-export const EXPORT_FORMATS = ['mp3', 'mp4', 'midi'] as const;
+/** `musanim` is a video too: the music as colored bars of light, not the score */
+export const EXPORT_FORMATS = ['mp3', 'mp4', 'musanim', 'midi'] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 /** Each format's file extension */
-export const EXPORT_EXTENSIONS: Record<ExportFormat, string> = { mp3: 'mp3', mp4: 'mp4', midi: 'mid' };
+export const EXPORT_EXTENSIONS: Record<ExportFormat, string> = { mp3: 'mp3', mp4: 'mp4', musanim: 'mp4', midi: 'mid' };
 
 const EDIT_COMMANDS = [
     'instrument',
@@ -136,7 +137,7 @@ export function parseCommand(text: string): Command | { error: string } {
             // `mid` works too, being the extension
             const format = typed === 'mid' ? 'midi' : typed;
             if (!(EXPORT_FORMATS as readonly string[]).includes(format)) {
-                return { error: 'Expected :export mp3, mp4 or midi [file]' };
+                return { error: 'Expected :export mp3, mp4, musanim or midi [file]' };
             }
             return { name, format: format as ExportFormat, path: rest.join(' ') || undefined, force };
         }

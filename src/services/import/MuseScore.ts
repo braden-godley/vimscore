@@ -2,7 +2,7 @@
  * Reads MuseScore files (`.mscz`, a zip, or the `.mscx` XML inside it) from MuseScore 3 and 4.
  *
  * Each MuseScore staff becomes a part here, playing its MuseScore part's instrument. Notes,
- * rests, tuplets, ties, staccato and voices come across, as do time signatures, key
+ * rests, tuplets, ties, staccato, arpeggios and voices come across, as do time signatures, key
  * signatures, tempos, repeats and dynamics (as volume markings). What the model has no place
  * for yet, like grace notes, slurs, hairpins, lyrics and voltas, is left out.
  */
@@ -17,6 +17,7 @@ import { generalMidiName } from '../instrument/Instrument';
 import { KeySignature } from '../key/KeySignature';
 import { MeasureInfo, PartMeasure, Tempo, TimeSignature, VolumeMark, measureLength } from '../measure/Measure';
 import { Note } from '../note/Note';
+import { fromTpc, spell } from '../pitch/Pitch';
 import { Clef, Part } from '../part/Part';
 
 const DURATION_TYPES: Record<string, Duration['base']> = {
@@ -125,7 +126,8 @@ function readStaffSetups(score: Element): Map<string, StaffSetup> {
         const instrument = child(part, 'Instrument');
         const drums = text(instrument, 'useDrumset') === '1';
         const program = Number(instrument && child(child(instrument, 'Channel') ?? instrument, 'program')?.getAttribute('value')) || 0;
-        const name = text(part, 'trackName') || text(instrument, 'longName') || generalMidiName(program);
+        // Named for the instrument, not the part: MuseScore's part names are whatever the author typed
+        const name = drums ? 'Drums' : generalMidiName(program);
         // Later MuseScore 3 files say concertClef where earlier ones say clef
         const instrumentClefs = instrument ? [...children(instrument, 'clef'), ...children(instrument, 'concertClef')] : [];
 
@@ -176,13 +178,28 @@ function readNotes(chord: Element): Note[] {
         (text(articulation, 'subtype') ?? '').startsWith('articStaccato'),
     );
     return children(chord, 'Note').map((element) => {
-        const note: Note = { pitch: Math.max(0, Math.min(127, number(element, 'pitch') ?? 60)) };
+        const sounding = Math.max(0, Math.min(127, number(element, 'pitch') ?? 60));
+        // MuseScore spells the note by its tonal pitch class, for concert pitch
+        const tpc = number(element, 'tpc');
+        const note: Note = { pitch: (tpc !== undefined && fromTpc(tpc, sounding)) || spell(sounding) };
         // A tie is a spanner on its first note, pointing on to the next
         const tie = children(element, 'Spanner').some((spanner) => spanner.getAttribute('type') === 'Tie' && child(spanner, 'next'));
         if (tie) note.tie = true;
         if (staccato) note.staccato = true;
         return note;
     });
+}
+
+/** MuseScore's arpeggio subtypes: plain, up, down, bracket, straight up, straight down */
+const NON_ARPEGGIO = '3';
+
+/**
+ * Whether a chord is rolled. Every kind of arpeggio rolls from the bottom here, even MuseScore's
+ * downward ones; the bracket kind means the opposite, play it together, so it isn't one.
+ */
+function isArpeggio(chord: Element): boolean {
+    const arpeggio = child(chord, 'Arpeggio');
+    return arpeggio !== undefined && text(arpeggio, 'subtype') !== NON_ARPEGGIO;
 }
 
 /** What one `<voice>` element held */
@@ -210,13 +227,13 @@ function readVoice(voice: Element, length: Fraction): VoiceContents {
     };
 
     /** A chord or rest, split into tied pieces if it has a value the model doesn't */
-    const place = (make: (duration: Duration, last: boolean) => Chord | Rest, written: Duration | Fraction) => {
+    const place = (make: (duration: Duration, first: boolean, last: boolean) => Chord | Rest, written: Duration | Fraction) => {
         if (isDuration(written)) {
-            append(make(written, true), fractionOf(written));
+            append(make(written, true, true), fractionOf(written));
             return;
         }
         const pieces = durationsFilling(written);
-        pieces.forEach((duration, i) => append(make(duration, i === pieces.length - 1), fractionOf(duration)));
+        pieces.forEach((duration, i) => append(make(duration, i === 0, i === pieces.length - 1), fractionOf(duration)));
     };
 
     for (const element of children(voice)) {
@@ -280,12 +297,15 @@ function readVoice(voice: Element, length: Fraction): VoiceContents {
                 const written = writtenDuration(element);
                 const notes = readNotes(element);
                 if (!written || notes.length === 0) break;
+                const arpeggio = isArpeggio(element);
                 place(
-                    (duration, last) => ({
+                    (duration, first, last) => ({
                         kind: 'chord',
                         duration,
                         // Pieces of a split note tie together; the last keeps the note's own tie
                         notes: last ? notes : notes.map(({ pitch }) => ({ pitch, tie: true })),
+                        // Only the first piece is struck, so only it rolls
+                        ...(arpeggio && first && { arpeggio: true }),
                     }),
                     written,
                 );

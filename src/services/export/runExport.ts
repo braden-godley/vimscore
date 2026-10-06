@@ -19,9 +19,13 @@ export type Renderer = (composition: Composition, format: ExportFormat) => Promi
 const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 const folder = (path: string | undefined) => path?.replace(/[\\/][^\\/]*$/, '');
 
-/** The score file's path with the format's extension in place of its own */
+/**
+ * The score file's path with the format's extension in place of its own. The animation is
+ * marked, so it doesn't replace the score video beside it.
+ */
 export function besideScore(scorePath: string, format: ExportFormat): string {
-    return scorePath.replace(/(\.[^\\/.]*)?$/, `.${EXPORT_EXTENSIONS[format]}`);
+    const marked = format === 'musanim' ? '.musanim' : '';
+    return scorePath.replace(/(\.[^\\/.]*)?$/, `${marked}.${EXPORT_EXTENSIONS[format]}`);
 }
 
 export async function runExport(

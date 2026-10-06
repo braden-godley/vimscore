@@ -13,6 +13,7 @@ import {
     movePart,
     startCursor,
 } from './Cursor';
+import { midi } from '../pitch/Pitch';
 
 const at = (measure: number, leaf: number, part = 0, voice = 0, note = 0): Cursor => ({ part, measure, voice, leaf, note });
 
@@ -39,7 +40,7 @@ describe('moveLeaf', () => {
 
 describe('moveNote', () => {
     it('steps through the chord by pitch', () => {
-        expect(cursorPitch(exampleComposition, moveNote(exampleComposition, START, 1))).toBe(64);
+        expect(midi(cursorPitch(exampleComposition, moveNote(exampleComposition, START, 1))!)).toBe(64);
         expect(moveNote(exampleComposition, at(0, 0, 0, 0, 2), -2)).toEqual(START);
     });
 
