@@ -45,11 +45,35 @@ export interface VolumeMark {
     percent: number;
 }
 
+export type HairpinKind = 'crescendo' | 'diminuendo';
+
+/**
+ * A crescendo or diminuendo: the volume moves gradually from where it is at the start to where
+ * it ends. Kept by time, like volume markings, and can run on into later measures.
+ */
+export interface Hairpin {
+    /** Whole notes from the start of the measure */
+    offset: Fraction;
+    /** Whole notes it lasts */
+    length: Fraction;
+    kind: HairpinKind;
+    /**
+     * The volume it reaches, 0 to 100. Without one it reaches the volume marking at its end, or
+     * failing that goes HAIRPIN_STEP louder or softer
+     */
+    percent?: number;
+}
+
+/** How far a hairpin with nothing to aim for changes the volume, in percent */
+export const HAIRPIN_STEP = 20;
+
 /** One part's contents for one measure */
 export interface PartMeasure {
     voices: Voice[];
     /** In time order, at most one at an offset */
     volumes?: VolumeMark[];
+    /** Hairpins starting in this measure, in time order, at most one at an offset */
+    hairpins?: Hairpin[];
 }
 
 /** How loud a part plays before its first volume marking, about as loud as mezzo-forte */

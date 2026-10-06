@@ -11,8 +11,8 @@
 import { Composition } from '../composition/Composition';
 import { Duration } from '../duration/Duration';
 import { Chord, Event } from '../event/Event';
-import { fraction } from '../fraction/Fraction';
-import { MeasureInfo, PartMeasure, Tempo, TimeSignature, VolumeMark } from '../measure/Measure';
+import { Fraction, fraction } from '../fraction/Fraction';
+import { Hairpin, MeasureInfo, PartMeasure, Tempo, TimeSignature, VolumeMark } from '../measure/Measure';
 import { C_MAJOR, KeySignature } from '../key/KeySignature';
 import { Note } from '../note/Note';
 import { Clef, Part } from '../part/Part';
@@ -38,6 +38,8 @@ const CODE_BASES = new Map(
 const CLEFS: Clef[] = ['treble', 'bass'];
 
 const durationText = ({ base, dots }: Duration) => DURATION_CODES[base] + '.'.repeat(dots);
+
+const fractionText = ({ num, den }: Fraction) => `${num}/${den}`;
 
 // Writing
 
@@ -113,10 +115,18 @@ export function writeScore(composition: Composition): string {
             program,
             ...(bank && { bank }),
             ...(drums && { drums }),
-            measures: measures.map(({ voices, volumes }) => ({
+            measures: measures.map(({ voices, volumes, hairpins }) => ({
                 voices: voices.map(({ events }) => events.map(eventData)),
                 ...(volumes?.length && {
-                    volume: volumes.map(({ offset, percent }) => ({ at: `${offset.num}/${offset.den}`, percent })),
+                    volume: volumes.map(({ offset, percent }) => ({ at: fractionText(offset), percent })),
+                }),
+                ...(hairpins?.length && {
+                    hairpin: hairpins.map(({ offset, length, kind, percent }) => ({
+                        at: fractionText(offset),
+                        length: fractionText(length),
+                        kind,
+                        ...(percent !== undefined && { percent }),
+                    })),
                 }),
             })),
         })),
@@ -230,15 +240,36 @@ function readMeasureInfo(value: unknown, path: Path): MeasureInfo {
     return info;
 }
 
+function readFraction(value: unknown, path: Path, what: string): Fraction {
+    const text = string(value, path);
+    const match = /^(\d+)\/(\d+)$/.exec(text);
+    if (!match || Number(match[2]) === 0) fail(path, `"${text}" isn't ${what}, like 1/4`);
+    return fraction(Number(match[1]), Number(match[2]));
+}
+
 function readVolumeMark(value: unknown, path: Path): VolumeMark {
     const data = object(value, path);
-    const at = string(data['at'], `${path}.at`);
-    const match = /^(\d+)\/(\d+)$/.exec(at);
-    if (!match || Number(match[2]) === 0) fail(`${path}.at`, `"${at}" isn't a time in the measure, like 1/4`);
     return {
-        offset: fraction(Number(match[1]), Number(match[2])),
+        offset: readFraction(data['at'], `${path}.at`, 'a time in the measure'),
         percent: integer(data['percent'], `${path}.percent`, 0, 100),
     };
+}
+
+const HAIRPIN_KINDS: Hairpin['kind'][] = ['crescendo', 'diminuendo'];
+
+function readHairpin(value: unknown, path: Path): Hairpin {
+    const data = object(value, path);
+    const kind = string(data['kind'], `${path}.kind`);
+    if (!HAIRPIN_KINDS.includes(kind as Hairpin['kind'])) {
+        fail(`${path}.kind`, `"${kind}" isn't a hairpin (${HAIRPIN_KINDS.join(' or ')})`);
+    }
+    const hairpin: Hairpin = {
+        offset: readFraction(data['at'], `${path}.at`, 'a time in the measure'),
+        length: readFraction(data['length'], `${path}.length`, 'a length in whole notes'),
+        kind: kind as Hairpin['kind'],
+    };
+    if (data['percent'] !== undefined) hairpin.percent = integer(data['percent'], `${path}.percent`, 0, 100);
+    return hairpin;
 }
 
 function readPartMeasure(value: unknown, path: Path, key: KeySignature): PartMeasure {
@@ -252,6 +283,10 @@ function readPartMeasure(value: unknown, path: Path, key: KeySignature): PartMea
     if (data['volume'] !== undefined) {
         const marks = array(data['volume'], `${path}.volume`);
         partMeasure.volumes = marks.map((mark, i) => readVolumeMark(mark, `${path}.volume[${i}]`));
+    }
+    if (data['hairpin'] !== undefined) {
+        const hairpins = array(data['hairpin'], `${path}.hairpin`);
+        partMeasure.hairpins = hairpins.map((hairpin, i) => readHairpin(hairpin, `${path}.hairpin[${i}]`));
     }
     return partMeasure;
 }

@@ -16,9 +16,9 @@ import {
     transposeSelection,
 } from '../edit/Edit';
 import { Duration } from '../duration/Duration';
-import { ZERO } from '../fraction/Fraction';
+import { ZERO, add, sub } from '../fraction/Fraction';
 import { KeySignature } from '../key/KeySignature';
-import { resolveMeasures } from '../measure/Measure';
+import { HairpinKind, resolveMeasures } from '../measure/Measure';
 import {
     Cursor,
     backToMeasureStart,
@@ -49,7 +49,7 @@ import { Selection, VisualKind, selectedChordPitches, selectedLeaves, visualSele
 import { setKeySignature, setTempo, setTimeSignature } from '../edit/MeasureChanges';
 import { addPart, deletePart, renamePart, setClef, setInstrument } from '../edit/Parts';
 import { toggleRepeat } from '../edit/Repeats';
-import { setVolume } from '../edit/Volume';
+import { setVolume, toggleHairpin } from '../edit/Volume';
 import { GENERAL_MIDI_INSTRUMENTS, Instrument } from '../instrument/Instrument';
 import { Command, EditCommand, isEditCommand, parseCommand } from './CommandLine';
 import { Picker, auditionPitch, pickerKey } from './Picker';
@@ -214,6 +214,44 @@ const toggleSelectedArpeggios: Action = (state, composition) => {
     return edited ? { state, composition: edited } : { state };
 };
 
+/**
+ * Puts a hairpin over a selection, in each of its parts, or takes it off if it's already there.
+ * Measures are covered from the start of the first to the end of the last.
+ */
+function hairpinOver(composition: Composition, selection: Selection, kind: HairpinKind): Composition {
+    const resolved = resolveMeasures(composition.measures);
+    const last = resolved.at(-1);
+    const measureStart = (measure: number) =>
+        resolved[measure]?.start ?? (last ? add(last.start, last.length) : ZERO);
+    const [start, end] =
+        selection.kind === 'measures'
+            ? [{ measure: selection.first, offset: ZERO }, { measure: selection.last + 1, offset: ZERO }]
+            : [selection.start, selection.end];
+    const length = sub(add(measureStart(end.measure), end.offset), add(measureStart(start.measure), start.offset));
+    let edited = composition;
+    for (let part = selection.firstPart; part <= selection.lastPart; part++) {
+        edited = toggleHairpin(edited, part, start.measure, start.offset, length, kind);
+    }
+    return edited;
+}
+
+/** `<` crescendos and `>` diminuendos over the cursor's chord or rest and count - 1 after it */
+const hairpinFromCursor =
+    (kind: HairpinKind): Action =>
+    (state, composition, count = 1) => {
+        const selection = block(composition, state.cursor, moveLeaf(composition, state.cursor, count - 1));
+        return { state, composition: hairpinOver(composition, selection, kind) };
+    };
+
+/** `<` and `>` in visual mode put the hairpin over the selection, back in normal mode */
+const hairpinOverSelected =
+    (kind: HairpinKind): Action =>
+    (state, composition) => {
+        const selection = editorSelection(composition, state);
+        if (!selection) return { state };
+        return { state: { ...state, mode: 'normal', anchor: undefined }, composition: hairpinOver(composition, selection, kind) };
+    };
+
 const NORMAL_ACTIONS: Record<string, Action> = {
     ...SHARED_ACTIONS,
     u: (state, _, count = 1) => ({ state, history: { direction: 'undo', count } }),
@@ -222,6 +260,8 @@ const NORMAL_ACTIONS: Record<string, Action> = {
     rs: (state, composition) => ({ state, composition: toggleRepeat(composition, state.cursor.measure, 'start') }),
     re: (state, composition) => ({ state, composition: toggleRepeat(composition, state.cursor.measure, 'end') }),
     ga: toggleCursorArpeggio,
+    '<': hairpinFromCursor('crescendo'),
+    '>': hairpinFromCursor('diminuendo'),
     U: (state, _, count = 1) => ({ state, history: { direction: 'redo', count } }),
     // Just the note under the cursor. A lone `d` or `y` waits for a motion
     dd: (state, composition) => {
@@ -301,6 +341,8 @@ const VISUAL_ACTIONS: Record<string, Action> = {
     J: transpose(-1),
     K: transpose(1),
     ga: toggleSelectedArpeggios,
+    '<': hairpinOverSelected('crescendo'),
+    '>': hairpinOverSelected('diminuendo'),
 };
 
 /** A count can't start with 0, so a lone `0` is left free for a future motion */

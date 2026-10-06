@@ -3,8 +3,8 @@
  *
  * Each MuseScore staff becomes a part here, playing its MuseScore part's instrument. Notes,
  * rests, tuplets, ties, staccato, arpeggios and voices come across, as do time signatures, key
- * signatures, tempos, repeats and dynamics (as volume markings). What the model has no place
- * for yet, like grace notes, slurs, hairpins, lyrics and voltas, is left out.
+ * signatures, tempos, repeats, dynamics (as volume markings) and hairpins. What the model has no
+ * place for yet, like grace notes, slurs, lyrics and voltas, is left out.
  */
 
 import { DOMParser, Element } from '@xmldom/xmldom';
@@ -15,7 +15,16 @@ import { Chord, Event, Rest, Tuplet } from '../event/Event';
 import { Fraction, ZERO, add, compare, fraction, mul, sub } from '../fraction/Fraction';
 import { generalMidiName } from '../instrument/Instrument';
 import { KeySignature } from '../key/KeySignature';
-import { MeasureInfo, PartMeasure, Tempo, TimeSignature, VolumeMark, measureLength } from '../measure/Measure';
+import {
+    Hairpin,
+    HairpinKind,
+    MeasureInfo,
+    PartMeasure,
+    Tempo,
+    TimeSignature,
+    VolumeMark,
+    measureLength,
+} from '../measure/Measure';
 import { Note } from '../note/Note';
 import { fromTpc, spell } from '../pitch/Pitch';
 import { Clef, Part } from '../part/Part';
@@ -202,6 +211,34 @@ function isArpeggio(chord: Element): boolean {
     return arpeggio !== undefined && text(arpeggio, 'subtype') !== NON_ARPEGGIO;
 }
 
+/**
+ * MuseScore's hairpin subtypes: the crescendo and diminuendo wedges, then the same as `cresc.`
+ * and `dim.` lines
+ */
+const HAIRPIN_KINDS: HairpinKind[] = ['crescendo', 'diminuendo', 'crescendo', 'diminuendo'];
+
+/**
+ * Where a hairpin starts, and where it ends relative to that: `measures` on, then `fractions`
+ * from the same place in that measure, as MuseScore writes it
+ */
+interface HairpinStart {
+    offset: Fraction;
+    kind: HairpinKind;
+    measures: number;
+    fractions: Fraction;
+}
+
+/** A hairpin's start, from the spanner MuseScore writes there; its end is a spanner pointing back */
+function readHairpin(spanner: Element, offset: Fraction): HairpinStart | undefined {
+    const hairpin = spanner.getAttribute('type') === 'HairPin' ? child(spanner, 'HairPin') : undefined;
+    const next = child(spanner, 'next');
+    const location = next && child(next, 'location');
+    if (!hairpin || !location) return undefined;
+    const kind = HAIRPIN_KINDS[number(hairpin, 'subtype') ?? 0];
+    if (!kind) return undefined;
+    return { offset, kind, measures: number(location, 'measures') ?? 0, fractions: parseFraction(text(location, 'fractions')) ?? ZERO };
+}
+
 /** What one `<voice>` element held */
 interface VoiceContents {
     events: Event[];
@@ -210,10 +247,11 @@ interface VoiceContents {
     tempo?: Tempo;
     clef?: Clef;
     volumes: VolumeMark[];
+    hairpins: HairpinStart[];
 }
 
 function readVoice(voice: Element, length: Fraction): VoiceContents {
-    const contents: VoiceContents = { events: [], volumes: [] };
+    const contents: VoiceContents = { events: [], volumes: [], hairpins: [] };
     /** Open tuplets, innermost last; events go into the innermost */
     const tuplets: { tuplet: Tuplet; scale: Fraction }[] = [];
     let position: Fraction = ZERO;
@@ -255,6 +293,11 @@ function readVoice(voice: Element, length: Fraction): VoiceContents {
                 if (velocity !== undefined) {
                     contents.volumes.push({ offset: position, percent: Math.round((Math.min(127, velocity) / 127) * 100) });
                 }
+                break;
+            }
+            case 'Spanner': {
+                const hairpin = readHairpin(element, position);
+                if (hairpin) contents.hairpins.push(hairpin);
                 break;
             }
             case 'location': {
@@ -340,6 +383,10 @@ function convertScore(score: Element): Composition {
     const infos: MeasureInfo[] = [];
     const partMeasures: PartMeasure[][] = staves.map(() => []);
     const clefs: (Clef | undefined)[] = staves.map(() => undefined);
+    /** Each staff's hairpins by the measure they start in, placed once every measure's start is known */
+    const hairpinStarts: HairpinStart[][][] = staves.map(() => []);
+    /** Where each measure starts, in whole notes, and finally where the last one ends */
+    const measureStarts: Fraction[] = [ZERO];
     let timeSignature: TimeSignature = { beats: 4, beatValue: 4 };
     let current: { timeSignature?: TimeSignature; keySignature?: KeySignature; tempo?: Tempo } = {};
 
@@ -361,7 +408,7 @@ function convertScore(score: Element): Composition {
         elements.forEach((measure, s) => {
             const voices = (measure ? children(measure, 'voice') : []).map((voice) => readVoice(voice, length));
             // A staff missing the measure gets a measure of rest
-            if (voices.length === 0) voices.push({ events: rests(length), volumes: [] });
+            if (voices.length === 0) voices.push({ events: rests(length), volumes: [], hairpins: [] });
 
             for (const voice of voices) {
                 if (voice.keySignature && !info.keySignature) info.keySignature = voice.keySignature;
@@ -369,9 +416,10 @@ function convertScore(score: Element): Composition {
                 if (voice.clef && m === 0 && !clefs[s]) clefs[s] = voice.clef;
             }
             const volumes = voices.flatMap((voice) => voice.volumes).sort((a, b) => compare(a.offset, b.offset));
+            hairpinStarts[s]!.push(voices.flatMap((voice) => voice.hairpins));
             partMeasures[s]!.push({
                 voices: voices.map(({ events }) => ({ events })),
-                ...(volumes.length > 0 && { volumes: dedupeVolumes(volumes) }),
+                ...(volumes.length > 0 && { volumes: dedupeByOffset(volumes) }),
             });
         });
 
@@ -390,7 +438,15 @@ function convertScore(score: Element): Composition {
             tempo: info.tempo ?? current.tempo,
         };
         infos.push(info);
+        measureStarts.push(add(measureStarts[m]!, length));
     }
+
+    hairpinStarts.forEach((measures, s) =>
+        measures.forEach((starts, m) => {
+            const hairpins = placeHairpins(starts, m, measureStarts);
+            if (hairpins.length > 0) partMeasures[s]![m]!.hairpins = hairpins;
+        }),
+    );
 
     const parts: Part[] = staves.map((staff, s) => {
         const setup = setups.get(staff.getAttribute('id') ?? '') ?? { name: `Staff ${s + 1}`, clef: 'treble', program: 0, drums: false };
@@ -407,7 +463,24 @@ function convertScore(score: Element): Composition {
     return { title: title || 'Untitled', measures: infos, parts, soundfont: { filePath: '' } };
 }
 
-/** Voices can each carry the same dynamic; one marking at a moment is enough */
-function dedupeVolumes(volumes: VolumeMark[]): VolumeMark[] {
+/** Voices can each carry the same dynamic or hairpin; one at a moment is enough */
+function dedupeByOffset<T extends { offset: Fraction }>(volumes: T[]): T[] {
     return volumes.filter((mark, i) => i === 0 || compare(mark.offset, volumes[i - 1]!.offset) !== 0);
 }
+
+/**
+ * Measure `m`'s hairpins with their lengths, worked out from where each ends. One running past
+ * the last measure stops there.
+ */
+function placeHairpins(starts: HairpinStart[], m: number, measureStarts: Fraction[]): Hairpin[] {
+    const last = measureStarts.length - 1;
+    const hairpins = starts.flatMap(({ offset, kind, measures, fractions }) => {
+        const endMeasure = Math.max(0, Math.min(last, m + measures));
+        const end = add(measureStarts[endMeasure]!, add(offset, fractions));
+        const length = sub(min(end, measureStarts[last]!), add(measureStarts[m]!, offset));
+        return compare(length, ZERO) > 0 ? [{ offset, length, kind }] : [];
+    });
+    return dedupeByOffset(hairpins.sort((a, b) => compare(a.offset, b.offset)));
+}
+
+const min = (a: Fraction, b: Fraction) => (compare(a, b) <= 0 ? a : b);

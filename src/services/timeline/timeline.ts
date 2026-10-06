@@ -1,7 +1,7 @@
 import { Composition } from '../composition/Composition';
 import { leaves } from '../event/Event';
-import { Fraction, ZERO, add, compare, toNumber } from '../fraction/Fraction';
-import { DEFAULT_VOLUME, ResolvedMeasure, resolveMeasures, secondsPerWholeNote } from '../measure/Measure';
+import { Fraction, ZERO, add, compare, sub, toNumber } from '../fraction/Fraction';
+import { DEFAULT_VOLUME, HAIRPIN_STEP, HairpinKind, ResolvedMeasure, resolveMeasures, secondsPerWholeNote } from '../measure/Measure';
 import { Part } from '../part/Part';
 import { performance } from './performance';
 import { midi } from '../pitch/Pitch';
@@ -13,23 +13,49 @@ export interface TimedNote {
     pitch: number;
     start: number;
     duration: number;
-    /** 0 to 1, from the part's volume markings */
+    /** 0 to 1, from the part's volume markings and hairpins */
     volume: number;
 }
 
-/** A part's volume markings in order, by time from the start of the composition */
-function volumeChanges(part: Part, measures: ResolvedMeasure[]): { time: Fraction; percent: number }[] {
-    return part.measures.flatMap((partMeasure, m) =>
+/** A volume marking, or a hairpin from `time` to `end` */
+type VolumeChange = { time: Fraction; percent: number } | { time: Fraction; end: Fraction; kind: HairpinKind; percent?: number };
+
+/**
+ * A part's volume markings and hairpins in order, by time from the start of the composition. A
+ * hairpin without a volume of its own aims for a marking right at its end, if there is one.
+ */
+function volumeChanges(part: Part, measures: ResolvedMeasure[]): VolumeChange[] {
+    const marks = part.measures.flatMap((partMeasure, m) =>
         (partMeasure.volumes ?? []).map(({ offset, percent }) => ({ time: add(measures[m]!.start, offset), percent })),
     );
+    const hairpins = part.measures.flatMap((partMeasure, m) =>
+        (partMeasure.hairpins ?? []).map(({ offset, length, kind, percent }) => {
+            const time = add(measures[m]!.start, offset);
+            const end = add(time, length);
+            return { time, end, kind, percent: percent ?? marks.find((mark) => compare(mark.time, end) === 0)?.percent };
+        }),
+    );
+    // A hairpin starting on a marking starts from it
+    return [...marks, ...hairpins].sort((a, b) => compare(a.time, b.time) || Number('end' in a) - Number('end' in b));
 }
 
-/** The volume in effect at a time: the last marking at or before it */
-function volumeAt(changes: { time: Fraction; percent: number }[], time: Fraction): number {
+/**
+ * The volume in effect at a time: the last marking at or before it, or partway along a hairpin.
+ * A hairpin goes from wherever the volume was when it started; a marking inside one cuts it short.
+ */
+function volumeAt(changes: VolumeChange[], time: Fraction): number {
     let percent = DEFAULT_VOLUME;
     for (const change of changes) {
         if (compare(change.time, time) > 0) break;
-        percent = change.percent;
+        if (!('end' in change)) {
+            percent = change.percent;
+            continue;
+        }
+        const step = change.kind === 'crescendo' ? HAIRPIN_STEP : -HAIRPIN_STEP;
+        const target = change.percent ?? Math.max(0, Math.min(100, percent + step));
+        const length = toNumber(sub(change.end, change.time));
+        const progress = length > 0 ? Math.min(1, toNumber(sub(time, change.time)) / length) : 1;
+        percent += (target - percent) * progress;
     }
     return percent / 100;
 }

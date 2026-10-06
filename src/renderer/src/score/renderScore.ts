@@ -48,6 +48,10 @@ const END_PADDING = 20;
 /** Volume markings sit this far under the bottom stave line, clear of most stems and ledger lines */
 const VOLUME_TEXT_GAP = 32;
 const VOLUME_FONT_SIZE = 12;
+/** A hairpin's wedge opens this far each side of the middle of the volume text */
+const HAIRPIN_HALF_HEIGHT = 5;
+/** Room between a hairpin and a volume marking at either end of it */
+const HAIRPIN_GAP = 4;
 /** How far above the top stave line tempo marks sit, in VexFlow's offset from the stave */
 const TEMPO_Y = -10;
 
@@ -385,6 +389,7 @@ export function renderScore(target: ScoreTarget, composition: Composition): Scor
 
     drawTies(ctx, composition, built);
     drawVolumes(ctx, composition, layout);
+    drawHairpins(ctx, composition, layout);
     return layout;
 }
 
@@ -399,6 +404,57 @@ function drawVolumes(ctx: RenderContext, composition: Composition, layout: Score
             if (!stave || !anchors?.length) return;
             for (const { offset, percent } of partMeasure.volumes ?? []) {
                 ctx.fillText(`v=${percent}%`, interpolate(anchors, toNumber(offset)), stave.bottom + VOLUME_TEXT_GAP);
+            }
+        });
+    });
+    ctx.restore();
+}
+
+/**
+ * Each hairpin as a wedge in line with the volume markings, opening toward the loud end. It
+ * starts after a marking at its start and stops short of one at its end.
+ */
+function drawHairpins(ctx: RenderContext, composition: Composition, layout: ScoreLayout) {
+    const resolved = resolveMeasures(composition.measures);
+    const starts = resolved.map(({ start }) => toNumber(start));
+    /** Where a time from the start of the piece is drawn; an end on a barline stays in the measure before */
+    const xAt = (time: number, end: boolean) => {
+        let m = 0;
+        while (m + 1 < starts.length && (end ? starts[m + 1]! < time : starts[m + 1]! <= time)) m++;
+        const anchors = layout.measures[m]?.anchors;
+        return anchors?.length ? interpolate(anchors, time - starts[m]!) : undefined;
+    };
+
+    ctx.save();
+    ctx.setFont('Georgia, serif', VOLUME_FONT_SIZE, 'normal', 'italic');
+    ctx.setLineWidth(1);
+    composition.parts.forEach((part, p) => {
+        const stave = layout.parts[p];
+        if (!stave) return;
+        const y = stave.bottom + VOLUME_TEXT_GAP - VOLUME_FONT_SIZE / 3;
+        const marks = part.measures.flatMap((partMeasure, m) =>
+            (partMeasure.volumes ?? []).map(({ offset, percent }) => ({
+                time: starts[m]! + toNumber(offset),
+                width: ctx.measureText(`v=${percent}%`).width,
+            })),
+        );
+        part.measures.forEach((partMeasure, m) => {
+            for (const { offset, length, kind } of partMeasure.hairpins ?? []) {
+                const start = starts[m]! + toNumber(offset);
+                const end = start + toNumber(length);
+                let [left, right] = [xAt(start, false), xAt(end, true)];
+                if (left === undefined || right === undefined) continue;
+                const markAtStart = marks.find(({ time }) => time === start);
+                if (markAtStart) left += markAtStart.width + HAIRPIN_GAP;
+                if (marks.some(({ time }) => time === end)) right -= HAIRPIN_GAP;
+                if (right <= left) continue;
+                // The point is at the soft end
+                const [point, open] = kind === 'crescendo' ? [left, right] : [right, left];
+                ctx.beginPath();
+                ctx.moveTo(open, y - HAIRPIN_HALF_HEIGHT);
+                ctx.lineTo(point, y);
+                ctx.lineTo(open, y + HAIRPIN_HALF_HEIGHT);
+                ctx.stroke();
             }
         });
     });

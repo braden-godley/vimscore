@@ -347,6 +347,29 @@ describe(':volume', () => {
     });
 });
 
+describe('hairpin keys', () => {
+    const hairpins = (session: Session, part = 0, measure = 0) => session.composition.parts[part]!.measures[measure]!.hairpins;
+
+    it('< crescendos over the cursor chord, or a count of chords, and again takes it off', () => {
+        expect(hairpins(type(['l', '<']))).toEqual([{ offset: { num: 1, den: 4 }, length: { num: 1, den: 4 }, kind: 'crescendo' }]);
+        expect(hairpins(type(['2', '<']))).toEqual([{ offset: { num: 0, den: 1 }, length: { num: 1, den: 2 }, kind: 'crescendo' }]);
+        const off = type(['<', '<']);
+        expect(off.composition).toEqual(startSession(exampleComposition).composition);
+        expect(type(['u'], type(['<'])).composition).toEqual(startSession(exampleComposition).composition);
+    });
+
+    it('> diminuendos over a visual selection in every part, back in normal mode', () => {
+        // Two whole measures of both parts: 4/4 then 3/4
+        const marked = type(['V', '<C-j>', 'l', '>']);
+        expect(marked.editor.mode).toBe('normal');
+        for (const part of [0, 1]) {
+            expect(hairpins(marked, part)).toEqual([{ offset: { num: 0, den: 1 }, length: { num: 7, den: 4 }, kind: 'diminuendo' }]);
+        }
+        const block = type(['<C-v>', 'l', 'l', '<']);
+        expect(hairpins(block)).toEqual([{ offset: { num: 0, den: 1 }, length: { num: 1, den: 1 }, kind: 'crescendo' }]);
+    });
+});
+
 describe('repeat keys', () => {
     it('rs and re toggle repeats at the cursor measure, undoably', () => {
         const marked = type(['}', 'r', 's', '}', 'r', 'e']);

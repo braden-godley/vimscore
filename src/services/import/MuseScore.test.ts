@@ -132,6 +132,36 @@ describe('readMuseScore', () => {
         expect(voice(score, 0, 1)).toBe('r/2.');
     });
 
+    it('reads hairpins and cresc. lines, with how long they last, into later measures', () => {
+        const hairpin = (subtype: number, end: string) =>
+            `<Spanner type="HairPin"><HairPin><subtype>${subtype}</subtype></HairPin><next><location>${end}</location></next></Spanner>`;
+        const end = (back: string) => `<Spanner type="HairPin"><prev><location>${back}</location></prev></Spanner>`;
+        const quarter = (pitch: number) => `<Chord><durationType>quarter</durationType><Note><pitch>${pitch}</pitch></Note></Chord>`;
+        const marked = read(
+            mscx(`<Staff id="1">
+              <Measure><voice>
+                <Dynamic><subtype>p</subtype><velocity>49</velocity></Dynamic>
+                ${quarter(60)}${hairpin(0, '<measures>1</measures><fractions>-1/4</fractions>')}${quarter(62)}${quarter(64)}${quarter(65)}
+              </voice></Measure>
+              <Measure><voice>
+                ${end('<measures>-1</measures><fractions>1/4</fractions>')}<Dynamic><subtype>f</subtype><velocity>96</velocity></Dynamic>
+                ${hairpin(1, '<fractions>1/2</fractions>')}${quarter(67)}${quarter(65)}${end('<fractions>-1/2</fractions>')}${quarter(64)}${hairpin(3, '<measures>4</measures>')}${quarter(62)}
+              </voice></Measure>
+            </Staff>`, '<Part><Staff id="1"/><Instrument><Channel><program value="0"/></Channel></Instrument></Part>'),
+        );
+        expect(marked.parts[0]!.measures[0]!.hairpins).toEqual([
+            { offset: { num: 1, den: 4 }, length: { num: 3, den: 4 }, kind: 'crescendo' },
+        ]);
+        // The dim. line runs past the last measure, so stops at its end
+        expect(marked.parts[0]!.measures[1]!.hairpins).toEqual([
+            { offset: { num: 0, den: 1 }, length: { num: 1, den: 2 }, kind: 'diminuendo' },
+            { offset: { num: 3, den: 4 }, length: { num: 1, den: 4 }, kind: 'diminuendo' },
+        ]);
+        // The crescendo swells from p to the f at its end
+        const volumes = timeline(marked).map(({ volume }) => Math.round(volume * 100));
+        expect(volumes.slice(0, 5)).toEqual([39, 39, 51, 64, 76]);
+    });
+
     it('reads arpeggios, but not the bracket that says to play a chord together', () => {
         const chord = (arpeggio: string) =>
             `<Chord><durationType>half</durationType><Note><pitch>60</pitch></Note><Note><pitch>64</pitch></Note>${arpeggio}</Chord>`;

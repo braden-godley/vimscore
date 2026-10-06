@@ -13,7 +13,6 @@ import {
     PartMeasure,
     Tempo,
     TimeSignature,
-    VolumeMark,
     measureLength,
     resolveMeasures,
 } from '../measure/Measure';
@@ -54,17 +53,22 @@ export function setTempo(composition: Composition, measure: number, tempo: Tempo
 }
 
 /**
- * Moves volume markings to the measures their moment falls in after re-barring, so they stay
- * with the music.
+ * Moves volume markings or hairpins to the measures their moment falls in after re-barring, so
+ * they stay with the music. A hairpin keeps its length, running on over the new barlines.
  */
-function rebarVolumes(stretch: PartMeasure[], oldLength: Fraction, newLength: Fraction, count: number): VolumeMark[][] {
-    const result: VolumeMark[][] = Array.from({ length: count }, () => []);
-    stretch.forEach((partMeasure, i) => {
-        for (const { offset, percent } of partMeasure.volumes ?? []) {
-            const time = add(mul(oldLength, fraction(i)), offset);
+function rebarMarks<T extends { offset: Fraction }>(
+    marks: (T[] | undefined)[],
+    oldLength: Fraction,
+    newLength: Fraction,
+    count: number,
+): T[][] {
+    const result: T[][] = Array.from({ length: count }, () => []);
+    marks.forEach((measureMarks, i) => {
+        for (const mark of measureMarks ?? []) {
+            const time = add(mul(oldLength, fraction(i)), mark.offset);
             const measures = Math.floor((time.num * newLength.den) / (time.den * newLength.num));
             const index = Math.min(count - 1, measures);
-            result[index]!.push({ offset: sub(time, mul(newLength, fraction(index))), percent });
+            result[index]!.push({ ...mark, offset: sub(time, mul(newLength, fraction(index))) });
         }
     });
     return result;
@@ -132,10 +136,13 @@ export function setTimeSignature(composition: Composition, measure: number, time
         ...composition,
         measures: [...infos.slice(0, measure), ...stretchInfos, ...infos.slice(end)],
         parts: composition.parts.map((part, p) => {
-            const volumes = rebarVolumes(part.measures.slice(measure, end), oldLength, newLength, count);
+            const stretch = part.measures.slice(measure, end);
+            const volumes = rebarMarks(stretch.map((m) => m.volumes), oldLength, newLength, count);
+            const hairpins = rebarMarks(stretch.map((m) => m.hairpins), oldLength, newLength, count);
             const newMeasures: PartMeasure[] = Array.from({ length: count }, (_, i) => ({
                 voices: flows[p]!.map((cut) => ({ events: cut[i] ?? emptyMeasure() })),
                 ...(volumes[i]!.length > 0 && { volumes: volumes[i] }),
+                ...(hairpins[i]!.length > 0 && { hairpins: hairpins[i] }),
             }));
             return { ...part, measures: [...part.measures.slice(0, measure), ...newMeasures, ...part.measures.slice(end)] };
         }),
