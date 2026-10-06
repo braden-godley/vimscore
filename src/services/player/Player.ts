@@ -3,6 +3,7 @@ import { Instrument, partInstrument } from "../instrument/Instrument";
 import { DEFAULT_VOLUME } from "../measure/Measure";
 import { partMix } from "../edit/Mixer";
 import { Synth } from "../synth/Synth";
+import { PerformanceOptions } from "../timeline/performance";
 import { ARPEGGIO_STEP, TimedNote, timeline } from "../timeline/timeline";
 
 /**
@@ -47,10 +48,10 @@ export class Player {
         return this.playing ? Math.max(this.from, this.ctx.currentTime - this.startTime) : 0;
     }
 
-    setComposition(composition: Composition) {
+    setComposition(composition: Composition, options: PerformanceOptions = {}) {
         this.stop();
 
-        this.notes = timeline(composition);
+        this.notes = timeline(composition, options);
         this.synth.setInstruments(composition.parts.map(partInstrument));
         this.synth.setMix(partMix(composition));
         this.endTime = Math.max(0, ...this.notes.map((note) => note.start + note.duration));

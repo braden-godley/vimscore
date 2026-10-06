@@ -3,7 +3,7 @@ import { Chord, glissandoTarget, leaves } from '../event/Event';
 import { Fraction, ZERO, add, compare, sub, toNumber } from '../fraction/Fraction';
 import { DEFAULT_VOLUME, HAIRPIN_STEP, HairpinKind, ResolvedMeasure, resolveMeasures, secondsPerWholeNote } from '../measure/Measure';
 import { Part } from '../part/Part';
-import { performance } from './performance';
+import { PerformanceOptions, performance } from './performance';
 import { midi } from '../pitch/Pitch';
 
 /** A note as it sounds, in seconds from the start of the composition */
@@ -102,9 +102,9 @@ function slide({ timed, from, to }: Glide, target: number): TimedNote[] {
  * notes come in one after another from the bottom, all ending together, and a glissando runs
  * through the semitones on the way to its next note.
  */
-export function timeline(composition: Composition): TimedNote[] {
+export function timeline(composition: Composition, options: PerformanceOptions = {}): TimedNote[] {
     const measures = resolveMeasures(composition.measures);
-    const played = performance(composition);
+    const played = performance(composition, options);
     const notes: TimedNote[] = [];
 
     for (const [partIndex, part] of composition.parts.entries()) {

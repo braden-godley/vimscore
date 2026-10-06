@@ -2,7 +2,8 @@
  * The order measures are played in, with repeats: the first time through a repeat end, playback
  * goes back to where the section started and plays it once more, then carries on past it. A
  * section starts at the nearest repeat start before its end, or, with none, just after the
- * previous repeat end (or at the beginning).
+ * previous repeat end (or at the beginning). Repeats can also be skipped, playing each measure
+ * once.
  */
 
 import { Composition } from '../composition/Composition';
@@ -15,7 +16,14 @@ export interface PlayedMeasure {
     seconds: number;
 }
 
-export function performanceOrder(measures: MeasureInfo[]): number[] {
+/** How to play through the score */
+export interface PerformanceOptions {
+    /** Each measure once, straight through */
+    skipRepeats?: boolean;
+}
+
+export function performanceOrder(measures: MeasureInfo[], { skipRepeats = false }: PerformanceOptions = {}): number[] {
+    if (skipRepeats) return measures.map((_, m) => m);
     const order: number[] = [];
     const repeated = new Set<number>();
     let sectionStart = 0;
@@ -35,10 +43,10 @@ export function performanceOrder(measures: MeasureInfo[]): number[] {
 }
 
 /** Every measure as it's played, in order, with its start in seconds */
-export function performance(composition: Composition): PlayedMeasure[] {
+export function performance(composition: Composition, options: PerformanceOptions = {}): PlayedMeasure[] {
     const resolved = resolveMeasures(composition.measures);
     let startSeconds = 0;
-    return performanceOrder(composition.measures).map((measure) => {
+    return performanceOrder(composition.measures, options).map((measure) => {
         const { length, tempo } = resolved[measure]!;
         const seconds = (length.num / length.den) * secondsPerWholeNote(tempo);
         const played = { measure, startSeconds, seconds };

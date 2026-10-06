@@ -20,6 +20,11 @@ describe('performanceOrder', () => {
         expect(performanceOrder(bars(4, { 1: { repeatStart: true }, 2: { repeatEnd: true } }))).toEqual([0, 1, 2, 1, 2, 3]);
     });
 
+    it('plays each measure once when skipping repeats', () => {
+        const marks = { 1: { repeatStart: true }, 2: { repeatEnd: true } };
+        expect(performanceOrder(bars(4, marks), { skipRepeats: true })).toEqual([0, 1, 2, 3]);
+    });
+
     it('goes back to the beginning, or after the last repeat, without a start', () => {
         expect(performanceOrder(bars(4, { 1: { repeatEnd: true }, 3: { repeatEnd: true } }))).toEqual([
             0, 1, 0, 1, 2, 3, 2, 3,

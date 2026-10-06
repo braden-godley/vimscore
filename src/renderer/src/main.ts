@@ -33,6 +33,8 @@ let current: Document = newDocument();
 let measures = resolveMeasures(current.session.composition.measures);
 /** The measures in the order they play, repeats and all, for following playback */
 let played: PlayedMeasure[] = performance(current.session.composition);
+/** `r` while playing skips repeats or plays them again, and later plays keep the choice */
+let skipRepeats = false;
 
 const audio = new AudioContext();
 const tone = new ToneSynth(audio);
@@ -265,8 +267,8 @@ function showTitle() {
 function showComposition() {
     const { composition } = current.session;
     measures = resolveMeasures(composition.measures);
-    played = performance(composition);
-    player.setComposition(composition);
+    played = performance(composition, { skipRepeats });
+    player.setComposition(composition, { skipRepeats });
     view.render(composition);
     // An undo can take a soundfont change back
     if (!sameList(scoreSoundfonts(composition), soundfonts.requested)) void loadScoreSoundfonts();
@@ -314,15 +316,34 @@ function followPlayback() {
 
 function startPlayback() {
     const { composition, editor } = current.session;
-    player.play(cursorSeconds(composition, editor.cursor));
+    player.play(cursorSeconds(composition, editor.cursor, { skipRepeats }));
     // Every part in view while it plays, however many there are
     view.fitHeight(true);
     document.body.dataset['state'] = 'playing';
-    modeLabel.textContent = '-- PLAYING --';
+    showPlayingLabel();
     view.select(undefined);
     view.setSelection(undefined);
     view.setPhantom(undefined, editor.cursor);
     requestAnimationFrame(followPlayback);
+}
+
+function showPlayingLabel() {
+    modeLabel.textContent = skipRepeats ? '-- PLAYING (NO REPEATS) --' : '-- PLAYING --';
+}
+
+/** `r` while playing: skips repeats or plays them, carrying on from the same moment of the same measure */
+function toggleRepeats() {
+    const seconds = player.position;
+    const at = playedMeasureAt(played, seconds);
+    skipRepeats = !skipRepeats;
+    const { composition } = current.session;
+    played = performance(composition, { skipRepeats });
+    player.setComposition(composition, { skipRepeats });
+    // The first time that measure comes round now
+    const same = at && played.find(({ measure }) => measure === at.measure);
+    player.play(same ? same.startSeconds + seconds - at.startSeconds : 0);
+    showPlayingLabel();
+    showMessage(skipRepeats ? 'Skipping repeats' : 'Playing repeats');
 }
 
 /**
@@ -399,9 +420,10 @@ window.addEventListener('keydown', (event) => {
     // The whole command so far, so a finished `2<C-w>j` stays readable after its last key
     keysLabel.textContent = (player.playing ? '' : session.editor.pending) + key;
 
-    // While playing, the only thing to do is stop; followPlayback switches back to editing
+    // While playing, the only things to do are stop or toggle repeats; followPlayback switches back to editing
     if (player.playing) {
         if (key === '<Space>' || key === '<S-Space>' || key === '<Esc>') player.stop();
+        if (key === 'r') toggleRepeats();
         return;
     }
 
