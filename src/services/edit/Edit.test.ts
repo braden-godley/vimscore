@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { exampleComposition } from '../composition/example-composition';
-import { Composition } from '../composition/Composition';
+import { Composition, newComposition, withTrailingEmptyMeasure } from '../composition/Composition';
 import { cursorPitch } from '../cursor/Cursor';
 import { Duration } from '../duration/Duration';
 import { leaves } from '../event/Event';
 import { Phantom } from '../phantom/Phantom';
-import { deleteNote, deleteSelection, placeNote, setLeafDuration, toggleArpeggios, transposeNote, transposeSelection } from './Edit';
+import { deleteNote, deleteSelection, moveBeat, placeNote, placeRest, setLeafDuration, toggleArpeggios, transposeNote, transposeSelection } from './Edit';
 import { pieces } from './Stream';
 import { written } from './written';
 import { midi, pitch, pitchName, spell } from '../pitch/Pitch';
@@ -278,5 +278,63 @@ describe('setLeafDuration', () => {
     it('does nothing for the same value or one that does not fit', () => {
         expect(setLeafDuration(exampleComposition, at(0, 0, 0), quarter)).toBeUndefined();
         expect(setLeafDuration(exampleComposition, at(0, 0, 2), { base: 1, dots: 0 })).toBeUndefined();
+    });
+});
+
+describe('moveBeat', () => {
+    // Measure 3 is the empty measure a session keeps at the end, in 6/8 like the one before
+    const score = withTrailingEmptyMeasure(exampleComposition);
+    const leafAfter = (from: ReturnType<typeof at>, delta: number) => {
+        const { cursor } = moveBeat(score, from, delta);
+        return [cursor.measure, cursor.leaf];
+    };
+
+    it('goes to the chord on the next beat, passing beats a chord is held over', () => {
+        expect(leafAfter(at(0, 0, 0), 1)).toEqual([0, 1]);
+        expect(leafAfter(at(0, 0, 0), 2)).toEqual([0, 2]);
+        // The half note holds beat 4, so the next is the next measure's first
+        expect(leafAfter(at(0, 0, 0), 3)).toEqual([1, 0]);
+        expect(leafAfter(at(1, 0, 0), 1)).toEqual([1, 0]);
+    });
+
+    it('goes back to what sounds on the beat before, across the barline', () => {
+        expect(leafAfter(at(0, 1, 0), -1)).toEqual([0, 2]);
+        expect(leafAfter(at(0, 0, 2), -1)).toEqual([0, 1]);
+        expect(leafAfter(at(0, 0, 0), -1)).toEqual([0, 0]);
+    });
+
+    it('counts beats in tuplets and dotted quarters in compound time', () => {
+        // The quintuplet starts the second beat of the 3/4 measure
+        expect(leafAfter(at(0, 1, 0), 1)).toEqual([1, 3]);
+        // 6/8's second beat is the eighth after the dotted quarter
+        expect(leafAfter(at(0, 3, 0), -1)).toEqual([2, 1]);
+    });
+
+    it('splits a rest across the beat, to land on it', () => {
+        const empty = withTrailingEmptyMeasure(newComposition());
+        const moved = moveBeat(empty, at(0, 0, 0), 1);
+        expect(written(moved.composition, 0, 0)).toBe('r/q r/q r/h');
+        expect(moved.cursor).toMatchObject({ measure: 0, leaf: 1 });
+        expect(written(moveBeat(empty, at(0, 0, 0), 3).composition, 0, 0)).toBe('r/q r/q r/q r/q');
+
+        // A half rest, then a quarter note on beat 3
+        const rested = placeRest(empty, at(0, 0, 0), { base: 2, dots: 0 })!.composition;
+        const noted = placeNote(rested, at(0, 0, 1), phantom(72, 4))!.composition;
+        const back = moveBeat(noted, at(0, 0, 1), -1);
+        expect(written(back.composition, 0, 0)).toBe('r/q r/q 72/q r/q');
+        expect(back.cursor).toMatchObject({ measure: 0, leaf: 1 });
+    });
+
+    it('leaves a rest in a tuplet whole', () => {
+        const rested = placeRest(score, at(0, 1, 1), { base: 8, dots: 0 })!.composition;
+        expect(moveBeat(rested, at(0, 1, 0), 1).composition).toBe(rested);
+    });
+
+    it('stops at the ends of the part', () => {
+        expect(moveBeat(score, at(0, 0, 0), -1).composition).toBe(score);
+        // The empty 6/8 measure's dotted half rest is split on its second beat
+        const last = moveBeat(score, at(0, 3, 0), 9);
+        expect(written(last.composition, 0, 3)).toBe('r/q r/8 r/8 r/q');
+        expect(last.cursor).toMatchObject({ measure: 3, leaf: 2 });
     });
 });

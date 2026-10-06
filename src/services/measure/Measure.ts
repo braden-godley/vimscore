@@ -100,6 +100,15 @@ export function measureLength({ beats, beatValue }: TimeSignature): Fraction {
     return fraction(beats, beatValue);
 }
 
+/**
+ * The beat you'd count, in whole notes: a dotted quarter in compound time like 6/8 or 12/8, the
+ * written value otherwise
+ */
+export function beatLength({ beats, beatValue }: TimeSignature): Fraction {
+    const compound = beatValue >= 8 && beats > 3 && beats % 3 === 0;
+    return fraction(compound ? 3 : 1, beatValue);
+}
+
 export function secondsPerWholeNote({ bpm, beat }: Tempo): number {
     return 60 / bpm / toNumber(durationValue(beat));
 }

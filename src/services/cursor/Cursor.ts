@@ -92,7 +92,7 @@ export function cursorSeconds(composition: Composition, cursor: Cursor, options:
 }
 
 /** The leaf sounding at `offset`: the last one starting at or before it */
-function leafAtOffset(leafList: Leaf[], offset: Fraction): number {
+export function leafAtOffset(leafList: Leaf[], offset: Fraction): number {
     let start = ZERO;
     let index = 0;
     leafList.forEach(({ length }, i) => {

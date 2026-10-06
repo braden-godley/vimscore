@@ -10,6 +10,7 @@ import {
     deleteSelection,
     TUPLET_NORMALS,
     makeTuplet,
+    moveBeat,
     placeNote,
     placeRest,
     setLeafDuration,
@@ -117,6 +118,11 @@ export interface KeyResult {
     effect?: EditorEffect;
     /** The edited composition, when the key changed it */
     composition?: Composition;
+    /**
+     * The edit only split a rest to move onto a beat: undone with the note entered after it,
+     * rather than on its own by `u` in insert mode
+     */
+    restsOnly?: boolean;
     /** Asks to go back or forward through the edit history, which the editor doesn't keep */
     history?: { direction: 'undo' | 'redo'; count: number };
 }
@@ -604,6 +610,11 @@ function insertKey(composition: Composition, state: EditorState, key: string): K
     if (command === 'u') return { state: cleared, history: { direction: 'undo', count } };
     if (command === 'z') return { state: cleared, effect: { kind: 'toggleZoom' } };
     if (command === 'm') return { state: { ...cleared, mode: state.mode === 'insert' ? 'insertMelody' : 'insert' } };
+    if (command === '<C-h>' || command === '<C-l>') {
+        const moved = moveBeat(composition, state.cursor, command === '<C-h>' ? -count : count);
+        const split = moved.composition === composition ? undefined : moved.composition;
+        return { state: { ...cleared, cursor: moved.cursor }, composition: split, restsOnly: split !== undefined };
+    }
     const adjust = PHANTOM_KEYS[command];
     const keySignature = resolveMeasures(composition.measures)[state.cursor.measure]?.keySignature;
     if (adjust && state.phantom && keySignature) {
