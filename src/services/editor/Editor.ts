@@ -53,7 +53,7 @@ import { toggleRepeat } from '../edit/Repeats';
 import { setVolume, toggleHairpin } from '../edit/Volume';
 import { GENERAL_MIDI_INSTRUMENTS, Instrument } from '../instrument/Instrument';
 import { Command, EditCommand, isEditCommand, parseCommand } from './CommandLine';
-import { Picker, auditionPitch, pickerKey } from './Picker';
+import { Picker, auditionPitch, filterPaths, listKey, pickerKey } from './Picker';
 import { Mixer, mixerKey } from './MixerMode';
 import { setMasterVolume, setPartVolume } from '../edit/Mixer';
 import { midi } from '../pitch/Pitch';
@@ -587,6 +587,8 @@ export interface KeyInput {
     text?: string;
     /** What the picker offers: the soundfont's instruments, or General MIDI's without one */
     instruments?: Instrument[];
+    /** Scores opened before, newest first, for `:recent` */
+    recentFiles?: string[];
 }
 
 /** Commands for parts, run straight away as edits */
@@ -594,7 +596,8 @@ function runEditCommand(composition: Composition, state: EditorState, command: E
     const { part, measure } = state.cursor;
     switch (command.name) {
         case 'instrument':
-        case 'addPart': {
+        case 'addPart':
+        case 'recent': {
             const picker: Picker = { purpose: command.name, query: command.query, selected: 0 };
             return { state: { ...state, mode: 'picker', picker } };
         }
@@ -640,6 +643,7 @@ function pickerModeKey(composition: Composition, state: EditorState, key: string
     const instruments = input.instruments ?? GENERAL_MIDI_INSTRUMENTS;
     const closed: EditorState = { ...state, mode: 'normal', picker: undefined };
     if (!state.picker) return { state: closed };
+    if (state.picker.purpose === 'recent') return recentPickerKey(state, closed, key, input);
 
     const outcome = pickerKey(state.picker, instruments, key, input.text);
     if ('cancelled' in outcome) return { state: closed };
@@ -662,6 +666,15 @@ function pickerModeKey(composition: Composition, state: EditorState, key: string
     const edited = addPart(composition, cursor.part + 1, chosen);
     const moved = cursorAtOffset(edited, cursor.part + 1, cursor.measure, cursorOffset(composition, cursor));
     return { state: { ...closed, cursor: moved }, composition: edited };
+}
+
+/** Opening the chosen score is `:e` with its path, so changes still have to be saved first */
+function recentPickerKey(state: EditorState, closed: EditorState, key: string, input: KeyInput): KeyResult {
+    const items = filterPaths(input.recentFiles ?? [], state.picker!.query);
+    const outcome = listKey(state.picker!, items, key, input.text);
+    if ('cancelled' in outcome) return { state: closed };
+    if ('picker' in outcome) return { state: { ...state, picker: outcome.picker } };
+    return { state: closed, effect: { kind: 'command', command: { name: 'edit', path: outcome.chosen, force: false } } };
 }
 
 function mixerModeKey(composition: Composition, state: EditorState, key: string): KeyResult {

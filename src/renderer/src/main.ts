@@ -2,7 +2,7 @@ import { cursorSeconds } from '../../services/cursor/Cursor';
 import { EditMode, EditorState, editorSelection } from '../../services/editor/Editor';
 import { keyName } from '../../services/editor/keys';
 import { Command, isFileCommand } from '../../services/editor/CommandLine';
-import { Picker, pickerItems } from '../../services/editor/Picker';
+import { Picker, filterPaths, pickerItems } from '../../services/editor/Picker';
 import { Mixer } from '../../services/editor/MixerMode';
 import { MAX_PART_VOLUME, masterVolume, partVolume } from '../../services/edit/Mixer';
 import { setSoundfonts } from '../../services/edit/Parts';
@@ -49,6 +49,9 @@ player.setComposition(current.session.composition);
 let soundfonts: { requested: string[]; playing: string[] } = { requested: [], playing: [] };
 let instruments: Instrument[] = GENERAL_MIDI_INSTRUMENTS;
 let soundfontQueue: Promise<unknown> = Promise.resolve();
+/** Scores opened or saved, newest first, kept in the settings */
+let recentFiles: string[] = [];
+const MAX_RECENT_FILES = 30;
 const layers = new SoundfontLayers(audio);
 
 const view = new ScoreView(document.querySelector<HTMLElement>('#viewport')!);
@@ -162,46 +165,71 @@ async function runDeleteSoundfontCommand(which: string) {
     if (error) showMessage(error, true);
 }
 
+/** What `:recent` offers: every recent score but the one open */
+const recentChoices = () => recentFiles.filter((path) => path !== current.path);
+
+/** Puts a score at the top of the recent ones, and saves the list */
+async function rememberRecent(path: string) {
+    recentFiles = [path, ...recentFiles.filter((recent) => recent !== path)].slice(0, MAX_RECENT_FILES);
+    const settings = await window.settings.get();
+recentFiles = settings.recentFiles ?? [];
+    await window.settings.set({ ...settings, recentFiles });
+}
+
+/** A picker's heading, its list (a window of it around the selection), and a count beneath */
+function showPickerPanel(heading: string, query: string, rows: HTMLLIElement[], selected: number, count: string) {
+    const shown = 12;
+    const first = Math.max(0, Math.min(selected - Math.floor(shown / 2), rows.length - shown));
+    rows[selected]?.classList.add('selected');
+    const list = document.createElement('ul');
+    list.append(...rows.slice(first, first + shown));
+    if (rows.length === 0) {
+        list.append(Object.assign(document.createElement('li'), { className: 'empty', textContent: 'No match' }));
+    }
+    pickerPanel.replaceChildren(
+        Object.assign(document.createElement('div'), { className: 'picker-heading', textContent: heading }),
+        Object.assign(document.createElement('div'), { className: 'picker-query', textContent: query }),
+        list,
+        Object.assign(document.createElement('div'), { className: 'picker-count', textContent: count }),
+    );
+}
+
+/** A row with a name, and a detail greyed out on the right */
+function pickerRow(name: string, detail: string) {
+    const row = document.createElement('li');
+    row.append(name, Object.assign(document.createElement('span'), { textContent: detail }));
+    return row;
+}
+
+/** `:recent`: the scores opened before, each by name with its folder */
+function showRecentPicker(picker: Picker) {
+    const choices = recentChoices();
+    const items = filterPaths(choices, picker.query);
+    const rows = items.map((path) => pickerRow(fileName(path), folder(path) ?? ''));
+    const count = `${items.length} of ${choices.length} recent scores`;
+    showPickerPanel('Open recent', picker.query, rows, picker.selected, count);
+}
+
 /** The instrument list over the score while choosing, like a fuzzy finder */
 function showPicker(picker: Picker | undefined) {
     pickerPanel.hidden = !picker;
     if (!picker) return;
+    if (picker.purpose === 'recent') return showRecentPicker(picker);
     const items = pickerItems(picker, instruments);
     const partName = current.session.composition.parts[current.session.editor.cursor.part]?.name ?? '';
     const heading = picker.purpose === 'addPart' ? 'New part' : `Instrument for ${partName}`;
 
-    // A window of the list around the selection
-    const shown = 12;
-    const first = Math.max(0, Math.min(picker.selected - Math.floor(shown / 2), items.length - shown));
-    const rows = items.slice(first, first + shown).map((instrument, i) => {
-        const row = document.createElement('li');
-        row.className = first + i === picker.selected ? 'selected' : '';
+    const rows = items.map((instrument) => {
         const { bank, program, drums, soundfont } = instrument;
         const number = drums ? 'drums' : `${bank ? `${bank}:` : ''}${program + 1}`;
         // With several soundfonts, the same sound can come from any of them
         const from = soundfont && soundfonts.playing.length > 1 ? `${soundfontName(soundfont).replace(/\.[^.]*$/, '')}  ` : '';
-        const detail = from + number;
-        row.append(instrument.name, Object.assign(document.createElement('span'), { textContent: detail }));
-        return row;
+        return pickerRow(instrument.name, from + number);
     });
-    const list = document.createElement('ul');
-    list.append(...rows);
-    if (items.length === 0) {
-        list.append(Object.assign(document.createElement('li'), { className: 'empty', textContent: 'No match' }));
-    }
     const [top, ...others] = soundfonts.playing;
     const more = others.length ? ` and ${others.length} more` : '';
     const source = top ? `in ${fileName(top)}${more}` : '(General MIDI, no soundfont loaded)';
-
-    pickerPanel.replaceChildren(
-        Object.assign(document.createElement('div'), { className: 'picker-heading', textContent: heading }),
-        Object.assign(document.createElement('div'), { className: 'picker-query', textContent: picker.query }),
-        list,
-        Object.assign(document.createElement('div'), {
-            className: 'picker-count',
-            textContent: `${items.length} of ${instruments.length} ${source}`,
-        }),
-    );
+    showPickerPanel(heading, picker.query, rows, picker.selected, `${items.length} of ${instruments.length} ${source}`);
 }
 
 /** The mixer over the score: each part's volume as a bar, then the master's */
@@ -383,6 +411,8 @@ async function run(command: Command) {
     const { document: after, message, error } = await runCommand(command, current, window.files, blankScore);
     current = after;
     if (after.session.composition !== before.session.composition) showComposition();
+    // Opening or saving a score makes it the most recent
+    if (!error && after.path && command.name !== 'new' && command.name !== 'quit') void rememberRecent(after.path);
     showMessage(message, error);
     showEditing();
     if (after.session !== before.session) await loadScoreSoundfonts();
@@ -429,7 +459,7 @@ window.addEventListener('keydown', (event) => {
 
     // The character typed, for the command line: Shift+3 is `#` on one keyboard and `§` on another
     const typed = event.key.length === 1 ? event.key : undefined;
-    const { session: next, effect } = sessionKey(session, key, { text: typed, instruments });
+    const { session: next, effect } = sessionKey(session, key, { text: typed, instruments, recentFiles: recentChoices() });
     current = { ...current, session: next };
     // Edits, undo and redo all arrive as a new composition
     if (next.composition !== session.composition) showComposition();

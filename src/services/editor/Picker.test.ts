@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GENERAL_MIDI_INSTRUMENTS, filterInstruments } from '../instrument/Instrument';
-import { Picker, auditionPitch, pickerItems, pickerKey } from './Picker';
+import { Picker, auditionPitch, filterPaths, pickerItems, pickerKey } from './Picker';
 
 const start: Picker = { purpose: 'instrument', query: '', selected: 0 };
 const names = (picker: Picker) => pickerItems(picker, GENERAL_MIDI_INSTRUMENTS).map(({ name }) => name);
@@ -53,5 +53,14 @@ describe('auditionPitch', () => {
         expect(auditionPitch(GENERAL_MIDI_INSTRUMENTS[40]!)).toBe(60);
         expect(auditionPitch(GENERAL_MIDI_INSTRUMENTS[42]!)).toBe(48);
         expect(auditionPitch({ name: 'Standard', program: 0, bank: 128, drums: true })).toBe(38);
+    });
+});
+
+describe('filterPaths', () => {
+    it('matches every word anywhere in the path, keeping the order', () => {
+        const paths = ['/a/Aqua Game.vimscore', '/b/waltz.vimscore', '/aqua/Theme.vimscore'];
+        expect(filterPaths(paths, 'aqua')).toEqual(['/a/Aqua Game.vimscore', '/aqua/Theme.vimscore']);
+        expect(filterPaths(paths, 'aqua theme')).toEqual(['/aqua/Theme.vimscore']);
+        expect(filterPaths(paths, '')).toEqual(paths);
     });
 });

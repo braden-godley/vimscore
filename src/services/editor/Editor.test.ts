@@ -593,3 +593,33 @@ describe('h and l in visual mode', () => {
         expect(where(type(['l']).state.cursor)).toEqual(at(0, 1));
     });
 });
+
+describe(':recent', () => {
+    const recentFiles = ['/scores/Aqua Game.vimscore', '/scores/waltz.vimscore', '/old/Aqua Theme.vimscore'];
+    const typeWith = (keys: string[]) => {
+        let result: KeyResult = { state: initialEditorState(exampleComposition) };
+        for (const key of keys) result = handleKey(exampleComposition, result.state, key, { recentFiles });
+        return result;
+    };
+    const command = (text: string) => [':', ...text.split(''), '<CR>'];
+
+    it('opens a picker over the recent scores', () => {
+        expect(typeWith(command('recent')).state).toMatchObject({ mode: 'picker', picker: { purpose: 'recent', query: '' } });
+        expect(parseCommand('recent aqua')).toEqual({ name: 'recent', query: 'aqua' });
+    });
+
+    it('filters as you type, moves with Ctrl-N/P, and opens the choice with :e', () => {
+        const { effect, state } = typeWith([...command('recent'), 'a', 'q', 'u', 'a', '<C-n>', '<CR>']);
+        expect(state.mode).toBe('normal');
+        expect(effect).toEqual({ kind: 'command', command: { name: 'edit', path: '/old/Aqua Theme.vimscore', force: false } });
+        expect(typeWith([...command('recent'), '<C-p>', '<CR>']).effect).toMatchObject({
+            command: { path: '/old/Aqua Theme.vimscore' },
+        });
+    });
+
+    it('closes with Esc, opening nothing', () => {
+        const result = typeWith([...command('recent'), '<Esc>']);
+        expect(result.state.mode).toBe('normal');
+        expect(result.effect).toBeUndefined();
+    });
+});

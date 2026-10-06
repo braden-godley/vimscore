@@ -7,6 +7,8 @@ export interface Settings {
   soundfonts?: string[];
   /** Before there could be several, the one soundfont */
   soundfont?: string;
+  /** Scores opened or saved, newest first, for `:recent` */
+  recentFiles?: string[];
 }
 
 declare global {

@@ -48,7 +48,9 @@ export type Command =
     /** `:gv 80`: the mixer's master volume, over every part */
     | { name: 'masterVolume'; percent: number }
     /** `:mixer` opens the mixer, to set every part's volume */
-    | { name: 'mixer' };
+    | { name: 'mixer' }
+    /** `:recent [filter]` picks a score opened before, to open again */
+    | { name: 'recent'; query: string };
 
 /** The commands the editor runs itself; the rest need files, dialogs or the window */
 /** What `:export` can write */
@@ -73,6 +75,7 @@ const EDIT_COMMANDS = [
     'partVolume',
     'masterVolume',
     'mixer',
+    'recent',
 ] as const;
 
 export type EditCommand = Extract<Command, { name: (typeof EDIT_COMMANDS)[number] }>;
@@ -121,6 +124,7 @@ const NAMES: Record<string, Command['name']> = {
     gv: 'masterVolume',
     mixer: 'mixer',
     mix: 'mixer',
+    recent: 'recent',
 };
 
 const CLEFS: Clef[] = ['treble', 'bass'];
@@ -156,6 +160,7 @@ export function parseCommand(text: string): Command | { error: string } {
             return args ? { name, which: args } : { error: 'Remove which? :delsf 2, or :delsf and its name' };
         case 'instrument':
         case 'addPart':
+        case 'recent':
             return { name, query: args };
         case 'rename':
             return args ? { name, text: args } : { error: 'Rename to what? :rename Violin I' };
