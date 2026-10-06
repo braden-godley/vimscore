@@ -56,15 +56,16 @@ import { GENERAL_MIDI_INSTRUMENTS, Instrument } from '../instrument/Instrument';
 import { Command, EditCommand, isEditCommand, parseCommand } from './CommandLine';
 import { Picker, auditionPitch, filterPaths, listKey, pickerKey } from './Picker';
 import { Mixer, mixerKey } from './MixerMode';
+import { HelpView, helpKey, openHelp } from '../help/Help';
 import { setMasterVolume, setPartVolume } from '../edit/Mixer';
 import { midi } from '../pitch/Pitch';
 
 /**
  * `normal` navigates; the insert modes enter notes, `insertMelody` moving on after each one; the
  * visual modes select from an anchor to the cursor; `command` is the `:` command line,
- * `picker` chooses an instrument, and `mixer` sets the parts' volumes
+ * `picker` chooses an instrument, `mixer` sets the parts' volumes, and `help` reads the manual
  */
-export type EditMode = 'normal' | InsertKind | VisualKind | 'command' | 'picker' | 'mixer';
+export type EditMode = 'normal' | InsertKind | VisualKind | 'command' | 'picker' | 'mixer' | 'help';
 
 export type InsertKind = 'insert' | 'insertMelody';
 
@@ -81,6 +82,8 @@ export interface EditorState {
     picker?: Picker;
     /** Set only in mixer mode */
     mixer?: Mixer;
+    /** Set only in help mode */
+    help?: HelpView;
     /** What yanking or deleting last took, for putting back */
     register?: Register;
     /** Keys of a command still being typed, like a count or `<C-w>` */
@@ -584,7 +587,7 @@ function commandLineKey(composition: Composition, state: EditorState, key: strin
         if (commandLine.text.trim() === '') return { state: closed };
         const command = parseCommand(commandLine.text);
         if ('error' in command) return { state: { ...state, commandLine: { ...commandLine, error: command.error } } };
-        if (isEditCommand(command)) return runEditCommand(composition, closed, command);
+        if (isEditCommand(command)) return runEditCommand(composition, closed, command, input);
         return { state: closed, effect: { kind: 'command', command } };
     }
 
@@ -606,10 +609,14 @@ export interface KeyInput {
     instruments?: Instrument[];
     /** Scores opened before, newest first, for `:recent` */
     recentFiles?: string[];
+    /** How many lines of the manual fit in the window, for scrolling it by pages */
+    helpPageLines?: number;
 }
 
+const DEFAULT_HELP_PAGE_LINES = 30;
+
 /** Commands for parts, run straight away as edits */
-function runEditCommand(composition: Composition, state: EditorState, command: EditCommand): KeyResult {
+function runEditCommand(composition: Composition, state: EditorState, command: EditCommand, input: KeyInput): KeyResult {
     const { part, measure } = state.cursor;
     switch (command.name) {
         case 'instrument':
@@ -648,6 +655,10 @@ function runEditCommand(composition: Composition, state: EditorState, command: E
             return { state, composition: setMasterVolume(composition, command.percent) };
         case 'mixer':
             return { state: { ...state, mode: 'mixer', mixer: { selected: part } } };
+        case 'help': {
+            const help = openHelp(command.query, input.helpPageLines ?? DEFAULT_HELP_PAGE_LINES);
+            return { state: { ...state, mode: 'help', help } };
+        }
         case 'timeSignature': {
             // The measures may have been re-barred, so land on the first beat of the changed one
             const edited = setTimeSignature(composition, measure, command.value);
@@ -702,6 +713,13 @@ function mixerModeKey(composition: Composition, state: EditorState, key: string)
     return { state: { ...state, mixer: outcome.mixer }, composition: outcome.composition };
 }
 
+function helpModeKey(state: EditorState, key: string, input: KeyInput): KeyResult {
+    const closed: EditorState = { ...state, mode: 'normal', help: undefined };
+    if (!state.help) return { state: closed };
+    const outcome = helpKey(state.help, key, input.helpPageLines ?? DEFAULT_HELP_PAGE_LINES, input.text);
+    return 'closed' in outcome ? { state: closed } : { state: { ...state, help: outcome.help } };
+}
+
 export function handleKey(composition: Composition, state: EditorState, key: string, input: KeyInput = {}): KeyResult {
     switch (state.mode) {
         case 'normal':
@@ -718,6 +736,8 @@ export function handleKey(composition: Composition, state: EditorState, key: str
             return pickerModeKey(composition, state, key, input);
         case 'mixer':
             return mixerModeKey(composition, state, key);
+        case 'help':
+            return helpModeKey(state, key, input);
     }
 }
 

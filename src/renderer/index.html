@@ -272,12 +272,42 @@
         margin-left: auto;
         color: #666;
       }
+      /* The manual, over the score down to the status bar; JavaScript sets its bottom */
+      #help {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        overflow: hidden;
+        padding: 0 1.5rem;
+        background: #fff;
+        font: 13px/20px ui-monospace, Menlo, monospace;
+        white-space: pre;
+        color: #222;
+      }
+      #help[hidden] {
+        display: none;
+      }
+      #help .heading {
+        font-weight: bold;
+      }
+      #help mark {
+        background: #fde293;
+        color: inherit;
+      }
+      #help .current mark {
+        background: #f9ab00;
+      }
+      body[data-state="help"] #mode {
+        color: var(--selected);
+      }
     </style>
   </head>
   <body>
     <div id="viewport"></div>
     <div id="picker" hidden></div>
     <div id="mixer" hidden></div>
+    <div id="help" hidden></div>
     <div id="status">
       <span id="mode"></span>
       <span id="command-line" hidden></span>

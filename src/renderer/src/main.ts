@@ -4,6 +4,8 @@ import { keyName } from '../../services/editor/keys';
 import { Command, isFileCommand } from '../../services/editor/CommandLine';
 import { Picker, filterPaths, pickerItems } from '../../services/editor/Picker';
 import { Mixer } from '../../services/editor/MixerMode';
+import { HelpView, matchesQuery } from '../../services/help/Help';
+import { HELP_LINES } from '../../services/help/helpText';
 import { MAX_PART_VOLUME, masterVolume, partVolume } from '../../services/edit/Mixer';
 import { setSoundfonts } from '../../services/edit/Parts';
 import { Document, isModified, newDocument, runCommand } from '../../services/file/Commands';
@@ -62,6 +64,10 @@ const keysLabel = document.querySelector<HTMLElement>('#keys')!;
 const positionLabel = document.querySelector<HTMLElement>('#position')!;
 const pickerPanel = document.querySelector<HTMLElement>('#picker')!;
 const mixerPanel = document.querySelector<HTMLElement>('#mixer')!;
+const helpPanel = document.querySelector<HTMLElement>('#help')!;
+const statusBar = document.querySelector<HTMLElement>('#status')!;
+/** The manual's line height in pixels, as its CSS sets it */
+const HELP_LINE_HEIGHT = 20;
 
 const MODE_LABELS: Record<EditMode, string> = {
     normal: '',
@@ -72,6 +78,7 @@ const MODE_LABELS: Record<EditMode, string> = {
     command: '',
     picker: '',
     mixer: '-- MIXER --',
+    help: '-- HELP --',
 };
 
 const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
@@ -266,6 +273,39 @@ function showMixer(mixer: Mixer | undefined) {
     );
 }
 
+/** How many lines of the manual fit above the status bar */
+const helpPageLines = () => Math.max(1, Math.floor((window.innerHeight - statusBar.offsetHeight) / HELP_LINE_HEIGHT));
+
+/** Parts of a line, with every match for the search marked */
+function markedLine(line: string, query: string | undefined): (string | HTMLElement)[] {
+    if (!query || !matchesQuery(line, query)) return [line || ' '];
+    const smart = query === query.toLowerCase();
+    const haystack = smart ? line.toLowerCase() : line;
+    const parts: (string | HTMLElement)[] = [];
+    let from = 0;
+    for (let at = haystack.indexOf(query); at !== -1; at = haystack.indexOf(query, at + query.length)) {
+        parts.push(line.slice(from, at), Object.assign(document.createElement('mark'), { textContent: line.slice(at, at + query.length) }));
+        from = at + query.length;
+    }
+    parts.push(line.slice(from));
+    return parts;
+}
+
+/** The manual over the score, scrolled to its top line, with the search's matches marked */
+function showHelp(help: HelpView | undefined) {
+    helpPanel.hidden = !help;
+    if (!help) return;
+    helpPanel.style.bottom = `${statusBar.offsetHeight}px`;
+    const rows = HELP_LINES.slice(help.top, help.top + helpPageLines() + 1).map((line, i) => {
+        const row = document.createElement('div');
+        if (/^[A-Z][A-Z ]*$/.test(line)) row.className = 'heading';
+        if (help.top + i === help.match) row.classList.add('current');
+        row.append(...markedLine(line, help.query));
+        return row;
+    });
+    helpPanel.replaceChildren(...rows);
+}
+
 /** The `:` command line takes over the status bar, like vim's */
 function showCommandLine(commandLine: EditorState['commandLine']) {
     commandLineLabel.hidden = !commandLine;
@@ -314,6 +354,16 @@ function showEditing() {
     showCommandLine(editor.commandLine);
     showPicker(editor.picker);
     showMixer(editor.mixer);
+    showHelp(editor.help);
+    if (editor.help) {
+        // Typing a search takes over the status bar like the command line; a failed one says so
+        commandLineLabel.hidden = editor.help.typing === undefined;
+        const typing = Object.assign(document.createElement('span'), { className: 'command-text', textContent: editor.help.typing ?? '' });
+        commandLineLabel.replaceChildren('/', typing);
+        if (editor.help.error) showMessage(editor.help.error, true);
+        positionLabel.textContent = `line ${editor.help.top + 1} of ${HELP_LINES.length}`;
+        return;
+    }
     const place = `${composition.parts[cursor.part]?.name ?? ''}  m${cursor.measure + 1}`;
     positionLabel.textContent = editor.phantom ? `${describePhantom(editor.phantom)}  ${place}` : place;
 
@@ -458,7 +508,7 @@ window.addEventListener('keydown', (event) => {
 
     // The character typed, for the command line: Shift+3 is `#` on one keyboard and `§` on another
     const typed = event.key.length === 1 ? event.key : undefined;
-    const { session: next, effect } = sessionKey(session, key, { text: typed, instruments, recentFiles: recentChoices() });
+    const { session: next, effect } = sessionKey(session, key, { text: typed, instruments, recentFiles: recentChoices(), helpPageLines: helpPageLines() });
     current = { ...current, session: next };
     // Edits, undo and redo all arrive as a new composition
     if (next.composition !== session.composition) showComposition();

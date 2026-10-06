@@ -646,3 +646,12 @@ describe(':recent', () => {
         expect(result.effect).toBeUndefined();
     });
 });
+
+describe(':help', () => {
+    it('opens the manual, at a topic if given, and closes with q', () => {
+        const command = (text: string) => [':', ...text.split(''), '<CR>'];
+        expect(type(command('help')).state).toMatchObject({ mode: 'help', help: { top: 0 } });
+        expect(type(command('h tempo')).state.help?.query).toBe('tempo');
+        expect(type([...command('help'), 'q']).state).toMatchObject({ mode: 'normal', help: undefined });
+    });
+});
