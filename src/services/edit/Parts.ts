@@ -29,6 +29,16 @@ export function deletePart(composition: Composition, index: number): Composition
     return { ...composition, parts: composition.parts.filter((_, i) => i !== index) };
 }
 
+/** Moves a part to `to`, the others closing up around it; undefined past the top or bottom */
+export function shiftPart(composition: Composition, from: number, to: number): Composition | undefined {
+    const { parts } = composition;
+    const part = parts[from];
+    if (!part || to === from || to < 0 || to >= parts.length) return undefined;
+    const shifted = parts.filter((_, i) => i !== from);
+    shifted.splice(to, 0, part);
+    return { ...composition, parts: shifted };
+}
+
 function withPart(composition: Composition, index: number, change: (part: Part) => Part): Composition {
     return { ...composition, parts: composition.parts.map((part, i) => (i === index ? change(part) : part)) };
 }

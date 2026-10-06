@@ -60,6 +60,7 @@ import { GENERAL_MIDI_INSTRUMENTS, Instrument } from '../instrument/Instrument';
 import { Command, EditCommand, isEditCommand, parseCommand } from './CommandLine';
 import { Picker, auditionPitch, filterPaths, listKey, pickerKey } from './Picker';
 import { Mixer, mixerKey } from './MixerMode';
+import { partsKey } from './PartsMode';
 import { HelpView, helpKey, openHelp } from '../help/Help';
 import { setMasterVolume, setPartVolume } from '../edit/Mixer';
 import { midi } from '../pitch/Pitch';
@@ -67,9 +68,10 @@ import { midi } from '../pitch/Pitch';
 /**
  * `normal` navigates; the insert modes enter notes, `insertMelody` moving on after each one; the
  * visual modes select from an anchor to the cursor; `command` is the `:` command line,
- * `picker` chooses an instrument, `mixer` sets the parts' volumes, and `help` reads the manual
+ * `picker` chooses an instrument, `mixer` sets the parts' volumes, `parts` adds, deletes and
+ * reorders parts, and `help` reads the manual
  */
-export type EditMode = 'normal' | InsertKind | VisualKind | 'command' | 'picker' | 'mixer' | 'help';
+export type EditMode = 'normal' | InsertKind | VisualKind | 'command' | 'picker' | 'mixer' | 'parts' | 'help';
 
 export type InsertKind = 'insert' | 'insertMelody';
 
@@ -726,6 +728,8 @@ function runEditCommand(composition: Composition, state: EditorState, command: E
             return { state, composition: setMasterVolume(composition, command.percent) };
         case 'mixer':
             return { state: { ...state, mode: 'mixer', mixer: { selected: part } } };
+        case 'parts':
+            return { state: { ...state, mode: 'parts' } };
         case 'help': {
             const help = openHelp(command.query, input.helpPageLines ?? DEFAULT_HELP_PAGE_LINES);
             return { state: { ...state, mode: 'help', help } };
@@ -740,7 +744,7 @@ function runEditCommand(composition: Composition, state: EditorState, command: E
 
 function pickerModeKey(composition: Composition, state: EditorState, key: string, input: KeyInput): KeyResult {
     const instruments = input.instruments ?? GENERAL_MIDI_INSTRUMENTS;
-    const closed: EditorState = { ...state, mode: 'normal', picker: undefined };
+    const closed: EditorState = { ...state, mode: state.picker?.fromParts ? 'parts' : 'normal', picker: undefined };
     if (!state.picker) return { state: closed };
     if (state.picker.purpose === 'recent') return recentPickerKey(state, closed, key, input);
 
@@ -761,9 +765,10 @@ function pickerModeKey(composition: Composition, state: EditorState, key: string
     if (state.picker.purpose === 'instrument') {
         return { state: closed, composition: setInstrument(composition, cursor.part, chosen, instruments) };
     }
-    // The new part goes below the cursor's, and the cursor moves into it at the same time
-    const edited = addPart(composition, cursor.part + 1, chosen);
-    const moved = cursorAtOffset(edited, cursor.part + 1, cursor.measure, cursorOffset(composition, cursor));
+    // The new part goes below the cursor's unless placed, and the cursor moves into it at the same time
+    const index = state.picker.index ?? cursor.part + 1;
+    const edited = addPart(composition, index, chosen);
+    const moved = cursorAtOffset(edited, index, cursor.measure, cursorOffset(composition, cursor));
     return { state: { ...closed, cursor: moved }, composition: edited };
 }
 
@@ -782,6 +787,17 @@ function mixerModeKey(composition: Composition, state: EditorState, key: string)
     const outcome = mixerKey(composition, state.mixer, key);
     if ('closed' in outcome) return { state: closed };
     return { state: { ...state, mixer: outcome.mixer }, composition: outcome.composition };
+}
+
+function partsModeKey(composition: Composition, state: EditorState, key: string): KeyResult {
+    const outcome = partsKey(composition, state.cursor, key);
+    if ('closed' in outcome) return { state: { ...state, mode: 'normal' } };
+    if ('history' in outcome) return { state, history: { direction: outcome.history, count: 1 } };
+    if ('add' in outcome) {
+        const picker: Picker = { purpose: 'addPart', query: '', selected: 0, index: outcome.add, fromParts: true };
+        return { state: { ...state, mode: 'picker', picker } };
+    }
+    return { state: { ...state, cursor: outcome.cursor }, composition: outcome.composition };
 }
 
 function helpModeKey(state: EditorState, key: string, input: KeyInput): KeyResult {
@@ -807,6 +823,8 @@ export function handleKey(composition: Composition, state: EditorState, key: str
             return pickerModeKey(composition, state, key, input);
         case 'mixer':
             return mixerModeKey(composition, state, key);
+        case 'parts':
+            return partsModeKey(composition, state, key);
         case 'help':
             return helpModeKey(state, key, input);
     }

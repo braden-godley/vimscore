@@ -12,6 +12,10 @@ export interface Picker {
     query: string;
     /** Index into the filtered list */
     selected: number;
+    /** Where a new part goes, when not below the cursor's */
+    index?: number;
+    /** Opened from the parts list, which it goes back to when done */
+    fromParts?: boolean;
 }
 
 export type PickerOutcome =

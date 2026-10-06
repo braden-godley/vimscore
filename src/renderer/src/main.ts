@@ -12,7 +12,7 @@ import { setSoundfonts } from '../../services/edit/Parts';
 import { Document, isModified, newDocument, runCommand } from '../../services/file/Commands';
 import { Composition, newComposition } from '../../services/composition/Composition';
 import { addSoundfont, describeSoundfonts, findSoundfont, soundfontName } from '../../services/soundfont/Soundfont';
-import { GENERAL_MIDI_INSTRUMENTS, Instrument } from '../../services/instrument/Instrument';
+import { GENERAL_MIDI_INSTRUMENTS, Instrument, partInstrument, sameSound } from '../../services/instrument/Instrument';
 import { resolveMeasures, secondsPerWholeNote } from '../../services/measure/Measure';
 import { PlayedMeasure, performance, playedMeasureAt } from '../../services/timeline/performance';
 import { Player } from '../../services/player/Player';
@@ -69,6 +69,7 @@ const keysLabel = document.querySelector<HTMLElement>('#keys')!;
 const positionLabel = document.querySelector<HTMLElement>('#position')!;
 const pickerPanel = document.querySelector<HTMLElement>('#picker')!;
 const mixerPanel = document.querySelector<HTMLElement>('#mixer')!;
+const partsPanel = document.querySelector<HTMLElement>('#parts')!;
 const helpPanel = document.querySelector<HTMLElement>('#help')!;
 const statusBar = document.querySelector<HTMLElement>('#status')!;
 /** The manual's line height in pixels, as its CSS sets it */
@@ -83,6 +84,7 @@ const MODE_LABELS: Record<EditMode, string> = {
     command: '',
     picker: '',
     mixer: '-- MIXER --',
+    parts: '-- PARTS --',
     help: '-- HELP --',
 };
 
@@ -339,6 +341,31 @@ function showMixer(mixer: Mixer | undefined) {
     );
 }
 
+/** The parts list over the score: each part by name, with its instrument and clef */
+function showParts(open: boolean) {
+    partsPanel.hidden = !open;
+    if (!open) return;
+    const { composition, editor } = current.session;
+    const list = document.createElement('ul');
+    list.append(
+        ...composition.parts.map((part, i) => {
+            const played = partInstrument(part);
+            const name = instruments.find((instrument) => sameSound(instrument, played))?.name ?? played.name;
+            const row = pickerRow(`${i + 1}  ${part.name}`, `${name} · ${part.clef}`);
+            if (i === editor.cursor.part) row.classList.add('selected');
+            return row;
+        }),
+    );
+    partsPanel.replaceChildren(
+        Object.assign(document.createElement('div'), { className: 'picker-heading', textContent: 'Parts' }),
+        list,
+        Object.assign(document.createElement('div'), {
+            className: 'picker-count',
+            textContent: 'j/k part · J/K move · o/O add · d delete · u undo · Esc done',
+        }),
+    );
+}
+
 /** How many lines of the manual fit above the status bar */
 const helpPageLines = () => Math.max(1, Math.floor((window.innerHeight - statusBar.offsetHeight) / HELP_LINE_HEIGHT));
 
@@ -420,6 +447,7 @@ function showEditing() {
     showCommandLine(editor.commandLine);
     showPicker(editor.picker);
     showMixer(editor.mixer);
+    showParts(mode === 'parts');
     showHelp(editor.help);
     if (editor.help) {
         // Typing a search takes over the status bar like the command line; a failed one says so

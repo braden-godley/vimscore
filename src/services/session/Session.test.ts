@@ -223,6 +223,37 @@ describe('parts and instruments', () => {
         expect(names(type([...command('rename Lead'), 'u']))).toEqual(['Melody', 'Bass']);
     });
 
+    it(':parts moves the cursor between parts and moves them, each move undoable', () => {
+        const open = type(command('parts'));
+        expect(open.editor).toMatchObject({ mode: 'parts', cursor: { part: 0 } });
+        expect(type(['j'], open).editor.cursor.part).toBe(1);
+
+        const shifted = type(['J'], open);
+        expect(names(shifted)).toEqual(['Bass', 'Melody']);
+        expect(shifted.editor).toMatchObject({ mode: 'parts', cursor: { part: 1 } });
+        expect(names(type(['J'], shifted))).toEqual(['Bass', 'Melody']);
+        expect(names(type(['K', 'u'], shifted))).toEqual(['Bass', 'Melody']);
+        expect(names(type(['u', 'u'], type(['K'], shifted)))).toEqual(['Melody', 'Bass']);
+        expect(type(['<Esc>'], shifted).editor.mode).toBe('normal');
+    });
+
+    it(':parts adds a part with the picker, then goes back to the list', () => {
+        const open = type(command('parts'));
+        const above = type(['O', ...'cello', '<CR>'], open);
+        expect(names(above)).toEqual(['Cello', 'Melody', 'Bass']);
+        expect(above.editor).toMatchObject({ mode: 'parts', cursor: { part: 0 } });
+        expect(names(type(['j', 'o', ...'cello', '<CR>'], open))).toEqual(['Melody', 'Bass', 'Cello']);
+        expect(type(['o', '<Esc>'], open)).toMatchObject({ composition: open.composition, editor: { mode: 'parts' } });
+    });
+
+    it(':parts deletes parts, but never the last', () => {
+        const deleted = type([...command('parts'), 'd']);
+        expect(names(deleted)).toEqual(['Bass']);
+        expect(deleted.editor).toMatchObject({ mode: 'parts', cursor: { part: 0 } });
+        expect(names(type(['d'], deleted))).toEqual(['Bass']);
+        expect(names(type(['u'], deleted))).toEqual(['Melody', 'Bass']);
+    });
+
     it('retitles the score, undoably', () => {
         expect(type(command('title Aqua Game')).composition.title).toBe('Aqua Game');
         expect(type([...command('title Aqua Game'), 'u']).composition.title).toBe('Example');

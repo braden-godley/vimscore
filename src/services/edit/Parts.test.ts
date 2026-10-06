@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { newComposition, withTrailingEmptyMeasure } from '../composition/Composition';
 import { exampleComposition } from '../composition/example-composition';
 import { GENERAL_MIDI_INSTRUMENTS } from '../instrument/Instrument';
-import { addPart, deletePart, renamePart, setClef, setInstrument } from './Parts';
+import { addPart, deletePart, renamePart, setClef, setInstrument, shiftPart } from './Parts';
 import { written } from './written';
 
 const cello = GENERAL_MIDI_INSTRUMENTS[42]!;
@@ -28,6 +28,16 @@ describe('deletePart', () => {
         expect(deletePart(exampleComposition, 0)?.parts.map(({ name }) => name)).toEqual(['Bass']);
         const single = deletePart(exampleComposition, 0)!;
         expect(deletePart(single, 0)).toBeUndefined();
+    });
+});
+
+describe('shiftPart', () => {
+    it('moves a part up or down, but not past the ends', () => {
+        const three = addPart(exampleComposition, 2, cello);
+        expect(shiftPart(three, 0, 1)?.parts.map(({ name }) => name)).toEqual(['Bass', 'Melody', 'Cello']);
+        expect(shiftPart(three, 2, 0)?.parts.map(({ name }) => name)).toEqual(['Cello', 'Melody', 'Bass']);
+        expect(shiftPart(three, 0, -1)).toBeUndefined();
+        expect(shiftPart(three, 2, 3)).toBeUndefined();
     });
 });
 

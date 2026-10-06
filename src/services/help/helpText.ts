@@ -175,11 +175,20 @@ PARTS
                            move to it (also :inst)
     :addpart [filter]      Pick an instrument for a new part below the cursor's
     :delpart               Delete the cursor's part
+    :parts                 Open the parts list, to add, delete and reorder parts
     :rename name           Rename the cursor's part
     :clef treble|bass      The cursor's part's clef
 
     In a picker, type to filter, <C-n> <C-p> <Tab> or the arrows to move, <CR> to choose,
     <Esc> to close.
+
+    In the parts list, the selected part is the cursor's:
+    j  k            The next or previous part
+    J  K            Move the part down or up the score
+    o  O            Pick an instrument for a new part below or above, then back to the list
+    d  x            Delete the part; the last one stays
+    u  U            Undo or redo, one change at a time
+    q  <Esc>  <CR>  Close
 
 THE SCORE
     :title name     Name the whole score

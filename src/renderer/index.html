@@ -107,7 +107,8 @@
         stroke: var(--visual);
       }
       #picker,
-      #mixer {
+      #mixer,
+      #parts {
         position: fixed;
         top: 12%;
         left: 50%;
@@ -121,7 +122,8 @@
         overflow: hidden;
       }
       #picker[hidden],
-      #mixer[hidden] {
+      #mixer[hidden],
+      #parts[hidden] {
         display: none;
       }
       .picker-heading {
@@ -140,28 +142,33 @@
       .picker-query::after {
         content: "▏";
       }
-      #picker ul {
+      #picker ul,
+      #parts ul {
         list-style: none;
         margin: 0;
         padding: 0.3rem 0;
       }
-      #picker li {
+      #picker li,
+      #parts li {
         display: flex;
         justify-content: space-between;
         padding: 0.2rem 0.8rem;
       }
-      #picker li span {
+      #picker li span,
+      #parts li span {
         color: #999;
         margin-left: 1rem;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      #picker li.selected {
+      #picker li.selected,
+      #parts li.selected {
         background: var(--selected);
         color: #fff;
       }
-      #picker li.selected span {
+      #picker li.selected span,
+      #parts li.selected span {
         color: #dde8fb;
       }
       #picker li.empty {
@@ -315,6 +322,7 @@
     <div id="viewport"></div>
     <div id="picker" hidden></div>
     <div id="mixer" hidden></div>
+    <div id="parts" hidden></div>
     <div id="help" hidden></div>
     <div id="status">
       <span id="mode"></span>

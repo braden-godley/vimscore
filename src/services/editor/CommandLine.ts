@@ -32,6 +32,8 @@ export type Command =
     /** `:addpart [filter]` picks an instrument for a new part below the cursor's */
     | { name: 'addPart'; query: string }
     | { name: 'deletePart' }
+    /** `:parts` opens the parts list, to add, delete and reorder parts */
+    | { name: 'parts' }
     | { name: 'rename'; text: string }
     /** `:title Aqua Game` names the whole score */
     | { name: 'title'; text: string }
@@ -67,6 +69,7 @@ const EDIT_COMMANDS = [
     'instrument',
     'addPart',
     'deletePart',
+    'parts',
     'rename',
     'title',
     'clef',
@@ -115,6 +118,7 @@ const NAMES: Record<string, Command['name']> = {
     inst: 'instrument',
     addpart: 'addPart',
     delpart: 'deletePart',
+    parts: 'parts',
     rename: 'rename',
     title: 'title',
     clef: 'clef',
@@ -157,6 +161,7 @@ export function parseCommand(text: string): Command | { error: string } {
         case 'new':
             return args ? { error: `:${typedName} takes no file name` } : { name, force };
         case 'deletePart':
+        case 'parts':
         case 'listSoundfonts':
         case 'mixer':
             return args ? { error: `:${typedName} takes nothing after it` } : { name };
