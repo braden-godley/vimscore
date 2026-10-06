@@ -490,6 +490,20 @@ function toggleRepeats() {
 }
 
 /**
+ * `g`, `h` and `l` while playing: carries on from the start, or from the start of the measure
+ * played before or after this one, so repeats are gone through as they're played
+ */
+function jumpPlayback(key: 'g' | 'h' | 'l') {
+    const at = playedMeasureAt(played, player.position);
+    const index = at ? played.indexOf(at) : 0;
+    const target = played[key === 'g' ? 0 : Math.max(0, index + (key === 'h' ? -1 : 1))];
+    // Past the last note there's nothing left to play
+    if (!target || target.startSeconds >= player.end) return;
+    player.stop();
+    player.play(target.startSeconds);
+}
+
+/**
  * `:export`: renders through the score's soundfonts in a worker, showing progress. Needs one,
  * since the stand-in tone is only for listening while writing.
  */
@@ -569,6 +583,7 @@ window.addEventListener('keydown', (event) => {
     if (player.playing) {
         if (key === '<Space>' || key === '<S-Space>' || key === '<Esc>') player.stop();
         if (key === 'r') toggleRepeats();
+        if (key === 'g' || key === 'h' || key === 'l') jumpPlayback(key);
         return;
     }
 

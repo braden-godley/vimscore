@@ -48,6 +48,11 @@ export class Player {
         return this.playing ? Math.max(this.from, this.ctx.currentTime - this.startTime) : 0;
     }
 
+    /** When the last note finishes, in seconds into the composition */
+    get end(): number {
+        return this.endTime;
+    }
+
     setComposition(composition: Composition, options: PerformanceOptions = {}) {
         this.stop();
 

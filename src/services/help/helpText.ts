@@ -42,6 +42,9 @@ PLAYING
     <Space>  <Esc>    Stop
     r                 Skip repeats, or play them again. Playback carries on from the same
                       place, and later plays keep the choice
+    g                 Carry on from the start of the score
+    h  l              Carry on from the start of the measure before or after, going through
+                      repeats as they're played. Past the last note, l does nothing
 
 EDITING IN NORMAL MODE
     u  U              Undo or redo
