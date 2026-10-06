@@ -26,6 +26,11 @@ let workletAdded: Promise<void> | undefined;
 export class SoundfontSynth implements Synth {
     private instruments: Instrument[] = [];
     private mix: number[] = [];
+    /**
+     * Channels the worklet has. Kept here, as the synth's own list counts each one we add
+     * twice: once as it's asked for, and again when the worklet says it was added.
+     */
+    private channels = 16;
 
     private constructor(private readonly synth: WorkletSynthesizer) {}
 
@@ -66,12 +71,14 @@ export class SoundfontSynth implements Synth {
 
     setInstruments(instruments: Instrument[]) {
         this.instruments = instruments;
+        this.addChannels(instruments.length);
         instruments.forEach((instrument, part) => this.select(channelFor(part), instrument));
         this.setMix(this.mix);
     }
 
     setMix(mix: number[]) {
         this.mix = mix;
+        this.addChannels(mix.length);
         mix.forEach((level, part) => this.synth.controllerChange(channelFor(part), CHANNEL_VOLUME, channelVolume(level)));
     }
 
@@ -92,6 +99,12 @@ export class SoundfontSynth implements Synth {
 
     stopAll() {
         this.synth.stopAll(true);
+    }
+
+    /** Adds channels until every one of so many parts has its own */
+    private addChannels(parts: number) {
+        if (parts === 0) return;
+        for (; this.channels <= channelFor(parts - 1); this.channels++) this.synth.addNewChannel();
     }
 
     private select(channel: number, { program, bank, drums }: Instrument) {

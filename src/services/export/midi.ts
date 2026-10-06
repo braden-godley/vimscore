@@ -11,7 +11,7 @@ import { durationValue } from '../duration/Duration';
 import { partInstrument } from '../instrument/Instrument';
 import { resolveMeasures, secondsPerWholeNote } from '../measure/Measure';
 import { partMix } from '../edit/Mixer';
-import { BANK_SELECT, CHANNEL_VOLUME, channelFor, channelVolume, velocity } from '../synth/channels';
+import { BANK_SELECT, CHANNEL_VOLUME, channelVolume, velocity } from '../synth/channels';
 import { performance, playedMeasureAt } from '../timeline/performance';
 import { timeline } from '../timeline/timeline';
 
@@ -19,6 +19,8 @@ import { timeline } from '../timeline/timeline';
 export const TICKS_PER_QUARTER = 480;
 /** General MIDI keeps channel 10 (index 9) for drums */
 const DRUM_CHANNEL = 9;
+/** A file has only 16 channels: the rest go to other parts, in turn, shared past 15 of them */
+const PART_CHANNELS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15];
 
 /** MIDI's variable-length numbers: seven bits a byte, high bit set on all but the last */
 function variableLength(value: number): number[] {
@@ -104,9 +106,10 @@ export function writeMidi(composition: Composition): Uint8Array {
     const notes = timeline(composition);
     const tracks = [track(conductor)];
     const mix = partMix(composition);
+    let pitched = 0;
     composition.parts.forEach((part, p) => {
         const { program, bank, drums } = partInstrument(part);
-        const channel = drums ? DRUM_CHANNEL : channelFor(p);
+        const channel = drums ? DRUM_CHANNEL : PART_CHANNELS[pitched++ % PART_CHANNELS.length]!;
         const events: TrackEvent[] = [meta(0, 0x03, ascii(part.name))];
         if (!drums) {
             events.push({ ticks: 0, order: 0, bytes: [0xb0 | channel, BANK_SELECT, Math.min(127, bank)] });

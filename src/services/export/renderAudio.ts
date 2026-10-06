@@ -78,6 +78,7 @@ export async function renderAudio(
         layer.parts.add(index);
         const { processor } = layer;
         const channel = channelFor(index);
+        while (processor.midiChannels.length <= channel) processor.createMIDIChannel();
         processor.midiChannels[channel]?.setDrums(instrument.drums);
         processor.controllerChange(channel, BANK_SELECT, instrument.bank);
         processor.programChange(channel, instrument.program);

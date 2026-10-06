@@ -92,6 +92,19 @@ describe('writeMidi', () => {
         expect(drums.tracks[2]!.events.some(({ statusByte }) => statusByte >> 4 === 0xc)).toBe(false);
     });
 
+    it('gives 15 parts and drums a channel each, never drums', () => {
+        const melody = exampleComposition.parts[0]!;
+        const band = {
+            ...exampleComposition,
+            parts: [...Array.from({ length: 14 }, () => melody), { ...melody, drums: true, bank: 128 }, melody],
+        };
+        const file = read(writeMidi(band));
+        const channels = file.tracks
+            .slice(1)
+            .map(({ events }) => events.find(({ statusByte }) => statusByte >> 4 === 0xb)!.statusByte & 0xf);
+        expect(channels).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 9, 15]);
+    });
+
     it("sets each channel's volume from the mixer, master included", () => {
         const mixed = { ...exampleComposition, volume: 50, parts: exampleComposition.parts.map((part, i) => (i === 0 ? { ...part, volume: 120 } : part)) };
         const channelVolumes = (data: BasicMIDI) =>
