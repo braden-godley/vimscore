@@ -4,11 +4,11 @@
  */
 
 import { Composition } from '../composition/Composition';
-import { Cursor, clampCursor, cursorAtOffset, cursorOffset, cursorPitch, leafAtOffset, voiceLeaves, withNote } from '../cursor/Cursor';
+import { Cursor, clampCursor, cursorAtOffset, cursorOffset, voiceLeaves, withNote } from '../cursor/Cursor';
 import { Duration, durationValue, durationsFilling, restsFilling } from '../duration/Duration';
 import { Chord, Event, Rest, Tuplet, eventsLength, mapLeaves } from '../event/Event';
 import { Fraction, ZERO, add, compare, fraction, mul, sub } from '../fraction/Fraction';
-import { ResolvedMeasure, beatLength, resolveMeasures } from '../measure/Measure';
+import { resolveMeasures } from '../measure/Measure';
 import { Note } from '../note/Note';
 import { Phantom } from '../phantom/Phantom';
 import { comparePitch, midi, samePitch, transpose } from '../pitch/Pitch';
@@ -521,100 +521,4 @@ export function placeRest(
     if (event.kind === 'rest' && sameDuration(event.duration, duration)) return { composition, cursor };
     const edited = replaceLeaf(composition, cursor, { kind: 'rest', duration });
     return edited && { composition: edited, cursor: clampCursor(edited, { ...cursor, note: 0 }) };
-}
-
-/**
- * Insert mode's beat motion: `delta` beats on through the cursor's voice, or back, across
- * barlines. It lands on the chord or rest sounding on the beat, passing beats the cursor's own
- * chord is held over. A rest across the beat is split there, so a note can go on it, unless
- * it's in a tuplet. Stops at the first or last beat of the part.
- */
-export function moveBeat(composition: Composition, cursor: Cursor, delta: number): { composition: Composition; cursor: Cursor } {
-    const measures = resolveMeasures(composition.measures);
-    let moved = { composition, cursor };
-    for (let remaining = Math.abs(delta); remaining > 0; remaining--) {
-        const next = beatStep(moved.composition, measures, moved.cursor, Math.sign(delta));
-        if (!next) break;
-        moved = next;
-    }
-    const followed = cursorPitch(composition, cursor) ?? 'top';
-    return { composition: moved.composition, cursor: withNote(moved.composition, moved.cursor, followed) };
-}
-
-function beatStep(
-    composition: Composition,
-    measures: ResolvedMeasure[],
-    cursor: Cursor,
-    step: number,
-): { composition: Composition; cursor: Cursor } | undefined {
-    const { part, voice } = cursor;
-    const hasLeaves = (measure: number) => voiceLeaves(composition, part, measure, voice).length > 0;
-    const nearestMeasure = (from: number) => {
-        let measure = from;
-        while (measure >= 0 && measure < measures.length && !hasLeaves(measure)) measure += step;
-        return measure >= 0 && measure < measures.length ? measure : undefined;
-    };
-
-    let measure = cursor.measure;
-    let start = cursorOffset(composition, cursor);
-    if (step < 0 && compare(start, ZERO) === 0) {
-        const previous = nearestMeasure(measure - 1);
-        if (previous === undefined) return undefined;
-        measure = previous;
-        start = measures[measure]!.length;
-    }
-
-    const { timeSignature, length } = measures[measure]!;
-    const beat = beatLength(timeSignature);
-    // How many beats into the measure the cursor's chord or rest starts
-    const beats = (start.num * beat.den) / (start.den * beat.num);
-    const leafList = voiceLeaves(composition, part, measure, voice);
-
-    if (step < 0) {
-        const target = mul(beat, fraction(Math.ceil(beats) - 1));
-        return landOnBeat(composition, { ...cursor, measure }, leafAtOffset(leafList, target), target);
-    }
-
-    for (let target = mul(beat, fraction(Math.floor(beats) + 1)); compare(target, length) < 0; target = add(target, beat)) {
-        const leaf = leafAtOffset(leafList, target);
-        if (leaf !== cursor.leaf) return landOnBeat(composition, cursor, leaf, target);
-        const split = splitRest(composition, cursor, sub(target, start));
-        if (split) return split;
-    }
-    const next = nearestMeasure(measure + 1);
-    return next === undefined ? undefined : { composition, cursor: { ...cursor, measure: next, leaf: 0 } };
-}
-
-/** Puts the cursor on `leaf`, splitting it at `beat` if it's a rest that starts before */
-function landOnBeat(composition: Composition, cursor: Cursor, leaf: number, beat: Fraction) {
-    const landed = { ...cursor, leaf };
-    const leafStart = cursorOffset(composition, landed);
-    if (compare(leafStart, beat) === 0) return { composition, cursor: landed };
-    return splitRest(composition, landed, sub(beat, leafStart)) ?? { composition, cursor: landed };
-}
-
-/**
- * Splits the cursor's rest `before` whole notes in, into rests laid out on the beat, and moves
- * the cursor to the part after. Undefined on a chord, or a rest in a tuplet.
- */
-function splitRest(composition: Composition, cursor: Cursor, before: Fraction): { composition: Composition; cursor: Cursor } | undefined {
-    const events = composition.parts[cursor.part]?.measures[cursor.measure]?.voices[cursor.voice]?.events;
-    if (!events) return undefined;
-    let leading = 0;
-    const newEvents = rewriteAroundLeaf(events, cursor.leaf, (list, index, inTuplet) => {
-        const event = list[index];
-        if (inTuplet || event?.kind !== 'rest') return undefined;
-        const start = eventsLength(list.slice(0, index));
-        const split = add(start, before);
-        try {
-            const first = restsFilling(start, before);
-            const second = restsFilling(split, sub(add(start, durationValue(event.duration)), split));
-            leading = first.length;
-            return [...list.slice(0, index), ...[...first, ...second].map(rest), ...list.slice(index + 1)];
-        } catch {
-            return undefined;
-        }
-    });
-    if (!newEvents) return undefined;
-    return { composition: withVoiceEvents(composition, cursor, newEvents), cursor: { ...cursor, leaf: cursor.leaf + leading, note: 0 } };
 }

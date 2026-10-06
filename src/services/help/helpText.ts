@@ -91,11 +91,7 @@ INSERT MODES
     j  k              The phantom's pitch a step down or up the scale
     J  K              The phantom's pitch a semitone down or up
     h  l              A shorter or longer value
-    <C-h>  <C-l>      Back or on a beat, across barlines, keeping the phantom. Beats are the
-                      time signature's, or dotted quarters in 6/8, 9/8 and 12/8. A rest across
-                      the beat is split there so a note can go on it; a chord held over the
-                      beat is landed on, or passed if the cursor is already on it. u takes
-                      back the notes entered, not the splits
+    <C-h>  <C-l>      Back or on a chord or rest, across barlines, keeping the phantom
     <S-1> .. <S-6>    Pick a value outright, as in normal mode
     w                 Dot the value, or not
     s                 Make the phantom staccato, or not

@@ -98,9 +98,8 @@ export function sessionKey(session: Session, key: string, input: KeyInput = {}):
             composition: withTrailingEmptyMeasure(result.composition),
             history: grouped ? history : record(history, before),
             insertRecorded: groupsEdits(result.state),
-            // Only what's entered in insert mode, not the deletion a visual `c` starts with or a
-            // rest split to move onto a beat
-            insertSteps: isInsert(editor) && !result.restsOnly ? [...next.insertSteps, before] : next.insertSteps,
+            // Only what's entered in insert mode, not the deletion a visual `c` starts with
+            insertSteps: isInsert(editor) ? [...next.insertSteps, before] : next.insertSteps,
         };
         return { session: edited, effect: result.effect };
     }

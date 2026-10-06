@@ -461,31 +461,19 @@ describe('repeat keys', () => {
     });
 });
 
-describe('moving by beats in insert mode', () => {
-    const blank = startSession(newComposition());
-    const bar = ({ composition }: Session) =>
-        composition.parts[0]!.measures[0]!.voices[0]!.events.map((event) =>
-            event.kind === 'chord' ? event.notes.map(({ pitch }) => midi(pitch)) : `r/${event.kind === 'rest' ? event.duration.base : ''}`,
-        );
+describe('moving by notes and rests in insert mode', () => {
+    const start = startSession(exampleComposition);
 
-    it('enters a note on the next beat of an empty measure with <C-l>', () => {
-        const placed = type(['i', '<S-4>', '<C-l>', '<Space>'], blank);
-        expect(bar(placed)).toEqual(['r/4', [71], 'r/2']);
-        expect(placed.editor.cursor).toMatchObject({ measure: 0, leaf: 1 });
-        // Back with <C-h>, keeping the phantom
-        expect(type(['<C-h>'], placed).editor).toMatchObject({ cursor: { leaf: 0 }, phantom: { pitch: spell(71) } });
+    it('goes to the next or previous chord or rest with <C-l> and <C-h>, across barlines', () => {
+        const on = type(['i', '<S-4>', '<C-l>'], start);
+        expect(on.editor).toMatchObject({ mode: 'insert', cursor: { measure: 0, leaf: 1 }, phantom: { duration: { base: 4 } } });
+        expect(on.composition).toBe(start.composition);
+        expect(type(['<C-l>', '<C-l>'], on).editor.cursor).toMatchObject({ measure: 1, leaf: 0 });
+        expect(type(['<C-h>'], on).editor).toMatchObject({ cursor: { measure: 0, leaf: 0 }, phantom: { duration: { base: 4 } } });
     });
 
     it('takes a count', () => {
-        expect(type(['a', '<S-4>', '3', '<C-l>', '<Space>'], blank).editor.cursor).toMatchObject({ measure: 1, leaf: 0 });
-        expect(bar(type(['a', '<S-4>', '3', '<C-l>', '<Space>'], blank))).toEqual(['r/4', 'r/4', 'r/4', [71]]);
-    });
-
-    it('takes back the note with u, not the rest it split, and undoes the stay together', () => {
-        const undone = type(['i', '<S-4>', '<C-l>', '<Space>', 'u'], blank);
-        expect(bar(undone)).toEqual(['r/4', 'r/4', 'r/2']);
-        expect(undone.editor).toMatchObject({ mode: 'insert', cursor: { leaf: 1 } });
-        expect(type(['u'], undone).composition).toBe(undone.composition);
-        expect(type(['<Esc>', 'u'], undone).composition).toEqual(blank.composition);
+        expect(type(['i', '3', '<C-l>'], start).editor.cursor).toMatchObject({ measure: 1, leaf: 0 });
+        expect(type(['i', '3', '<C-l>', '2', '<C-h>'], start).editor.cursor).toMatchObject({ measure: 0, leaf: 1 });
     });
 });
