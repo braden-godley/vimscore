@@ -36,7 +36,9 @@ export async function encodeVideo(
     const frames = Math.ceil(seconds * FPS);
     for (let frame = 0; frame < frames; frame++) {
         const time = frame / FPS;
-        draw(context, time);
+        // A frame stays up for its whole span, so it shows the middle of it: drawn at its start,
+        // everything would land up to a frame late
+        draw(context, time + 0.5 / FPS);
         await video.add(time, 1 / FPS);
         if (frame % FPS === 0) {
             onProgress(0.95 * (frame / frames));
