@@ -48,7 +48,11 @@ EDITING IN NORMAL MODE
     J  K              Move the cursor's note down or up a semitone
     <S-1> .. <S-6>    Give the cursor's chord or rest a value: <S-1> a 32nd, <S-2> a 16th,
                       <S-3> an eighth, <S-4> a quarter, <S-5> a half, <S-6> a whole
+    gw                Dot the cursor's chord or rest, or take the dot off. A dot that
+                      doesn't fit before the end of the measure or tuplet is refused
     gs                Make the cursor's chord staccato, or full length again
+    gt                Tie the cursor's note to the same note in the next chord, or untie it.
+                      Nothing is joined if the next chord doesn't have it
     ga                Roll the cursor's chord as an arpeggio, or play it straight again
     gl                Slide the cursor's note on to the next chord (a glissando), or stop it
     <  >              A crescendo or diminuendo over the cursor's chord, and count - 1 after it
@@ -95,8 +99,8 @@ VISUAL MODES
     d  y              Delete or copy the selection
     c                 Delete the selection and start inserting where it began (one part only)
     J  K              Move every selected note down or up a semitone
-    gs  ga  gl        Staccato, arpeggio or glissando on every selected chord, or off if they
-                      all have it already
+    gs  ga  gl  gt    Staccato, arpeggio, glissando or a tie on every selected chord, or off if
+                      they all have it already
     <  >              A crescendo or diminuendo over the selection
     <Esc>             Back to normal mode
 

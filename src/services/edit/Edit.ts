@@ -138,6 +138,30 @@ export function toggleStaccatos(composition: Composition, refs: LeafRef[]): Comp
     }));
 }
 
+/**
+ * Ties the notes among `refs` to the same pitch in the next chord, or if every one already is,
+ * unties them. A ref with a `note` is just that note; one without, every note of its chord.
+ * Rests are skipped. Undefined when there's no note to change.
+ */
+export function toggleTies(composition: Composition, refs: (LeafRef & { note?: number })[]): Composition | undefined {
+    const picks = (ref: LeafRef & { note?: number }, index: number) => ref.note === undefined || ref.note === index;
+    const notes = refs.flatMap((ref) => {
+        const event = voiceLeaves(composition, ref.part, ref.measure, ref.voice)[ref.leaf]?.event;
+        return event?.kind === 'chord' ? event.notes.filter((_, i) => picks(ref, i)) : [];
+    });
+    if (notes.length === 0) return undefined;
+    const tie = !notes.every((note) => note.tie);
+
+    return mapChords(composition, refs, (event, ref) => ({
+        ...event,
+        notes: event.notes.map((note, i) => {
+            if (!picks(ref, i)) return note;
+            const { tie: _, ...untied } = note;
+            return tie ? { ...untied, tie } : untied;
+        }),
+    }));
+}
+
 /** Swaps in new events for the cursor's voice in its measure, sharing everything else */
 export function withVoiceEvents(composition: Composition, { part, measure, voice }: Cursor, events: Event[]): Composition {
     const replace = <T>(list: T[], index: number, fn: (item: T) => T) => list.map((item, i) => (i === index ? fn(item) : item));

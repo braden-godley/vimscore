@@ -14,6 +14,7 @@ import {
     toggleArpeggios,
     toggleGlissandi,
     toggleStaccatos,
+    toggleTies,
     transposeNote,
     transposeSelection,
 } from '../edit/Edit';
@@ -200,11 +201,12 @@ function enterInsert(mode: InsertKind): Action {
     return (state, composition) => ({ state: { ...state, mode, phantom: phantomAt(composition, state.cursor) } });
 }
 
-/** Gives the cursor's chord or rest a new value, and plays the chord */
-function changeDuration(base: Duration['base']): Action {
+/** Gives the cursor's chord or rest a new value, made from its old one, and plays the chord */
+function changeDuration(change: (duration: Duration) => Duration): Action {
     return (state, composition) => {
         const { cursor } = state;
-        const edited = setLeafDuration(composition, cursor, { base, dots: 0 });
+        const duration = voiceLeaves(composition, cursor.part, cursor.measure, cursor.voice)[cursor.leaf]?.event.duration;
+        const edited = duration && setLeafDuration(composition, cursor, change(duration));
         if (!edited) return { state };
         const event = voiceLeaves(edited, cursor.part, cursor.measure, cursor.voice)[cursor.leaf]?.event;
         const pitches = event?.kind === 'chord' ? event.notes.map(({ pitch }) => midi(pitch)) : undefined;
@@ -257,6 +259,19 @@ const toggleSelectedStaccatos: Action = (state, composition) => {
     return edited ? { state, composition: edited } : { state };
 };
 
+/** `gt`: ties the cursor's note on to the same pitch in the next chord, or unties it */
+const toggleCursorTie: Action = (state, composition) => {
+    const edited = toggleTies(composition, [state.cursor]);
+    return edited ? { state, composition: edited } : { state };
+};
+
+/** `gt` in visual mode: ties every selected chord on to the next, or unties them if they all are already */
+const toggleSelectedTies: Action = (state, composition) => {
+    const selection = editorSelection(composition, state);
+    const edited = selection && toggleTies(composition, selectedLeaves(composition, selection));
+    return edited ? { state, composition: edited } : { state };
+};
+
 /**
  * Puts a hairpin over a selection, in each of its parts, or takes it off if it's already there.
  * Measures are covered from the start of the first to the end of the last.
@@ -305,6 +320,9 @@ const NORMAL_ACTIONS: Record<string, Action> = {
     ga: toggleCursorArpeggio,
     gl: toggleCursorGlissando,
     gs: toggleCursorStaccato,
+    gt: toggleCursorTie,
+    // Dots the cursor's chord or rest, or takes the dot off, like `w` in the insert modes
+    gw: changeDuration(({ base, dots }) => ({ base, dots: dots ? 0 : 1 })),
     '<': hairpinFromCursor('crescendo'),
     '>': hairpinFromCursor('diminuendo'),
     U: (state, _, count = 1) => ({ state, history: { direction: 'redo', count } }),
@@ -388,6 +406,7 @@ const VISUAL_ACTIONS: Record<string, Action> = {
     ga: toggleSelectedArpeggios,
     gl: toggleSelectedGlissandi,
     gs: toggleSelectedStaccatos,
+    gt: toggleSelectedTies,
     '<': hairpinOverSelected('crescendo'),
     '>': hairpinOverSelected('diminuendo'),
 };
@@ -515,7 +534,7 @@ const PHANTOM_KEYS: Record<string, PhantomKey> = {
 const NUMBERED_VALUES: Duration['base'][] = [32, 16, 8, 4, 2, 1];
 NUMBERED_VALUES.forEach((base, i) => {
     PHANTOM_KEYS[`<S-${i + 1}>`] = (phantom) => setDuration(phantom, base);
-    NORMAL_ACTIONS[`<S-${i + 1}>`] = changeDuration(base);
+    NORMAL_ACTIONS[`<S-${i + 1}>`] = changeDuration(() => ({ base, dots: 0 }));
 });
 
 /**

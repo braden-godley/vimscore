@@ -317,6 +317,53 @@ describe('gs', () => {
     });
 });
 
+describe('gw', () => {
+    const value = (result: KeyResult) => (result.composition?.parts[0]!.measures[0]!.voices[0]!.events[0] as Chord | undefined)?.duration;
+
+    it("dots the cursor's chord, writing over what follows, plays it, and takes the dot off again", () => {
+        const dotted = type(['g', 'w']);
+        expect(value(dotted)).toEqual({ base: 4, dots: 1 });
+        expect(dotted.effect).toMatchObject({ kind: 'preview', pitches: [60, 64, 67] });
+
+        const pending = handleKey(dotted.composition!, dotted.state, 'g');
+        expect(value(handleKey(dotted.composition!, pending.state, 'w'))).toEqual({ base: 4, dots: 0 });
+    });
+
+    it('dots a rest too', () => {
+        // Halving the first chord leaves an eighth rest after it
+        const halved = type(['<S-3>']);
+        const keys = ['l', 'g', 'w'].reduce((result, key) => handleKey(halved.composition!, result.state, key), halved);
+        expect(keys.composition?.parts[0]!.measures[0]!.voices[0]!.events[1]).toEqual({ kind: 'rest', duration: { base: 8, dots: 1 } });
+    });
+
+    it("refuses a dot that doesn't fit in the measure", () => {
+        expect(type(['l', 'l', 'g', 'w']).composition).toBeUndefined();
+    });
+});
+
+describe('gt', () => {
+    const notes = (result: KeyResult, leaf = 0) =>
+        (result.composition?.parts[0]!.measures[0]!.voices[0]!.events[leaf] as Chord | undefined)?.notes;
+
+    it("ties just the cursor's note, and unties it", () => {
+        // The cursor starts on the chord's top note, the G
+        const tied = type(['g', 't']);
+        expect(notes(tied)?.map((note) => !!note.tie)).toEqual([false, false, true]);
+
+        const pending = handleKey(tied.composition!, tied.state, 'g');
+        expect(notes(handleKey(tied.composition!, pending.state, 't'))?.some((note) => 'tie' in note)).toBe(false);
+    });
+
+    it('does nothing on a rest', () => {
+        expect(type(['G', 'l', 'l', 'l', 'g', 't']).composition).toBeUndefined();
+    });
+
+    it('ties every selected chord in visual mode', () => {
+        const tied = type(['<C-v>', 'l', 'g', 't']);
+        expect([0, 1].map((leaf) => notes(tied, leaf)?.every((note) => note.tie))).toEqual([true, true]);
+    });
+});
+
 describe('placing notes', () => {
     it('plays the chord the note joined', () => {
         expect(type(['i', 'k', '<Space>']).effect).toMatchObject({ kind: 'preview', pitches: [60, 64, 67, 69] });
