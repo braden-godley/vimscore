@@ -163,6 +163,10 @@ FILES
     Cmd-Shift-S       Save as, asking where
     Cmd-O             Open, asking which file
 
+    Double-clicking a .vimscore file in Finder opens it in vimscore, as :e would, starting
+    vimscore if it isn't running, and Finder shows them with vimscore's own file icon.
+    MuseScore files can be opened the same way with Open With.
+
     Opening, closing and starting a new score are refused while there are unsaved changes;
     add ! to go ahead anyway.
 

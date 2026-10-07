@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld('files', {
   readBinary: (path: string) => ipcRenderer.invoke('files:readBinary', path),
   writeBinary: (path: string, data: Uint8Array) => ipcRenderer.invoke('files:writeBinary', path, data),
   chooseSoundfontPath: () => ipcRenderer.invoke('files:chooseSoundfont'),
+  takeOpened: () => ipcRenderer.invoke('files:takeOpened'),
+  onOpened: (listener: () => void) => ipcRenderer.on('files:opened', () => listener()),
 });
 
 contextBridge.exposeInMainWorld('settings', {

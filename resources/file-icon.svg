@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- A .vimscore file: a page with its corner folded over, the app's emblem (see icon.svg) on a
+       staff, and the extension beneath, the way macOS draws document icons. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2f343c"/>
+      <stop offset="1" stop-color="#16191d"/>
+    </linearGradient>
+    <linearGradient id="diamond" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1fb34d"/>
+      <stop offset="1" stop-color="#017a2a"/>
+    </linearGradient>
+    <linearGradient id="letter" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d4d8dd"/>
+    </linearGradient>
+    <linearGradient id="clef" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d4d8dd"/>
+    </linearGradient>
+    <linearGradient id="page" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#eef0f2"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <!-- the page, and its folded corner -->
+  <path d="M212 96 H672 L832 256 V908 Q832 928 812 928 H212 Q192 928 192 908 V116 Q192 96 212 96 Z"
+        fill="url(#page)" stroke="#c5cad0" stroke-width="6" stroke-linejoin="round" filter="url(#shadow)"/>
+  <path d="M672 96 V226 Q672 256 702 256 H832 Z" fill="#dde1e5" stroke="#c5cad0" stroke-width="6" stroke-linejoin="round"/>
+
+  <!-- a staff behind the emblem -->
+  <g stroke="#d9dde2" stroke-width="10" stroke-linecap="round">
+    <line x1="256" x2="768" y1="365" y2="365"/>
+    <line x1="256" x2="768" y1="420" y2="420"/>
+    <line x1="256" x2="768" y1="475" y2="475"/>
+    <line x1="256" x2="768" y1="530" y2="530"/>
+    <line x1="256" x2="768" y1="585" y2="585"/>
+  </g>
+
+  <!-- the app's emblem, smaller -->
+  <g transform="translate(500 485) scale(0.5) translate(-470 -540)">
+  <g transform="translate(420 520) scale(0.88) translate(-430 -520)">
+  <!-- the diamond -->
+  <polygon points="430,180 770,520 430,860 90,520" fill="url(#diamond)"
+           stroke="#0b3d1c" stroke-width="22" stroke-linejoin="round"/>
+
+  <!-- the V, with vim's slab serifs -->
+  <polygon transform="skewX(-10) translate(85 0)"
+           points="160,300 405,300 405,355 345,355 458,668 572,355 515,355 515,300 700,300 700,355 655,355 488,780 420,780 228,355 160,355"
+           fill="url(#letter)" stroke="#0b3d1c" stroke-width="18" stroke-linejoin="round"/>
+
+  </g>
+  <path transform="translate(632 600) scale(0.37 -0.37)" d="M376 415Q375 424 376 427Q378 430 382 434Q465 510 518 605Q570 700 572 815Q572 881 555 942Q538 1002 507 1048Q495 1066 480 1081Q464 1097 455 1098Q444 1097 425 1082Q406 1067 390 1050Q335 987 313 903Q291 819 292 739Q292 695 296 651Q301 607 306 575Q308 567 307 562Q306 558 297 551Q184 463 95 350Q5 237 0 87Q0 -48 90 -148Q180 -247 364 -252Q382 -252 400 -250Q418 -249 433 -246Q441 -244 444 -245Q447 -246 448 -255Q458 -307 466 -363Q474 -419 475 -456Q471 -563 418 -594Q365 -625 316 -622Q276 -621 256 -612Q236 -603 236 -593Q236 -588 243 -584Q251 -581 268 -576Q293 -570 313 -547Q334 -525 335 -482Q335 -440 310 -410Q285 -381 239 -380Q188 -381 160 -414Q132 -447 132 -495Q130 -548 170 -601Q211 -654 322 -658Q378 -661 446 -622Q513 -582 519 -458Q518 -413 509 -353Q499 -293 490 -244Q488 -236 491 -233Q493 -231 503 -227Q580 -196 625 -135Q670 -74 671 11Q670 110 606 180Q542 249 430 252Q411 251 407 254Q402 257 401 270ZM470 943Q495 943 512 923Q529 902 530 861Q527 778 473 710Q419 643 356 591Q351 586 348 588Q344 589 343 599Q340 619 339 643Q337 667 337 691Q340 809 381 876Q422 942 470 943ZM361 262Q364 249 361 245Q359 242 346 238Q279 214 241 162Q202 109 201 44Q202 -24 233 -70Q264 -115 316 -133Q322 -135 330 -137Q337 -139 343 -139Q349 -139 352 -136Q355 -133 355 -128Q355 -123 350 -120Q346 -117 340 -115Q308 -101 288 -72Q269 -43 268 -8Q269 35 295 66Q322 96 368 109Q380 112 383 111Q387 109 388 101L438 -197Q440 -205 437 -207Q435 -209 424 -211Q412 -213 398 -215Q383 -216 368 -216Q235 -214 158 -150Q82 -86 80 20Q78 64 95 123Q113 181 173 252Q218 301 254 334Q291 366 326 394Q333 400 336 399Q339 398 340 390ZM430 103Q428 112 430 115Q432 118 441 117Q503 110 545 66Q587 21 589 -46Q588 -94 563 -130Q538 -167 495 -188Q486 -193 483 -192Q480 -191 479 -182Z"
+        fill="url(#clef)" stroke="#16191d" stroke-width="50" stroke-linejoin="round" paint-order="stroke"/>
+  </g>
+
+  <text x="512" y="830" text-anchor="middle" font-family="-apple-system, Helvetica Neue, sans-serif"
+        font-size="84" font-weight="700" letter-spacing="6" fill="#7b828b">VIMSCORE</text>
+</svg>

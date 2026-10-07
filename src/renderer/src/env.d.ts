@@ -28,6 +28,10 @@ declare global {
       readBinary(path: string): Promise<ArrayBuffer>;
       writeBinary(path: string, data: Uint8Array): Promise<void>;
       chooseSoundfontPath(): Promise<string | undefined>;
+      /** The score Finder last asked to open, if the window hasn't taken it yet */
+      takeOpened(): Promise<string | undefined>;
+      /** Called when Finder asks to open a score while the window is open */
+      onOpened(listener: () => void): void;
     };
     settings: {
       get(): Promise<Settings>;

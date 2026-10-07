@@ -11,7 +11,10 @@
     "start": "electron-vite preview",
     "typecheck": "tsc",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "icon": "electron scripts/render-icon.mjs",
+    "dist": "electron-vite build && electron-builder --mac dir",
+    "postdist": "node scripts/unregister-dist.mjs"
   },
   "author": "Braden Godley <braden@bgodley.com>",
   "license": "UNLICENSED",
@@ -19,6 +22,7 @@
   "devDependencies": {
     "@types/node": "^22.20.4",
     "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "typescript": "^7.0.2",
     "vite": "^7.3.6",
@@ -32,5 +36,59 @@
     "spessasynth_core": "^4.3.22",
     "spessasynth_lib": "^4.3.14",
     "vexflow": "5.0.0"
+  },
+  "build": {
+    "appId": "com.braden.vimscore",
+    "productName": "vimscore",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**",
+      "resources/icon.png"
+    ],
+    "mac": {
+      "target": "dir",
+      "icon": "resources/icon.png",
+      "category": "public.app-category.music",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "extendInfo": {
+        "UTExportedTypeDeclarations": [
+          {
+            "UTTypeIdentifier": "com.braden.vimscore.score",
+            "UTTypeDescription": "vimscore score",
+            "UTTypeConformsTo": [
+              "public.data",
+              "public.content"
+            ],
+            "UTTypeIconFile": "file-icon.icns",
+            "UTTypeTagSpecification": {
+              "public.filename-extension": [
+                "vimscore"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "fileAssociations": [
+      {
+        "ext": "vimscore",
+        "name": "vimscore score",
+        "role": "Editor",
+        "rank": "Owner",
+        "icon": "resources/file-icon.icns"
+      },
+      {
+        "ext": [
+          "mscz",
+          "mscx"
+        ],
+        "name": "MuseScore score",
+        "role": "Viewer",
+        "rank": "Alternate"
+      }
+    ]
   }
 }

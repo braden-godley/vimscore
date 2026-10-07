@@ -12,6 +12,16 @@ const OPEN_FILTERS = [
 ];
 const SOUNDFONT_FILTERS = [{ name: 'Soundfonts', extensions: ['sf2', 'sf3', 'dls'] }];
 
+/** The app icon, rendered from resources/icon.svg by `npm run icon` */
+const ICON_PATH = join(__dirname, '../../resources/icon.png');
+
+/**
+ * Scores Finder asked to open (a double-click, or Open With), waiting for the window to take
+ * them. It can ask before the app is ready, and there's one score open at a time, so the
+ * window takes the last; see files:takeOpened.
+ */
+const openedPaths: string[] = [];
+
 /** App settings, kept between runs: so far the soundfont new scores start with */
 const settingsPath = () => join(app.getPath('userData'), 'settings.json');
 
@@ -85,6 +95,7 @@ function handleFiles(): void {
     ipcMain.handle('settings:set', (_event, settings: unknown) =>
         writeFile(settingsPath(), JSON.stringify(settings, null, 2), 'utf8'),
     );
+    ipcMain.handle('files:takeOpened', () => openedPaths.splice(0).pop());
     ipcMain.on('window:close', (event) => BrowserWindow.fromWebContents(event.sender)?.destroy());
 }
 
@@ -92,6 +103,8 @@ function createWindow(): void {
     const win = new BrowserWindow({
         width: 1200,
         height: 800,
+        // Windows and Linux take the icon per window; macOS takes it on the dock, below
+        icon: ICON_PATH,
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
             contextIsolation: true,
@@ -111,7 +124,27 @@ function createWindow(): void {
     }
 }
 
+/** Hands a score from Finder to the window, starting one if there isn't one */
+function openFromFinder(path: string): void {
+    openedPaths.push(path);
+    // The first window takes it when it starts
+    if (!app.isReady()) return;
+    const win = BrowserWindow.getAllWindows()[0];
+    if (!win) return createWindow();
+    if (win.isMinimized()) win.restore();
+    win.focus();
+    win.webContents.send('files:opened');
+}
+
+// macOS: registered before the app is ready, since opening vimscore with a file sends it early
+app.on('open-file', (event, path) => {
+    event.preventDefault();
+    openFromFinder(path);
+});
+
 app.whenReady().then(() => {
+    // Unpackaged, the dock would show Electron's icon
+    app.dock?.setIcon(ICON_PATH);
     handleFiles();
     createWindow();
 

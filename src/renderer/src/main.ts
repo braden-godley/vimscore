@@ -601,6 +601,16 @@ async function run(command: Command) {
     if (after.session !== before.session) await loadScoreSoundfonts();
 }
 
+/**
+ * Opens the score Finder asked for, like `:e`, so it's refused over unsaved changes. Playing
+ * stops first, since playback only follows the score it started with.
+ */
+async function openFromFinder(path: string | undefined) {
+    if (!path) return;
+    if (player.playing) player.stop();
+    await run({ name: 'edit', path, force: false });
+}
+
 /** The usual Mac shortcuts, beside `:w` and `:e` */
 const SHORTCUTS: Record<string, () => Promise<Command | undefined>> = {
     s: async () => ({ name: 'write', force: false }),
@@ -686,8 +696,10 @@ if (defaultSoundfonts.length) {
     player.setComposition(current.session.composition);
 }
 
-// Starting up offers the scores from before, like `:recent`; <Esc> keeps the new score
-if (recentChoices().length) {
+// Starting up offers the scores from before, like `:recent`; <Esc> keeps the new score. Not when
+// vimscore was started by opening a score in Finder
+const openedAtStart = await window.files.takeOpened();
+if (!openedAtStart && recentChoices().length) {
     const picker: Picker = { purpose: 'recent', query: '', selected: 0 };
     const editor: EditorState = { ...current.session.editor, mode: 'picker', picker };
     current = { ...current, session: { ...current.session, editor } };
@@ -698,3 +710,8 @@ await document.fonts.load('30px Bravura');
 view.render(current.session.composition);
 showEditing();
 await loadScoreSoundfonts();
+
+await openFromFinder(openedAtStart);
+// Taken again after listening, in case one came in between
+window.files.onOpened(async () => openFromFinder(await window.files.takeOpened()));
+await openFromFinder(await window.files.takeOpened());
