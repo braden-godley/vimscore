@@ -51,7 +51,7 @@ PLAYING
                       stops, leaving the mixer open
 
 EDITING IN NORMAL MODE
-    u  U              Undo or redo
+    u  <C-r>          Undo or redo
     J  K              Move the cursor's note down or up a semitone
     <S-1> .. <S-6>    Give the cursor's chord or rest a value: <S-1> a 32nd, <S-2> a 16th,
                       <S-3> an eighth, <S-4> a quarter, <S-5> a half, <S-6> a whole
@@ -206,7 +206,7 @@ PARTS
     J  K            Move the part down or up the score
     o  O            Pick an instrument for a new part below or above, then back to the list
     d  x            Delete the part; the last one stays
-    u  U            Undo or redo, one change at a time
+    u  <C-r>        Undo or redo, one change at a time
     q  <Esc>  <CR>  Close
 
 THE SCORE

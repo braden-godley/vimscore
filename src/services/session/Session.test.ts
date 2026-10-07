@@ -24,7 +24,7 @@ describe('undo and redo', () => {
     });
 
     it('redoes with U, back to the cursor after the edit', () => {
-        const redone = type(['d', 'd', 'u', 'U']);
+        const redone = type(['d', 'd', 'u', '<C-r>']);
         expect(firstChord(redone)).toEqual([60, 64]);
         expect(redone.editor.cursor.note).toBe(1);
     });
@@ -33,16 +33,16 @@ describe('undo and redo', () => {
         const edits = ['d', 'd', 'd', 'd', 'd', 'd'];
         expect(firstChord(type([...edits, 'u']))).toEqual([60]);
         expect(firstChord(type([...edits, '2', 'u']))).toEqual([60, 64]);
-        expect(firstChord(type([...edits, '9', 'u', '2', 'U']))).toEqual([60]);
+        expect(firstChord(type([...edits, '9', 'u', '2', '<C-r>']))).toEqual([60]);
     });
 
     it('does nothing with nothing to undo or redo', () => {
         expect(type(['u']).composition).toEqual(start.composition);
-        expect(firstChord(type(['d', 'd', 'U']))).toEqual([60, 64]);
+        expect(firstChord(type(['d', 'd', '<C-r>']))).toEqual([60, 64]);
     });
 
     it('forgets what was undone once something new is edited', () => {
-        expect(firstChord(type(['d', 'd', 'u', 'l', 'd', 'd', 'h', 'U']))).toEqual([60, 64, 67]);
+        expect(firstChord(type(['d', 'd', 'u', 'l', 'd', 'd', 'h', '<C-r>']))).toEqual([60, 64, 67]);
     });
 
     it('undoes everything entered in one stay in insert mode at once', () => {

@@ -368,7 +368,7 @@ const NORMAL_ACTIONS: Record<string, Action> = {
     gw: changeDuration(({ base, dots }) => ({ base, dots: dots ? 0 : 1 })),
     '<': hairpinFromCursor('crescendo'),
     '>': hairpinFromCursor('diminuendo'),
-    U: (state, _, count = 1) => ({ state, history: { direction: 'redo', count } }),
+    '<C-r>': (state, _, count = 1) => ({ state, history: { direction: 'redo', count } }),
     // Just the note under the cursor. A lone `d` or `y` waits for a motion
     dd: (state, composition) => {
         const deleted = deleteNote(composition, state.cursor);

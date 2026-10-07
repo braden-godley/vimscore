@@ -2,7 +2,7 @@
  * The parts list, open over the score: a row for each part, top to bottom. The selected row is
  * the cursor's part, so j/k move the cursor from part to part. J/K move the part itself down or
  * up the score, o and O add one below or above it, choosing its instrument with the picker, and
- * d deletes it. u and U undo and redo, each change being its own step.
+ * d deletes it. u and <C-r> undo and redo, each change being its own step.
  */
 
 import { Composition } from '../composition/Composition';
@@ -23,7 +23,7 @@ const CLOSE = new Set(['<Esc>', '<CR>', 'q']);
 export function partsKey(composition: Composition, cursor: Cursor, key: string): PartsOutcome {
     if (CLOSE.has(key)) return { closed: true };
     if (key === 'u') return { history: 'undo' };
-    if (key === 'U' || key === '<C-r>') return { history: 'redo' };
+    if (key === '<C-r>') return { history: 'redo' };
     if (key === 'o') return { add: cursor.part + 1 };
     if (key === 'O') return { add: cursor.part };
 
