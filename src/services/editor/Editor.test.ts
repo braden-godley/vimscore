@@ -156,6 +156,11 @@ describe('keyName', () => {
         expect(press('4', { code: 'Digit4' })).toBe('4');
     });
 
+    it('leaves shifted digits that pick no value as what they type', () => {
+        expect(press('(', { shiftKey: true, code: 'Digit9' })).toBe('(');
+        expect(press(')', { shiftKey: true, code: 'Digit0' })).toBe(')');
+    });
+
     it('ignores modifiers on their own and Cmd shortcuts', () => {
         expect(press('Shift')).toBeUndefined();
         expect(press('r', { metaKey: true })).toBeUndefined();

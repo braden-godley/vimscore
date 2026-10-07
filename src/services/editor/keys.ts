@@ -27,8 +27,9 @@ const NAMED: Record<string, string> = {
  */
 export function keyName({ key, code, ctrlKey, shiftKey, metaKey, altKey }: KeyPress): string | undefined {
     if (metaKey || altKey) return undefined;
-    // Shifted digits print as symbols that differ by layout (`!` or `+`), so go by the key itself
-    const digit = code?.match(/^Digit([0-9])$/)?.[1];
+    // Shifted digits print as symbols that differ by layout (`!` or `+`), so go by the key itself. Only 1-6
+    // pick values; the rest stay what they type, like `(`
+    const digit = code?.match(/^Digit([1-6])$/)?.[1];
     if (shiftKey && !ctrlKey && digit !== undefined) return `<S-${digit}>`;
     if (shiftKey && key === 'Tab') return '<S-Tab>';
     if (shiftKey && !ctrlKey && key === ' ') return '<S-Space>';
