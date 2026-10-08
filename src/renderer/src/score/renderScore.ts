@@ -46,12 +46,12 @@ const NOTE_STRETCH = 1.6;
 const MIN_NOTES_WIDTH = 80;
 /** Gap between the last note and the barline */
 const END_PADDING = 20;
-/** Volume markings sit this far under the bottom stave line, clear of most stems and ledger lines */
-const VOLUME_TEXT_GAP = 32;
-const VOLUME_FONT_SIZE = 12;
-/** A hairpin's wedge opens this far each side of the middle of the volume text */
+/** Dynamics sit this far under the bottom stave line, clear of most stems and ledger lines */
+const DYNAMIC_TEXT_GAP = 32;
+const DYNAMIC_FONT_SIZE = 14;
+/** A hairpin's wedge opens this far each side of the middle of the dynamic text */
 const HAIRPIN_HALF_HEIGHT = 5;
-/** Room between a hairpin and a volume marking at either end of it */
+/** Room between a hairpin and a dynamic at either end of it */
 const HAIRPIN_GAP = 4;
 /** Room between a glissando's line and the noteheads at its ends */
 const GLISSANDO_GAP = 3;
@@ -493,23 +493,26 @@ export function renderScore(target: ScoreTarget, composition: Composition, cache
     drawTies(ctx, composition, columns, offsets);
     drawGlissandi(ctx, composition, columns, offsets);
     drawSlurs(ctx, composition, columns, offsets);
-    drawVolumes(ctx, composition, layout);
+    drawDynamics(ctx, composition, layout);
     drawHairpins(ctx, composition, layout);
     if (svg) ctx.closeGroup();
     return layout;
 }
 
-/** Each volume marking as text under its stave, at its beat: `v=60%` */
-function drawVolumes(ctx: RenderContext, composition: Composition, layout: ScoreLayout) {
+/** Dynamics are set in bold italic, like `mf` in a printed score */
+const setDynamicFont = (ctx: RenderContext) => ctx.setFont('Georgia, serif', DYNAMIC_FONT_SIZE, 'bold', 'italic');
+
+/** Each dynamic marking under its stave, at its beat */
+function drawDynamics(ctx: RenderContext, composition: Composition, layout: ScoreLayout) {
     ctx.save();
-    ctx.setFont('Georgia, serif', VOLUME_FONT_SIZE, 'normal', 'italic');
+    setDynamicFont(ctx);
     composition.parts.forEach((part, p) => {
         const stave = layout.parts[p];
         part.measures.forEach((partMeasure, m) => {
             const anchors = layout.measures[m]?.anchors;
             if (!stave || !anchors?.length) return;
-            for (const { offset, percent } of partMeasure.volumes ?? []) {
-                ctx.fillText(`v=${percent}%`, interpolate(anchors, toNumber(offset)), stave.bottom + VOLUME_TEXT_GAP);
+            for (const { offset, dynamic } of partMeasure.dynamics ?? []) {
+                ctx.fillText(dynamic, interpolate(anchors, toNumber(offset)), stave.bottom + DYNAMIC_TEXT_GAP);
             }
         });
     });
@@ -517,7 +520,7 @@ function drawVolumes(ctx: RenderContext, composition: Composition, layout: Score
 }
 
 /**
- * Each hairpin as a wedge in line with the volume markings, opening toward the loud end. It
+ * Each hairpin as a wedge in line with the dynamics, opening toward the loud end. It
  * starts after a marking at its start and stops short of one at its end.
  */
 function drawHairpins(ctx: RenderContext, composition: Composition, layout: ScoreLayout) {
@@ -532,16 +535,16 @@ function drawHairpins(ctx: RenderContext, composition: Composition, layout: Scor
     };
 
     ctx.save();
-    ctx.setFont('Georgia, serif', VOLUME_FONT_SIZE, 'normal', 'italic');
+    setDynamicFont(ctx);
     ctx.setLineWidth(1);
     composition.parts.forEach((part, p) => {
         const stave = layout.parts[p];
         if (!stave) return;
-        const y = stave.bottom + VOLUME_TEXT_GAP - VOLUME_FONT_SIZE / 3;
+        const y = stave.bottom + DYNAMIC_TEXT_GAP - DYNAMIC_FONT_SIZE / 3;
         const marks = part.measures.flatMap((partMeasure, m) =>
-            (partMeasure.volumes ?? []).map(({ offset, percent }) => ({
+            (partMeasure.dynamics ?? []).map(({ offset, dynamic }) => ({
                 time: starts[m]! + toNumber(offset),
-                width: ctx.measureText(`v=${percent}%`).width,
+                width: ctx.measureText(dynamic).width,
             })),
         );
         part.measures.forEach((partMeasure, m) => {

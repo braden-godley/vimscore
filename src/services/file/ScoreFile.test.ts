@@ -138,8 +138,8 @@ describe('readScore errors', () => {
     it('say what is wrong and where', () => {
         expect(readScore('{')).toMatchObject({ error: expect.stringMatching(/^not valid JSON/) });
         expect(readScore('{"format":"other"}')).toEqual({ error: 'not a vimscore file' });
-        expect(readScore(file({ version: 3 }))).toEqual({
-            error: 'version: this file is version 3; this app reads up to version 2',
+        expect(readScore(file({ version: 4 }))).toEqual({
+            error: 'version: this file is version 4; this app reads up to version 3',
         });
         expect(readScore(file({ measures: [{ timeSignature: '3/5' }, {}, {}] }))).toEqual({
             error: 'measures[0].timeSignature: "3/5" isn\'t a time signature like 3/4',

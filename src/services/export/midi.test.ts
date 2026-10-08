@@ -2,7 +2,7 @@ import { BasicMIDI } from 'spessasynth_core';
 import { describe, expect, it } from 'vitest';
 import { exampleComposition } from '../composition/example-composition';
 import { toggleRepeat } from '../edit/Repeats';
-import { setVolume } from '../edit/Volume';
+import { setDynamic } from '../edit/Dynamics';
 import { fraction } from '../fraction/Fraction';
 import { TICKS_PER_QUARTER, writeMidi } from './midi';
 
@@ -34,12 +34,12 @@ describe('writeMidi', () => {
     it('places notes in ticks, through tuplets and time signature changes', () => {
         const melody = noteOns(midi, 1);
         expect(melody.slice(0, 3)).toEqual([
-            [0, 0, 60, 102],
-            [0, 0, 64, 102],
-            [0, 0, 67, 102],
+            [0, 0, 60, 88],
+            [0, 0, 64, 88],
+            [0, 0, 67, 88],
         ]);
         // The triplet starts measure 2, four quarters in; its second note a third of a beat later
-        expect(melody[9]).toEqual([4 * QUARTER, 0, 76, 102]);
+        expect(melody[9]).toEqual([4 * QUARTER, 0, 76, 88]);
         expect(melody[10]?.[0]).toBe(4 * QUARTER + QUARTER / 3);
         // The bass on its own channel
         expect(noteOns(midi, 2).map(([ticks, channel, pitch]) => [ticks, channel, pitch])).toEqual([
@@ -71,14 +71,14 @@ describe('writeMidi', () => {
         expect(midi.duration).toBeLessThan(5.6);
     });
 
-    it('writes repeats out, and volume as velocity', () => {
-        const repeated = read(writeMidi(setVolume(toggleRepeat(exampleComposition, 0, 'end'), 1, 0, fraction(0), 50)));
+    it('writes repeats out, and dynamics as velocity', () => {
+        const repeated = read(writeMidi(setDynamic(toggleRepeat(exampleComposition, 0, 'end'), 1, 0, fraction(0), 'mp')));
         const bass = noteOns(repeated, 2);
         expect(bass.map(([ticks, , pitch, velocity]) => [ticks, pitch, velocity])).toEqual([
-            [0, 48, 64],
-            [4 * QUARTER, 48, 64],
-            [8 * QUARTER, 43, 64],
-            [11 * QUARTER, 48, 64],
+            [0, 48, 69],
+            [4 * QUARTER, 48, 69],
+            [8 * QUARTER, 43, 69],
+            [11 * QUARTER, 48, 69],
         ]);
     });
 

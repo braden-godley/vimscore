@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { TimedNote } from '../timeline/timeline';
 import { lighten, notesBetween, partColor, pitchRange, unwarp, warp } from './musanim';
 
-const note = (pitch: number, start: number, duration: number): TimedNote => ({ part: 0, pitch, start, duration, volume: 1 });
+const note = (pitch: number, start: number, duration: number): TimedNote => ({ part: 0, pitch, start, duration, velocity: 127 });
 
 describe('partColor', () => {
     it('gives every part its own color, even past the palette', () => {

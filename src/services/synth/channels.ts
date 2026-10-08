@@ -16,9 +16,6 @@ export const channelFor = (part: number) =>
 /** MIDI controller 0, which picks the soundfont bank for the next program change */
 export const BANK_SELECT = 0;
 
-/** MIDI velocity for a volume from 0 to 1; 0 means the note isn't played */
-export const velocity = (volume: number) => Math.round(Math.max(0, Math.min(1, volume)) * 127);
-
 /** MIDI controller 7, a channel's volume, which the mixer sets */
 export const CHANNEL_VOLUME = 7;
 

@@ -55,14 +55,13 @@ import { LeafRef, Selection, VisualKind, selectedChordPitches, selectedLeaves, v
 import { setKeySignature, setTempo, setTimeSignature } from '../edit/MeasureChanges';
 import { addPart, deletePart, renamePart, setClef, setInstrument } from '../edit/Parts';
 import { toggleRepeat } from '../edit/Repeats';
-import { setVolume, toggleHairpin } from '../edit/Volume';
+import { stepDynamicAt, toggleHairpin } from '../edit/Dynamics';
 import { GENERAL_MIDI_INSTRUMENTS, Instrument } from '../instrument/Instrument';
 import { Command, EditCommand, isEditCommand, parseCommand } from './CommandLine';
 import { Picker, auditionPitch, filterPaths, listKey, pickerKey } from './Picker';
 import { Mixer, mixerKey } from './MixerMode';
 import { partsKey } from './PartsMode';
 import { HelpView, helpKey, openHelp } from '../help/Help';
-import { setMasterVolume, setPartVolume } from '../edit/Mixer';
 import { midi } from '../pitch/Pitch';
 import { Articulation } from '../note/Note';
 
@@ -336,6 +335,15 @@ function hairpinOver(composition: Composition, selection: Selection, kind: Hairp
     return edited;
 }
 
+/** `vk` makes the cursor's part count dynamics louder from its beat on, and `vj` softer */
+const stepDynamicAtCursor =
+    (direction: 1 | -1): Action =>
+    (state, composition, count = 1) => {
+        const { part, measure } = state.cursor;
+        const offset = cursorOffset(composition, state.cursor);
+        return { state, composition: stepDynamicAt(composition, part, measure, offset, direction * count) };
+    };
+
 /** `<` crescendos and `>` diminuendos over the cursor's chord or rest and count - 1 after it */
 const hairpinFromCursor =
     (kind: HairpinKind): Action =>
@@ -368,6 +376,8 @@ const NORMAL_ACTIONS: Record<string, Action> = {
     gw: changeDuration(({ base, dots }) => ({ base, dots: dots ? 0 : 1 })),
     '<': hairpinFromCursor('crescendo'),
     '>': hairpinFromCursor('diminuendo'),
+    vk: stepDynamicAtCursor(1),
+    vj: stepDynamicAtCursor(-1),
     '<C-r>': (state, _, count = 1) => ({ state, history: { direction: 'redo', count } }),
     // Just the note under the cursor. A lone `d` or `y` waits for a motion
     dd: (state, composition) => {
@@ -751,14 +761,6 @@ function runEditCommand(composition: Composition, state: EditorState, command: E
             if (!beat) return { state };
             return { state, composition: setTempo(composition, measure, { bpm: command.bpm, beat }) };
         }
-        case 'volume': {
-            const offset = cursorOffset(composition, state.cursor);
-            return { state, composition: setVolume(composition, part, measure, offset, command.percent) };
-        }
-        case 'partVolume':
-            return { state, composition: setPartVolume(composition, part, command.percent) };
-        case 'masterVolume':
-            return { state, composition: setMasterVolume(composition, command.percent) };
         case 'mixer':
             return { state: openMixer(state) };
         case 'parts':

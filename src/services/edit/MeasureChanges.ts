@@ -53,7 +53,7 @@ export function setTempo(composition: Composition, measure: number, tempo: Tempo
 }
 
 /**
- * Moves volume markings or hairpins to the measures their moment falls in after re-barring, so
+ * Moves dynamic markings or hairpins to the measures their moment falls in after re-barring, so
  * they stay with the music. A hairpin keeps its length, running on over the new barlines.
  */
 function rebarMarks<T extends { offset: Fraction }>(
@@ -137,11 +137,11 @@ export function setTimeSignature(composition: Composition, measure: number, time
         measures: [...infos.slice(0, measure), ...stretchInfos, ...infos.slice(end)],
         parts: composition.parts.map((part, p) => {
             const stretch = part.measures.slice(measure, end);
-            const volumes = rebarMarks(stretch.map((m) => m.volumes), oldLength, newLength, count);
+            const dynamics = rebarMarks(stretch.map((m) => m.dynamics), oldLength, newLength, count);
             const hairpins = rebarMarks(stretch.map((m) => m.hairpins), oldLength, newLength, count);
             const newMeasures: PartMeasure[] = Array.from({ length: count }, (_, i) => ({
                 voices: flows[p]!.map((cut) => ({ events: cut[i] ?? emptyMeasure() })),
-                ...(volumes[i]!.length > 0 && { volumes: volumes[i] }),
+                ...(dynamics[i]!.length > 0 && { dynamics: dynamics[i] }),
                 ...(hairpins[i]!.length > 0 && { hairpins: hairpins[i] }),
             }));
             return { ...part, measures: [...part.measures.slice(0, measure), ...newMeasures, ...part.measures.slice(end)] };

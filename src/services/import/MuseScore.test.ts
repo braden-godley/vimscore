@@ -198,10 +198,21 @@ describe('readMuseScore', () => {
         expect(voice(score, 0, 0, 1)).toBe('r/4 60/4 r/4');
     });
 
-    it('reads dynamics as volume markings', () => {
-        expect(score.parts[0]!.measures[0]!.volumes).toEqual([{ offset: { num: 0, den: 1 }, percent: 39 }]);
-        expect(score.parts[0]!.measures[1]!.volumes?.[0]?.percent).toBe(76);
+    it('reads dynamics', () => {
+        expect(score.parts[0]!.measures[0]!.dynamics).toEqual([{ offset: { num: 0, den: 1 }, dynamic: 'p' }]);
+        expect(score.parts[0]!.measures[1]!.dynamics?.[0]?.dynamic).toBe('f');
         expect(voice(score, 0, 1)).toBe('r/2.');
+    });
+
+    it('reads dynamics past ppp and ff as those, and others by their velocity', () => {
+        const dynamic = (inside: string) => `<Dynamic>${inside}</Dynamic><Rest><durationType>quarter</durationType></Rest>`;
+        const marked = read(
+            mscx(`<Staff id="1"><Measure><voice>
+                ${dynamic('<subtype>mp</subtype>')}${dynamic('<subtype>fff</subtype>')}
+                ${dynamic('<subtype>pppp</subtype>')}${dynamic('<subtype>sfz</subtype><velocity>112</velocity>')}
+              </voice></Measure></Staff>`, '<Part><Staff id="1"/><Instrument><Channel><program value="0"/></Channel></Instrument></Part>'),
+        );
+        expect(marked.parts[0]!.measures[0]!.dynamics?.map(({ dynamic }) => dynamic)).toEqual(['mp', 'ff', 'ppp', 'f']);
     });
 
     it('reads hairpins and cresc. lines, with how long they last, into later measures', () => {
@@ -230,8 +241,8 @@ describe('readMuseScore', () => {
             { offset: { num: 3, den: 4 }, length: { num: 1, den: 4 }, kind: 'diminuendo' },
         ]);
         // The crescendo swells from p to the f at its end
-        const volumes = timeline(marked).map(({ volume }) => Math.round(volume * 100));
-        expect(volumes.slice(0, 5)).toEqual([39, 39, 51, 64, 76]);
+        const velocities = timeline(marked).map(({ velocity }) => velocity);
+        expect(velocities.slice(0, 5)).toEqual([49, 49, 69, 88, 108]);
     });
 
     it('reads arpeggios, but not the bracket that says to play a chord together', () => {

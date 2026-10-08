@@ -151,14 +151,13 @@ describe('timeline', () => {
         expect(timeline(compose([[marcato, held, short]])).map(({ duration }) => duration)).toEqual([MARCATO_LENGTH, 1, 0.5]);
     });
 
-    it('strikes accents louder, and marcatos louder still, but no louder than full', () => {
+    it('strikes accents harder, and marcatos harder still', () => {
         const plain = chord(quarter, { pitch: spell(60) });
         const accented = chord(quarter, { pitch: spell(62), accent: true });
         const marcato = chord(quarter, { pitch: spell(64), marcato: true });
-        const volumes = timeline(compose([[plain, accented, marcato]])).map(({ volume }) => volume);
-        expect(volumes[0]).toBeCloseTo(0.8);
-        expect(volumes[1]).toBeCloseTo(0.96);
-        expect(volumes[2]).toBe(1);
+        const velocities = timeline(compose([[plain, accented, marcato]])).map(({ velocity }) => velocity);
+        // mf, then 1.2 and 1.35 times as hard
+        expect(velocities).toEqual([88, 106, 119]);
     });
 
     it('follows time signature and tempo changes in the example', () => {

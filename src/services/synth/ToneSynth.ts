@@ -1,5 +1,5 @@
 import { Instrument } from '../instrument/Instrument';
-import { DEFAULT_VOLUME } from '../measure/Measure';
+import { DEFAULT_DYNAMIC, dynamicVelocity } from '../dynamic/Dynamic';
 import { Synth } from './Synth';
 
 /** Short fades on each note so the oscillator doesn't click when it starts and stops */
@@ -33,15 +33,17 @@ export class ToneSynth implements Synth {
     }
 
     audition(_instrument: Instrument, pitch: number, duration: number) {
-        this.tone(pitch, this.ctx.currentTime, duration, DEFAULT_VOLUME / 100);
+        this.tone(pitch, this.ctx.currentTime, duration, 1);
     }
 
-    playNote(part: number, pitch: number, when: number, duration: number, volume: number) {
-        // Squared, as a soundfont's channel volume is
-        this.tone(pitch, when, duration, volume * (this.mix[part] ?? 1) ** 2);
+    playNote(part: number, pitch: number, when: number, duration: number, velocity: number) {
+        // As loud as it's always been at the default dynamic, and the mix squared, as a
+        // soundfont's channel volume is
+        this.tone(pitch, when, duration, (velocity / dynamicVelocity(DEFAULT_DYNAMIC)) * (this.mix[part] ?? 1) ** 2);
     }
 
-    private tone(pitch: number, when: number, duration: number, volume: number) {
+    /** `level` is 1 for a note at the default dynamic */
+    private tone(pitch: number, when: number, duration: number, level: number) {
         const osc = this.ctx.createOscillator();
         osc.type = 'triangle';
         osc.frequency.value = pitchToFrequency(pitch);
@@ -49,8 +51,6 @@ export class ToneSynth implements Synth {
         const envelope = this.ctx.createGain();
         const releaseAt = Math.max(when + ATTACK_SECONDS, when + duration - RELEASE_SECONDS);
         envelope.gain.setValueAtTime(0, when);
-        // As loud as it's always been at the default volume
-        const level = volume / (DEFAULT_VOLUME / 100);
         envelope.gain.linearRampToValueAtTime(level, when + ATTACK_SECONDS);
         envelope.gain.setValueAtTime(level, releaseAt);
         envelope.gain.linearRampToValueAtTime(0, releaseAt + RELEASE_SECONDS);

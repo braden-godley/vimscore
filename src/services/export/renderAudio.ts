@@ -8,7 +8,7 @@ import { Composition } from '../composition/Composition';
 import { partInstrument } from '../instrument/Instrument';
 import { LoadedSoundfont, soundfontFor } from '../soundfont/Soundfont';
 import { partMix } from '../edit/Mixer';
-import { BANK_SELECT, CHANNEL_VOLUME, channelFor, channelVolume, velocity } from '../synth/channels';
+import { BANK_SELECT, CHANNEL_VOLUME, channelFor, channelVolume } from '../synth/channels';
 import { timeline } from '../timeline/timeline';
 
 export const SAMPLE_RATE = 44100;
@@ -92,14 +92,12 @@ export async function renderAudio(
 
     const notes = timeline(composition);
     const events: MidiEvent[] = notes
-        // Velocity 0 would be read as the note ending
-        .filter(({ volume }) => velocity(volume) > 0)
-        .flatMap(({ part, pitch, start, duration, volume }) => {
+        .flatMap(({ part, pitch, start, duration, velocity }) => {
             const layer = layers.findIndex(({ parts }) => parts.has(part));
-            const [channel, noteVelocity] = [channelFor(part), velocity(volume)];
+            const channel = channelFor(part);
             if (layer === -1) return [];
             return [
-                { layer, sample: Math.round(start * SAMPLE_RATE), on: true, channel, pitch, velocity: noteVelocity },
+                { layer, sample: Math.round(start * SAMPLE_RATE), on: true, channel, pitch, velocity },
                 { layer, sample: Math.round((start + duration) * SAMPLE_RATE), on: false, channel, pitch, velocity: 0 },
             ];
         })

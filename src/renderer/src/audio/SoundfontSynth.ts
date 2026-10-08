@@ -8,15 +8,8 @@ import { WorkletSynthesizer } from 'spessasynth_lib';
 import processorUrl from 'spessasynth_lib/dist/spessasynth_processor.min.js?url';
 import { Instrument } from '../../../services/instrument/Instrument';
 import { Synth } from '../../../services/synth/Synth';
-import { DEFAULT_VOLUME } from '../../../services/measure/Measure';
-import {
-    AUDITION_CHANNEL,
-    BANK_SELECT,
-    CHANNEL_VOLUME,
-    channelFor,
-    channelVolume,
-    velocity,
-} from '../../../services/synth/channels';
+import { DEFAULT_DYNAMIC, dynamicVelocity } from '../../../services/dynamic/Dynamic';
+import { AUDITION_CHANNEL, BANK_SELECT, CHANNEL_VOLUME, channelFor, channelVolume } from '../../../services/synth/channels';
 
 /** Our own listeners' id on the synth's events */
 const LISTENER = 'vimscore-soundfont';
@@ -82,18 +75,16 @@ export class SoundfontSynth implements Synth {
         mix.forEach((level, part) => this.synth.controllerChange(channelFor(part), CHANNEL_VOLUME, channelVolume(level)));
     }
 
-    playNote(part: number, pitch: number, when: number, duration: number, volume: number) {
-        // Velocity 0 would be read as the note ending
-        if (velocity(volume) === 0) return;
+    playNote(part: number, pitch: number, when: number, duration: number, velocity: number) {
         const channel = channelFor(part);
-        this.synth.noteOn(channel, pitch, velocity(volume), { time: when });
+        this.synth.noteOn(channel, pitch, velocity, { time: when });
         this.synth.noteOff(channel, pitch, { time: when + duration });
     }
 
     audition(instrument: Instrument, pitch: number, duration: number) {
         this.select(AUDITION_CHANNEL, instrument);
         const now = this.synth.context.currentTime;
-        this.synth.noteOn(AUDITION_CHANNEL, pitch, velocity(DEFAULT_VOLUME / 100), { time: now });
+        this.synth.noteOn(AUDITION_CHANNEL, pitch, dynamicVelocity(DEFAULT_DYNAMIC), { time: now });
         this.synth.noteOff(AUDITION_CHANNEL, pitch, { time: now + duration });
     }
 

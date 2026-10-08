@@ -385,31 +385,30 @@ describe('undo in insert mode', () => {
     });
 });
 
-describe(':volume', () => {
-    it('marks the cursor part from its beat', () => {
-        const marked = type(['l', ':', ...'volume 10', '<CR>']);
-        expect(marked.composition.parts[0]!.measures[0]!.volumes).toEqual([{ offset: { num: 1, den: 4 }, percent: 10 }]);
-        expect(type(['u'], marked).composition).toEqual(startSession(exampleComposition).composition);
+describe('dynamic keys', () => {
+    const dynamics = (session: Session, measure = 0) => session.composition.parts[0]!.measures[measure]!.dynamics;
+
+    it('vk marks the cursor part a dynamic louder from its beat, and vj softer, with a count', () => {
+        const louder = type(['l', 'v', 'k']);
+        expect(dynamics(louder)).toEqual([{ offset: { num: 1, den: 4 }, dynamic: 'f' }]);
+        expect(dynamics(type(['l', '2', 'v', 'j']))).toEqual([{ offset: { num: 1, den: 4 }, dynamic: 'p' }]);
+        expect(dynamics(type(['v', 'k'], louder))).toEqual([{ offset: { num: 1, den: 4 }, dynamic: 'ff' }]);
+        expect(type(['u'], louder).composition).toEqual(startSession(exampleComposition).composition);
     });
 
-    it('takes 0 to 100, with or without %', () => {
-        expect(type([':', ...'vol 55%', '<CR>']).composition.parts[0]!.measures[0]!.volumes?.[0]?.percent).toBe(55);
-        expect(type([':', ...'volume 101', '<CR>']).editor.commandLine?.error).toBe(
-            'Expected a volume from 0 to 100, like :volume 60',
-        );
+    it('takes the marking off when it comes back to the dynamic before it', () => {
+        expect(type(['l', 'v', 'k', 'v', 'j']).composition).toEqual(startSession(exampleComposition).composition);
+    });
+
+    it(':volume, :v and :gv are gone', () => {
+        for (const command of ['volume 60', 'vol 60', 'v 80', 'gv 80']) {
+            expect(type([':', ...command, '<CR>']).editor.commandLine?.error).toBe(`Not a command: ${command}`);
+        }
     });
 });
 
 describe('the mixer', () => {
     const volumes = ({ composition }: Session) => [...composition.parts.map((part) => part.volume), composition.volume];
-
-    it(':v sets the cursor part’s volume and :gv the master’s, undoably', () => {
-        const mixed = type(['<C-j>', ':', ...'v 70', '<CR>', ':', ...'gv 90%', '<CR>']);
-        expect(volumes(mixed)).toEqual([undefined, 70, 90]);
-        expect(volumes(type(['u', 'u'], mixed))).toEqual([undefined, undefined, undefined]);
-        expect(type([':', ...'v 128', '<CR>']).editor.commandLine?.error).toBe('Expected a volume from 0 to 127, like :v 80');
-        expect(type([':', ...'gv 101', '<CR>']).editor.commandLine?.error).toBe('Expected a volume from 0 to 100, like :gv 80');
-    });
 
     it('opens on the cursor part, turning rows up and down, with one undo for the visit', () => {
         const open = type([':', ...'mixer', '<CR>']);

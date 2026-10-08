@@ -1,7 +1,6 @@
 /** Reading what's typed on the `:` command line into a command */
 
 import { Duration } from '../duration/Duration';
-import { MAX_MASTER_VOLUME, MAX_PART_VOLUME } from '../edit/Mixer';
 import { KeySignature } from '../key/KeySignature';
 import { TimeSignature } from '../measure/Measure';
 import { Clef } from '../part/Part';
@@ -43,12 +42,6 @@ export type Command =
     | { name: 'keySignature'; value: KeySignature }
     /** Without a beat, the tempo keeps counting the one it had */
     | { name: 'tempo'; bpm: number; beat?: Duration }
-    /** `:volume 60`: the cursor's part plays at 60% from its beat on */
-    | { name: 'volume'; percent: number }
-    /** `:v 80`: the mixer's volume for the cursor's whole part */
-    | { name: 'partVolume'; percent: number }
-    /** `:gv 80`: the mixer's master volume, over every part */
-    | { name: 'masterVolume'; percent: number }
     /** `:mixer` opens the mixer, to set every part's volume */
     | { name: 'mixer' }
     /** `:recent [filter]` picks a score opened before, to open again */
@@ -76,9 +69,6 @@ const EDIT_COMMANDS = [
     'timeSignature',
     'keySignature',
     'tempo',
-    'volume',
-    'partVolume',
-    'masterVolume',
     'mixer',
     'recent',
     'help',
@@ -125,10 +115,6 @@ const NAMES: Record<string, Command['name']> = {
     time: 'timeSignature',
     key: 'keySignature',
     tempo: 'tempo',
-    volume: 'volume',
-    vol: 'volume',
-    v: 'partVolume',
-    gv: 'masterVolume',
     mixer: 'mixer',
     mix: 'mixer',
     recent: 'recent',
@@ -140,12 +126,6 @@ const NAMES: Record<string, Command['name']> = {
 export const commandName = (typed: string): Command['name'] | undefined => NAMES[typed];
 
 const CLEFS: Clef[] = ['treble', 'bass'];
-
-/** `60` or `60%`; NaN for anything else */
-function parsePercent(text: string): number {
-    const match = /^(\d{1,3})%?$/.exec(text);
-    return match ? Number(match[1]) : NaN;
-}
 
 export function parseCommand(text: string): Command | { error: string } {
     const match = /^\s*([a-z]+)(!?)\s*(.*?)\s*$/.exec(text);
@@ -202,22 +182,6 @@ export function parseCommand(text: string): Command | { error: string } {
                 return { error: 'Expected :export mp3, mp4, musanim or midi [file]' };
             }
             return { name, format: format as ExportFormat, path: rest.join(' ') || undefined, force };
-        }
-        case 'volume': {
-            const percent = parsePercent(args);
-            return percent <= 100 ? { name, percent } : { error: 'Expected a volume from 0 to 100, like :volume 60' };
-        }
-        case 'partVolume': {
-            const percent = parsePercent(args);
-            return percent <= MAX_PART_VOLUME
-                ? { name, percent }
-                : { error: `Expected a volume from 0 to ${MAX_PART_VOLUME}, like :v 80` };
-        }
-        case 'masterVolume': {
-            const percent = parsePercent(args);
-            return percent <= MAX_MASTER_VOLUME
-                ? { name, percent }
-                : { error: `Expected a volume from 0 to ${MAX_MASTER_VOLUME}, like :gv 80` };
         }
         case 'write':
         case 'edit':

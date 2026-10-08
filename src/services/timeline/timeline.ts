@@ -1,7 +1,14 @@
 import { Composition } from '../composition/Composition';
 import { Chord, glissandoTarget, leaves } from '../event/Event';
 import { Fraction, ZERO, add, compare, sub, toNumber } from '../fraction/Fraction';
-import { DEFAULT_VOLUME, HAIRPIN_STEP, HairpinKind, ResolvedMeasure, resolveMeasures, secondsPerWholeNote } from '../measure/Measure';
+import {
+    DEFAULT_DYNAMIC,
+    DYNAMIC_STEP,
+    LOUDEST_VELOCITY,
+    SOFTEST_VELOCITY,
+    dynamicVelocity,
+} from '../dynamic/Dynamic';
+import { HairpinKind, ResolvedMeasure, resolveMeasures, secondsPerWholeNote } from '../measure/Measure';
 import { Note } from '../note/Note';
 import { Part } from '../part/Part';
 import { PerformanceOptions, performance } from './performance';
@@ -14,26 +21,32 @@ export interface TimedNote {
     pitch: number;
     start: number;
     duration: number;
-    /** 0 to 1, from the part's volume markings and hairpins */
-    volume: number;
+    /** MIDI velocity, 1 to 127, from the part's dynamics and hairpins and the note's accent */
+    velocity: number;
 }
 
-/** A volume marking, or a hairpin from `time` to `end` */
-type VolumeChange = { time: Fraction; percent: number } | { time: Fraction; end: Fraction; kind: HairpinKind; percent?: number };
+/** A dynamic marking's velocity, or a hairpin from `time` to `end` */
+type DynamicChange =
+    | { time: Fraction; velocity: number }
+    | { time: Fraction; end: Fraction; kind: HairpinKind; velocity?: number };
 
 /**
- * A part's volume markings and hairpins in order, by time from the start of the composition. A
- * hairpin without a volume of its own aims for a marking right at its end, if there is one.
+ * A part's dynamic markings and hairpins in order, by time from the start of the composition. A
+ * hairpin without a dynamic of its own aims for a marking right at its end, if there is one.
  */
-function volumeChanges(part: Part, measures: ResolvedMeasure[]): VolumeChange[] {
+function dynamicChanges(part: Part, measures: ResolvedMeasure[]): DynamicChange[] {
     const marks = part.measures.flatMap((partMeasure, m) =>
-        (partMeasure.volumes ?? []).map(({ offset, percent }) => ({ time: add(measures[m]!.start, offset), percent })),
+        (partMeasure.dynamics ?? []).map(({ offset, dynamic }) => ({
+            time: add(measures[m]!.start, offset),
+            velocity: dynamicVelocity(dynamic),
+        })),
     );
     const hairpins = part.measures.flatMap((partMeasure, m) =>
-        (partMeasure.hairpins ?? []).map(({ offset, length, kind, percent }) => {
+        (partMeasure.hairpins ?? []).map(({ offset, length, kind, dynamic }) => {
             const time = add(measures[m]!.start, offset);
             const end = add(time, length);
-            return { time, end, kind, percent: percent ?? marks.find((mark) => compare(mark.time, end) === 0)?.percent };
+            const velocity = dynamic ? dynamicVelocity(dynamic) : marks.find((mark) => compare(mark.time, end) === 0)?.velocity;
+            return { time, end, kind, velocity };
         }),
     );
     // A hairpin starting on a marking starts from it
@@ -41,34 +54,35 @@ function volumeChanges(part: Part, measures: ResolvedMeasure[]): VolumeChange[] 
 }
 
 /**
- * The volume in effect at a time: the last marking at or before it, or partway along a hairpin.
- * A hairpin goes from wherever the volume was when it started; a marking inside one cuts it short.
+ * The velocity in effect at a time: the last marking's at or before it, or partway along a
+ * hairpin. A hairpin goes from wherever the dynamic was when it started, and with nothing to aim
+ * for, one dynamic louder or softer; a marking inside one cuts it short.
  */
-function volumeAt(changes: VolumeChange[], time: Fraction): number {
-    let percent = DEFAULT_VOLUME;
+function velocityAt(changes: DynamicChange[], time: Fraction): number {
+    let velocity = dynamicVelocity(DEFAULT_DYNAMIC);
     for (const change of changes) {
         if (compare(change.time, time) > 0) break;
         if (!('end' in change)) {
-            percent = change.percent;
+            velocity = change.velocity;
             continue;
         }
-        const step = change.kind === 'crescendo' ? HAIRPIN_STEP : -HAIRPIN_STEP;
-        const target = change.percent ?? Math.max(0, Math.min(100, percent + step));
+        const step = change.kind === 'crescendo' ? DYNAMIC_STEP : -DYNAMIC_STEP;
+        const target = change.velocity ?? Math.max(SOFTEST_VELOCITY, Math.min(LOUDEST_VELOCITY, velocity + step));
         const length = toNumber(sub(change.end, change.time));
         const progress = length > 0 ? Math.min(1, toNumber(sub(time, change.time)) / length) : 1;
-        percent += (target - percent) * progress;
+        velocity += (target - velocity) * progress;
     }
-    return percent / 100;
+    return velocity;
 }
 
 /** How much louder an accented note is struck, and a marcato one */
 export const ACCENT_BOOST = 1.2;
 export const MARCATO_BOOST = 1.35;
 
-/** A note's volume with its accent or marcato, no louder than full */
-function accented(note: Note, volume: number): number {
+/** A note's velocity with its accent or marcato, no harder than MIDI goes */
+function accented(note: Note, velocity: number): number {
     const boost = note.marcato ? MARCATO_BOOST : note.accent ? ACCENT_BOOST : 1;
-    return Math.min(1, volume * boost);
+    return Math.round(Math.min(LOUDEST_VELOCITY, velocity * boost));
 }
 
 /**
@@ -143,7 +157,7 @@ export function timeline(composition: Composition, options: PerformanceOptions =
     const notes: TimedNote[] = [];
 
     for (const [partIndex, part] of composition.parts.entries()) {
-        const volumes = volumeChanges(part, measures);
+        const dynamics = dynamicChanges(part, measures);
         // Per voice index, notes from the previous chord that are tied into the next one
         const tiedByVoice = new Map<number, Map<number, TimedNote>>();
         // Per voice index, notes from the previous chord that slide into the next one
@@ -200,9 +214,9 @@ export function timeline(composition: Composition, options: PerformanceOptions =
                             const pitch = midi(note.pitch);
                             let timed = tiedIn?.get(pitch);
                             if (!timed) {
-                                const volume = volumeAt(volumes, add(measure.start, offset));
+                                const velocity = accented(note, velocityAt(dynamics, add(measure.start, offset)));
                                 const delay = struck.indexOf(pitch) * step;
-                                timed = { part: partIndex, pitch, start: start + delay, duration: 0, volume: accented(note, volume) };
+                                timed = { part: partIndex, pitch, start: start + delay, duration: 0, velocity };
                                 notes.push(timed);
                                 if (slurred) slurredNotes.add(timed);
                             }

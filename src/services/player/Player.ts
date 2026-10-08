@@ -1,6 +1,6 @@
 import { Composition } from "../composition/Composition";
 import { Instrument, partInstrument } from "../instrument/Instrument";
-import { DEFAULT_VOLUME } from "../measure/Measure";
+import { DEFAULT_DYNAMIC, dynamicVelocity } from "../dynamic/Dynamic";
 import { partMix } from "../edit/Mixer";
 import { Synth } from "../synth/Synth";
 import { PerformanceOptions } from "../timeline/performance";
@@ -106,7 +106,7 @@ export class Player {
             .forEach((pitch, i) => {
                 // Every note still sounds for the whole preview, ending after the last comes in
                 const delay = rolled ? i * ARPEGGIO_STEP : 0;
-                this.synth.playNote(part, pitch, now + delay, PREVIEW_SECONDS, DEFAULT_VOLUME / 100);
+                this.synth.playNote(part, pitch, now + delay, PREVIEW_SECONDS, dynamicVelocity(DEFAULT_DYNAMIC));
             });
     }
 
@@ -134,7 +134,7 @@ export class Player {
             const when = this.startTime + note.start;
             if (when > horizon) break;
 
-            this.synth.playNote(note.part, note.pitch, when, note.duration, note.volume);
+            this.synth.playNote(note.part, note.pitch, when, note.duration, note.velocity);
             this.nextNoteIndex++;
         }
 

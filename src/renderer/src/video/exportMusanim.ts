@@ -153,7 +153,7 @@ export async function exportMusanim(
             const y = yOf(note.pitch);
             const sounding = note.start <= seconds && seconds < note.start + note.duration;
             // Quieter notes are a little dimmer; played ones fade back
-            const loudness = 0.55 + 0.45 * note.volume;
+            const loudness = 0.55 + 0.45 * (note.velocity / 127);
             const brightness = (sounding ? 1 : note.start > seconds ? 0.75 : 0.3) * loudness;
 
             // The tail, tapering from the star to where the note ends

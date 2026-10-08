@@ -1,4 +1,5 @@
 import { Duration, durationValue } from '../duration/Duration';
+import { Dynamic } from '../dynamic/Dynamic';
 import { Event } from '../event/Event';
 import { Fraction, ZERO, add, fraction, toNumber } from '../fraction/Fraction';
 import { C_MAJOR, KeySignature } from '../key/KeySignature';
@@ -35,21 +36,20 @@ export interface Voice {
 }
 
 /**
- * A volume marking, like a dynamic: the part plays at this volume from here until the next
- * one. Kept by time rather than on a note, so editing the notes doesn't move or lose it.
+ * A dynamic marking, like mf: the part plays at this dynamic from here until the next one. Kept
+ * by time rather than on a note, so editing the notes doesn't move or lose it.
  */
-export interface VolumeMark {
+export interface DynamicMark {
     /** Whole notes from the start of the measure */
     offset: Fraction;
-    /** 0 to 100 */
-    percent: number;
+    dynamic: Dynamic;
 }
 
 export type HairpinKind = 'crescendo' | 'diminuendo';
 
 /**
- * A crescendo or diminuendo: the volume moves gradually from where it is at the start to where
- * it ends. Kept by time, like volume markings, and can run on into later measures.
+ * A crescendo or diminuendo: the dynamic moves gradually from where it is at the start to where
+ * it ends. Kept by time, like dynamic markings, and can run on into later measures.
  */
 export interface Hairpin {
     /** Whole notes from the start of the measure */
@@ -58,26 +58,20 @@ export interface Hairpin {
     length: Fraction;
     kind: HairpinKind;
     /**
-     * The volume it reaches, 0 to 100. Without one it reaches the volume marking at its end, or
-     * failing that goes HAIRPIN_STEP louder or softer
+     * The dynamic it reaches. Without one it reaches the dynamic marked at its end, or failing
+     * that goes one dynamic louder or softer
      */
-    percent?: number;
+    dynamic?: Dynamic;
 }
-
-/** How far a hairpin with nothing to aim for changes the volume, in percent */
-export const HAIRPIN_STEP = 20;
 
 /** One part's contents for one measure */
 export interface PartMeasure {
     voices: Voice[];
     /** In time order, at most one at an offset */
-    volumes?: VolumeMark[];
+    dynamics?: DynamicMark[];
     /** Hairpins starting in this measure, in time order, at most one at an offset */
     hairpins?: Hairpin[];
 }
-
-/** How loud a part plays before its first volume marking, about as loud as mezzo-forte */
-export const DEFAULT_VOLUME = 80;
 
 /** Used when the first measure doesn't set its own */
 export const DEFAULT_TIME_SIGNATURE: TimeSignature = { beats: 4, beatValue: 4 };

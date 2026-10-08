@@ -46,7 +46,7 @@ PLAYING
     h  l              Carry on from the start of the measure before or after, going through
                       repeats as they're played. Past the last note, l does nothing
     m                 Open the mixer on the cursor's part, to change the mix as it plays.
-                      Its keys work as in the mixer (see VOLUME), so h and l turn the volume
+                      Its keys work as in the mixer (see MIXER), so h and l turn the volume
                       instead of jumping; <Esc> closes it and playing carries on. <Space>
                       stops, leaving the mixer open
 
@@ -77,6 +77,8 @@ EDITING IN NORMAL MODE
     (                 Slur the cursor's chord on to the next, or with a count that many chords
                       on, across barlines; again over the same chords takes the slur off.
                       Notes under a slur with no other marking are held their full length
+    vk  vj            The cursor's part a dynamic louder or softer from its beat on, or with a
+                      count that many; back to the dynamic before takes it off (see DYNAMICS)
     <  >              A crescendo or diminuendo over the cursor's chord, and count - 1 after it
     rs  re            Put a repeat start or end barline at the cursor's measure, or take it away
     dd                Delete the cursor's note, keeping it to put back
@@ -87,7 +89,7 @@ EDITING IN NORMAL MODE
     y{motion}         Copy, with the same motions as d
     p  P              Put what was deleted or copied after the cursor's chord, or at it
     z                 Show every staff at once, or back to the normal size
-    m                 Open the mixer on the cursor's part (see VOLUME)
+    m                 Open the mixer on the cursor's part (see MIXER)
     i                 Insert mode, staying on the chord
     a                 Melody insert mode, moving on after each note
     V                 Visual mode, selecting whole measures
@@ -216,10 +218,25 @@ THE SCORE
     :tempo 120      A tempo from the cursor's measure on, counting the beat it had there.
                     :tempo q.=60 names the beat: w h q e s for whole to sixteenth, . to dot it
 
-VOLUME
-    :volume 60      The cursor's part plays at 60% from its beat on (also :vol)
-    :v 80           The mixer's volume for the cursor's whole part, up to 127
-    :gv 80          The mixer's master volume, over every part, up to 100
+DYNAMICS
+    Each part plays at a dynamic, which sets how hard its notes are struck (their MIDI
+    velocity): ppp 10, pp 30, p 49, mp 69, mf 88, f 108, ff 127. A part starts at mf, and a
+    marking holds until the next one. Markings show under the staff, at their beat.
+
+    vk  vj          A dynamic louder or softer from the cursor's beat on, stopping at ff and
+                    ppp; a count steps that many. Stepping back to the dynamic already in
+                    effect takes the marking off
+    <  >            A crescendo or diminuendo. It ramps to the dynamic marked where it ends,
+                    or without one there, to one dynamic louder or softer
+    g>  gv          An accent strikes 1.2 times as hard, a marcato 1.35 times, up to 127
+
+    Scores saved with volumes in percent open with the nearest dynamic in their place.
+    MuseScore dynamics come in by name; louder than ff or softer than ppp come in as those.
+
+MIXER
+    The mixer sets how loud each whole part plays, and the master over them all, without
+    changing how hard the notes are struck.
+
     :mixer          Open the mixer (also :mix, or m in normal mode)
 
     In the mixer:

@@ -13,7 +13,8 @@ import { Composition } from '../composition/Composition';
 import { Duration } from '../duration/Duration';
 import { Chord, Event } from '../event/Event';
 import { Fraction, fraction } from '../fraction/Fraction';
-import { Hairpin, MeasureInfo, PartMeasure, Tempo, TimeSignature, VolumeMark } from '../measure/Measure';
+import { Dynamic, isDynamic, nearestDynamic } from '../dynamic/Dynamic';
+import { DynamicMark, Hairpin, MeasureInfo, PartMeasure, Tempo, TimeSignature } from '../measure/Measure';
 import { C_MAJOR, KeySignature } from '../key/KeySignature';
 import { ARTICULATIONS, Note, articulationsOf } from '../note/Note';
 import { Clef, Part } from '../part/Part';
@@ -21,8 +22,12 @@ import { Pitch, parsePitch, pitchName, spell } from '../pitch/Pitch';
 import { Soundfont } from '../soundfont/Soundfont';
 
 export const FORMAT = 'vimscore';
-/** Version 2 spells pitches like `Bb4`; version 1 had MIDI numbers, which it reads in the key */
-export const VERSION = 2;
+/**
+ * Version 3 marks dynamics like `mf`; version 2 had volumes in percent, which it reads as the
+ * nearest dynamic. Version 2 spells pitches like `Bb4`; version 1 had MIDI numbers, which it
+ * reads in the key
+ */
+export const VERSION = 3;
 export const EXTENSION = 'vimscore';
 
 const DURATION_CODES: Record<Duration['base'], string> = {
@@ -127,17 +132,17 @@ export function writeScore(composition: Composition): string {
             ...(volume !== undefined && { volume }),
             ...(muted && { muted }),
             ...(solo && { solo }),
-            measures: measures.map(({ voices, volumes, hairpins }) => ({
+            measures: measures.map(({ voices, dynamics, hairpins }) => ({
                 voices: voices.map(({ events }) => events.map(eventData)),
-                ...(volumes?.length && {
-                    volume: volumes.map(({ offset, percent }) => ({ at: fractionText(offset), percent })),
+                ...(dynamics?.length && {
+                    dynamic: dynamics.map(({ offset, dynamic }) => ({ at: fractionText(offset), mark: dynamic })),
                 }),
                 ...(hairpins?.length && {
-                    hairpin: hairpins.map(({ offset, length, kind, percent }) => ({
+                    hairpin: hairpins.map(({ offset, length, kind, dynamic }) => ({
                         at: fractionText(offset),
                         length: fractionText(length),
                         kind,
-                        ...(percent !== undefined && { percent }),
+                        ...(dynamic && { to: dynamic }),
                     })),
                 }),
             })),
@@ -261,11 +266,22 @@ function readFraction(value: unknown, path: Path, what: string): Fraction {
     return fraction(Number(match[1]), Number(match[2]));
 }
 
-function readVolumeMark(value: unknown, path: Path): VolumeMark {
+function readDynamic(value: unknown, path: Path): Dynamic {
+    const text = string(value, path);
+    return isDynamic(text) ? text : fail(path, `"${text}" isn't a dynamic like mf, pp or f`);
+}
+
+/** A volume in percent, from a version 2 file, as the dynamic nearest it */
+const percentDynamic = (value: unknown, path: Path) => nearestDynamic((integer(value, path, 0, 100) / 100) * 127);
+
+function readDynamicMark(value: unknown, path: Path): DynamicMark {
     const data = object(value, path);
     return {
         offset: readFraction(data['at'], `${path}.at`, 'a time in the measure'),
-        percent: integer(data['percent'], `${path}.percent`, 0, 100),
+        dynamic:
+            data['mark'] === undefined && data['percent'] !== undefined
+                ? percentDynamic(data['percent'], `${path}.percent`)
+                : readDynamic(data['mark'], `${path}.mark`),
     };
 }
 
@@ -282,7 +298,8 @@ function readHairpin(value: unknown, path: Path): Hairpin {
         length: readFraction(data['length'], `${path}.length`, 'a length in whole notes'),
         kind: kind as Hairpin['kind'],
     };
-    if (data['percent'] !== undefined) hairpin.percent = integer(data['percent'], `${path}.percent`, 0, 100);
+    if (data['to'] !== undefined) hairpin.dynamic = readDynamic(data['to'], `${path}.to`);
+    else if (data['percent'] !== undefined) hairpin.dynamic = percentDynamic(data['percent'], `${path}.percent`);
     return hairpin;
 }
 
@@ -294,9 +311,11 @@ function readPartMeasure(value: unknown, path: Path, key: KeySignature): PartMea
             events: array(voice, `${path}.voices[${v}]`).map((event, i) => readEvent(event, `${path}.voices[${v}][${i}]`, key)),
         })),
     };
-    if (data['volume'] !== undefined) {
-        const marks = array(data['volume'], `${path}.volume`);
-        partMeasure.volumes = marks.map((mark, i) => readVolumeMark(mark, `${path}.volume[${i}]`));
+    // Version 2 called them volume
+    const field = data['dynamic'] !== undefined ? 'dynamic' : 'volume';
+    if (data[field] !== undefined) {
+        const marks = array(data[field], `${path}.${field}`);
+        partMeasure.dynamics = marks.map((mark, i) => readDynamicMark(mark, `${path}.${field}[${i}]`));
     }
     if (data['hairpin'] !== undefined) {
         const hairpins = array(data['hairpin'], `${path}.hairpin`);

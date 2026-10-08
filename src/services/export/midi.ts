@@ -2,8 +2,8 @@
  * Writes a composition as a Standard MIDI File (type 1): a first track with the title, tempos,
  * time signatures and keys, then a track for each part with its instrument and notes. Repeats
  * are written out as they play, so any player plays them; ties are joined into single notes,
- * volume markings become note velocities, as they sound in the app, and the mixer's volumes
- * become each channel's volume.
+ * dynamics become note velocities, as they sound in the app, and the mixer's volumes become
+ * each channel's volume.
  */
 
 import { Composition } from '../composition/Composition';
@@ -11,7 +11,7 @@ import { durationValue } from '../duration/Duration';
 import { partInstrument } from '../instrument/Instrument';
 import { resolveMeasures, secondsPerWholeNote } from '../measure/Measure';
 import { partMix } from '../edit/Mixer';
-import { BANK_SELECT, CHANNEL_VOLUME, channelVolume, velocity } from '../synth/channels';
+import { BANK_SELECT, CHANNEL_VOLUME, channelVolume } from '../synth/channels';
 import { performance, playedMeasureAt } from '../timeline/performance';
 import { timeline } from '../timeline/timeline';
 
@@ -117,12 +117,11 @@ export function writeMidi(composition: Composition): Uint8Array {
         }
         events.push({ ticks: 0, order: 0, bytes: [0xb0 | channel, CHANNEL_VOLUME, channelVolume(mix[p]!)] });
         for (const note of notes) {
-            const noteVelocity = velocity(note.volume);
-            if (note.part !== p || noteVelocity === 0) continue;
+            if (note.part !== p) continue;
             const start = ticksAt(note.start);
             // At least a tick long, so a note on is never cancelled by its own note off
             const end = Math.max(start + 1, ticksAt(note.start + note.duration));
-            events.push({ ticks: start, order: 2, bytes: [0x90 | channel, note.pitch, noteVelocity] });
+            events.push({ ticks: start, order: 2, bytes: [0x90 | channel, note.pitch, note.velocity] });
             events.push({ ticks: end, order: 1, bytes: [0x80 | channel, note.pitch, 0] });
         }
         tracks.push(track(events));

@@ -3,9 +3,9 @@
  *
  * Each MuseScore staff becomes a part here, playing its MuseScore part's instrument. Notes,
  * rests, tuplets, ties, slurs, articulations (staccato, tenuto, accent, marcato), arpeggios,
- * glissandi and voices come across, as do time signatures, key signatures, tempos, repeats, dynamics (as
- * volume markings), hairpins, and the mixer's volumes: MuseScore 3's channel volumes, or
- * MuseScore 4's audio settings. What the model has no
+ * glissandi and voices come across, as do time signatures, key signatures, tempos, repeats, dynamics
+ * (anything past ppp or ff as those), hairpins, and the mixer's volumes: MuseScore 3's channel
+ * volumes, or MuseScore 4's audio settings. What the model has no
  * place for yet, like grace notes, lyrics and voltas, is left out.
  */
 
@@ -15,6 +15,7 @@ import { Composition } from '../composition/Composition';
 import { Duration, durationsFilling, restsFilling } from '../duration/Duration';
 import { Chord, Event, Rest, Tuplet, leaves } from '../event/Event';
 import { Fraction, ZERO, add, compare, fraction, mul, sub } from '../fraction/Fraction';
+import { Dynamic, isDynamic, nearestDynamic } from '../dynamic/Dynamic';
 import { generalMidiName } from '../instrument/Instrument';
 import { MAX_MASTER_VOLUME, MAX_PART_VOLUME, NORMAL_MIX } from '../edit/Mixer';
 import { KeySignature } from '../key/KeySignature';
@@ -25,7 +26,7 @@ import {
     PartMeasure,
     Tempo,
     TimeSignature,
-    VolumeMark,
+    DynamicMark,
     measureLength,
 } from '../measure/Measure';
 import { Articulation, Note, notePiece, withArticulation } from '../note/Note';
@@ -300,6 +301,19 @@ function isArpeggio(chord: Element): boolean {
 }
 
 /**
+ * A dynamic by its name, like `mf`. Louder than ff or softer than ppp is taken as those, and
+ * any other, like `sfz`, as the nearest to its velocity, if it has one
+ */
+function readDynamic(element: Element): Dynamic | undefined {
+    const name = text(element, 'subtype') ?? '';
+    if (isDynamic(name)) return name;
+    if (/^p+$/.test(name)) return 'ppp';
+    if (/^f+$/.test(name)) return 'ff';
+    const velocity = number(element, 'velocity');
+    return velocity === undefined ? undefined : nearestDynamic(velocity);
+}
+
+/**
  * MuseScore's hairpin subtypes: the crescendo and diminuendo wedges, then the same as `cresc.`
  * and `dim.` lines
  */
@@ -352,13 +366,13 @@ interface VoiceContents {
     keySignature?: KeySignature;
     tempo?: Tempo;
     clef?: Clef;
-    volumes: VolumeMark[];
+    dynamics: DynamicMark[];
     hairpins: HairpinStart[];
     slurs: SlurStart[];
 }
 
 function readVoice(voice: Element, length: Fraction): VoiceContents {
-    const contents: VoiceContents = { events: [], volumes: [], hairpins: [], slurs: [] };
+    const contents: VoiceContents = { events: [], dynamics: [], hairpins: [], slurs: [] };
     /** Open tuplets, innermost last; events go into the innermost */
     const tuplets: { tuplet: Tuplet; scale: Fraction }[] = [];
     let position: Fraction = ZERO;
@@ -396,10 +410,8 @@ function readVoice(voice: Element, length: Fraction): VoiceContents {
                 contents.clef = clefFromLetter(text(element, 'concertClefType')) ?? contents.clef;
                 break;
             case 'Dynamic': {
-                const velocity = number(element, 'velocity');
-                if (velocity !== undefined) {
-                    contents.volumes.push({ offset: position, percent: Math.round((Math.min(127, velocity) / 127) * 100) });
-                }
+                const dynamic = readDynamic(element);
+                if (dynamic) contents.dynamics.push({ offset: position, dynamic });
                 break;
             }
             case 'Spanner': {
@@ -524,19 +536,19 @@ function convertScore(score: Element): Composition {
         elements.forEach((measure, s) => {
             const voices = (measure ? children(measure, 'voice') : []).map((voice) => readVoice(voice, length));
             // A staff missing the measure gets a measure of rest
-            if (voices.length === 0) voices.push({ events: rests(length), volumes: [], hairpins: [], slurs: [] });
+            if (voices.length === 0) voices.push({ events: rests(length), dynamics: [], hairpins: [], slurs: [] });
 
             for (const voice of voices) {
                 if (voice.keySignature && !info.keySignature) info.keySignature = voice.keySignature;
                 if (voice.tempo && !info.tempo) info.tempo = voice.tempo;
                 if (voice.clef && m === 0 && !clefs[s]) clefs[s] = voice.clef;
             }
-            const volumes = voices.flatMap((voice) => voice.volumes).sort((a, b) => compare(a.offset, b.offset));
+            const dynamics = voices.flatMap((voice) => voice.dynamics).sort((a, b) => compare(a.offset, b.offset));
             hairpinStarts[s]!.push(voices.flatMap((voice) => voice.hairpins));
             slurStarts[s]!.push(voices.flatMap((voice, v) => voice.slurs.map((slur) => ({ ...slur, voice: v }))));
             partMeasures[s]!.push({
                 voices: voices.map(({ events }) => ({ events })),
-                ...(volumes.length > 0 && { volumes: dedupeByOffset(volumes) }),
+                ...(dynamics.length > 0 && { dynamics: dedupeByOffset(dynamics) }),
             });
         });
 
@@ -610,8 +622,8 @@ function slurChords(
 }
 
 /** Voices can each carry the same dynamic or hairpin; one at a moment is enough */
-function dedupeByOffset<T extends { offset: Fraction }>(volumes: T[]): T[] {
-    return volumes.filter((mark, i) => i === 0 || compare(mark.offset, volumes[i - 1]!.offset) !== 0);
+function dedupeByOffset<T extends { offset: Fraction }>(marks: T[]): T[] {
+    return marks.filter((mark, i) => i === 0 || compare(mark.offset, marks[i - 1]!.offset) !== 0);
 }
 
 /**

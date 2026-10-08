@@ -9,8 +9,8 @@ export interface Synth {
     setInstruments(instruments: Instrument[]): void;
     /** How loud each part plays from the mixer, by part index: 1 is normal */
     setMix(mix: number[]): void;
-    /** `volume` is 0 to 1 */
-    playNote(part: number, pitch: number, when: number, duration: number, volume: number): void;
+    /** `velocity` is MIDI's, 1 to 127 */
+    playNote(part: number, pitch: number, when: number, duration: number, velocity: number): void;
     /** Plays a pitch right away on any instrument, for trying instruments out */
     audition(instrument: Instrument, pitch: number, duration: number): void;
     stopAll(): void;
