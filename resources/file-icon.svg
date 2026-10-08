@@ -48,9 +48,9 @@
   <polygon points="430,180 770,520 430,860 90,520" fill="url(#diamond)"
            stroke="#0b3d1c" stroke-width="22" stroke-linejoin="round"/>
 
-  <!-- the V, with vim's slab serifs -->
-  <polygon transform="skewX(-10) translate(85 0)"
-           points="160,300 405,300 405,355 345,355 458,668 572,355 515,355 515,300 700,300 700,355 655,355 488,780 420,780 228,355 160,355"
+  <!-- the V, with vim's slab serifs and upright left stem -->
+  <polygon transform="translate(-15 0)"
+           points="160,300 420,300 420,355 345,355 345,609 560,355 520,355 520,300 730,300 730,355 690,355 330,780 230,780 230,355 160,355"
            fill="url(#letter)" stroke="#0b3d1c" stroke-width="18" stroke-linejoin="round"/>
 
   </g>
