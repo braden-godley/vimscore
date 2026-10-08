@@ -4,13 +4,16 @@ import {
     Phantom,
     phantomAt,
     setDuration,
+    shiftDrums,
     shiftPitch,
     stepDuration,
+    stepDrums,
     stepScale,
     toggleDot,
     toggleArticulation,
 } from './Phantom';
-import { pitch } from '../pitch/Pitch';
+import { Pitch, pitch, spell } from '../pitch/Pitch';
+import { drumName, drumNotation } from '../instrument/Drums';
 
 const at = (part: number, measure: number, leaf: number, note = 0) => ({ part, measure, voice: 0, leaf, note });
 const quarterC: Phantom = { pitch: pitch('C4'), duration: { base: 4, dots: 0 } };
@@ -81,5 +84,64 @@ describe('adjusting', () => {
         expect(marcato).toEqual({ ...quarterC, staccato: true, marcato: true });
         expect(toggleArticulation(marcato, 'accent')).toEqual({ ...quarterC, staccato: true, accent: true });
         expect(toggleArticulation(marcato, 'marcato')).toEqual({ ...quarterC, staccato: true });
+    });
+});
+
+describe('stepDrums', () => {
+    const drum = (name: string, steps: number) => drumName(stepDrums({ ...quarterC, pitch: pitch(name) }, steps).pitch);
+
+    it('walks the kit up and down the stave', () => {
+        // Side stick, snare and electric snare share C5, in MIDI order, then the hand clap is on D5
+        expect(drum('D2', 1)).toBe('Electric Snare');
+        expect(drum('D2', 2)).toBe('Hand Clap');
+        expect(drum('D2', -1)).toBe('Side Stick');
+        expect(drum('D2', -2)).toBe('Low Tom');
+        expect(drum('C2', -1)).toBe('Acoustic Bass Drum');
+        expect(drum('C2', -2)).toBe('Pedal Hi-Hat');
+        expect(drum('F#2', 1)).toBe('Open Hi-Hat');
+        expect(drum('Bb2', 1)).toBe('Crash Cymbal');
+    });
+
+    it('stops at the ends of the kit', () => {
+        expect(drum('G#1', -3)).toBe('Pedal Hi-Hat');
+        expect(drum('Bb2', 50)).toBe('Vibraslap');
+    });
+
+    it('steps from a sound outside the kit to the nearest drum above or below it', () => {
+        // C#4 is written on C4, below the whole kit
+        expect(drum('C#4', 1)).toBe('Pedal Hi-Hat');
+        expect(drum('C#4', -1)).toBe('Pedal Hi-Hat');
+        // B4 (the middle line) shares its place with the low tom
+        expect(drum('B4', 1)).toBe('Side Stick');
+        expect(drum('B4', -1)).toBe('High Floor Tom');
+    });
+});
+
+describe('shiftDrums', () => {
+    const shift = (name: string, steps: number) => shiftDrums({ ...quarterC, pitch: pitch(name) }, steps).pitch;
+    const written = (sound: Pitch) => {
+        const { letter, octave } = drumNotation(sound).position;
+        return `${letter}${octave}`;
+    };
+
+    it('never moves the other way on the stave', () => {
+        let sound = spell(0);
+        const lines = [written(sound)];
+        for (let i = 0; i < 127; i++) {
+            sound = shiftDrums({ ...quarterC, pitch: sound }, 1).pitch;
+            if (written(sound) !== lines.at(-1)) lines.push(written(sound));
+        }
+        // Each line or space comes up once, so it only ever went up, and it reached the top
+        expect(new Set(lines).size).toBe(lines.length);
+        expect(sound).toEqual(pitch('G9'));
+    });
+
+    it('takes in sounds outside the kit on the way', () => {
+        // The snare's line holds the side stick, snare and electric snare, then C5 and C♯5
+        expect(shift('D2', 1)).toEqual(pitch('E2'));
+        expect(shift('D2', 2)).toEqual(pitch('C5'));
+        expect(shift('D2', 3)).toEqual(pitch('C#5'));
+        expect(drumName(shift('D2', 4))).toBe('Hand Clap');
+        expect(drumName(shift('D2', -1))).toBe('Side Stick');
     });
 });

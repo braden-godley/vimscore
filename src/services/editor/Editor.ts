@@ -44,8 +44,10 @@ import {
     Phantom,
     phantomAt,
     setDuration,
+    shiftDrums,
     shiftPitch,
     stepDuration,
+    stepDrums,
     stepScale,
     toggleDot,
     toggleArticulation,
@@ -59,7 +61,7 @@ import { setDynamic, stepDynamicAt, toggleHairpin } from '../edit/Dynamics';
 import { GENERAL_MIDI_INSTRUMENTS, Instrument } from '../instrument/Instrument';
 import { Command, EditCommand, isEditCommand, parseCommand } from './CommandLine';
 import { Picker, auditionPitch, clefPickerKey, filterPaths, listKey, pickerKey } from './Picker';
-import { CLEFS, clefAt } from '../clef/Clef';
+import { CLEFS, Clef, clefAt } from '../clef/Clef';
 import { Mixer, mixerKey } from './MixerMode';
 import { partsKey } from './PartsMode';
 import { HelpView, helpKey, openHelp } from '../help/Help';
@@ -587,14 +589,16 @@ function commandKey(composition: Composition, state: EditorState, key: string, a
 
 /** Insert mode's keys shape the phantom note, and <Space> places it; it doesn't take counts */
 /** Shapes the phantom; moves take a count, like `3k` for three scale steps up */
-type PhantomKey = (phantom: Phantom, key: KeySignature, count: number) => Phantom;
+/** `clef` is the one in effect where the phantom is */
+type PhantomKey = (phantom: Phantom, key: KeySignature, count: number, clef: Clef) => Phantom;
 
 const PHANTOM_KEYS: Record<string, PhantomKey> = {
-    // Plain j and k walk the scale; Shift steps chromatically
-    j: (phantom, key, count) => stepScale(phantom, key, -count),
-    k: (phantom, key, count) => stepScale(phantom, key, count),
-    J: (phantom, _, count) => shiftPitch(phantom, -count),
-    K: (phantom, _, count) => shiftPitch(phantom, count),
+    // Plain j and k walk the scale, Shift steps chromatically. On a percussion staff j and k
+    // walk the kit and Shift every sound, both in the order they're written up the stave
+    j: (phantom, key, count, clef) => (clef === 'percussion' ? stepDrums(phantom, -count) : stepScale(phantom, key, -count)),
+    k: (phantom, key, count, clef) => (clef === 'percussion' ? stepDrums(phantom, count) : stepScale(phantom, key, count)),
+    J: (phantom, _, count, clef) => (clef === 'percussion' ? shiftDrums(phantom, -count) : shiftPitch(phantom, -count)),
+    K: (phantom, _, count, clef) => (clef === 'percussion' ? shiftDrums(phantom, count) : shiftPitch(phantom, count)),
     h: (phantom, _, count) => stepDuration(phantom, -count),
     l: (phantom, _, count) => stepDuration(phantom, count),
     w: toggleDot,
@@ -681,8 +685,10 @@ function insertKey(composition: Composition, state: EditorState, key: string): K
     }
     const adjust = PHANTOM_KEYS[command];
     const keySignature = resolveMeasures(composition.measures)[state.cursor.measure]?.keySignature;
-    if (adjust && state.phantom && keySignature) {
-        return { state: { ...cleared, phantom: adjust(state.phantom, keySignature, count) } };
+    const part = composition.parts[state.cursor.part];
+    if (adjust && state.phantom && keySignature && part) {
+        const clef = clefAt(part, state.cursor.measure);
+        return { state: { ...cleared, phantom: adjust(state.phantom, keySignature, count, clef) } };
     }
     return { state: cleared };
 }

@@ -130,6 +130,25 @@ describe('insert mode', () => {
         expect(type(['i', 'K', 'k']).state.phantom?.pitch).toEqual(pitch('A4'));
     });
 
+    it('steps the phantom up and down a percussion staff with j and k, and J and K', () => {
+        const drums = { ...exampleComposition, parts: exampleComposition.parts.map((part) => ({ ...part, clef: 'percussion' as const })) };
+        const typeDrums = (keys: string[]) => {
+            let result: KeyResult = { state: initialEditorState(drums) };
+            for (const key of keys) result = handleKey(drums, result.state, key);
+            return result;
+        };
+        // From G4, written where the low floor tom is: the high floor tom above, the bass drum below
+        expect(typeDrums(['i', 'k']).state.phantom?.pitch).toEqual(pitch('G2'));
+        expect(typeDrums(['i', 'j']).state.phantom?.pitch).toEqual(pitch('C2'));
+        expect(typeDrums(['i', 'k', 'k']).state.phantom?.pitch).toEqual(pitch('A2'));
+        // J and K step through every sound as it's written: after the high floor tom on A4
+        // come A4 and A♯4 themselves, then the low tom on B4
+        expect(typeDrums(['i', 'k', 'K']).state.phantom?.pitch).toEqual(pitch('A4'));
+        expect(typeDrums(['i', 'k', 'K', 'K', 'K']).state.phantom?.pitch).toEqual(pitch('A2'));
+        // Below it, G♯4 is the last sound on the low floor tom's space
+        expect(typeDrums(['i', 'k', 'J']).state.phantom?.pitch).toEqual(pitch('G#4'));
+    });
+
     it('drops the phantom on leaving', () => {
         expect(type(['i', '<Esc>']).state.phantom).toBeUndefined();
     });

@@ -3,7 +3,7 @@ import { EditMode, EditorState, editorSelection, openMixer } from '../../service
 import { keyName } from '../../services/editor/keys';
 import { Command, isFileCommand } from '../../services/editor/CommandLine';
 import { Picker, filterPaths, pickerItems } from '../../services/editor/Picker';
-import { CLEFS, CLEF_NAMES, Clef } from '../../services/clef/Clef';
+import { CLEFS, CLEF_NAMES, Clef, clefAt } from '../../services/clef/Clef';
 import { Completion, completeCommandLine, completionText, cycleCompletion } from '../../services/editor/Completion';
 import { Mixer } from '../../services/editor/MixerMode';
 import { HelpView, matchesQuery } from '../../services/help/Help';
@@ -484,8 +484,10 @@ function showEditing() {
         positionLabel.textContent = `line ${editor.help.top + 1} of ${HELP_LINES.length}`;
         return;
     }
-    const place = `${composition.parts[cursor.part]?.name ?? ''}  m${cursor.measure + 1}`;
-    positionLabel.textContent = editor.phantom ? `${describePhantom(editor.phantom)}  ${place}` : place;
+    const part = composition.parts[cursor.part];
+    const place = `${part?.name ?? ''}  m${cursor.measure + 1}`;
+    const clef = part && clefAt(part, cursor.measure);
+    positionLabel.textContent = editor.phantom ? `${describePhantom(editor.phantom, clef)}  ${place}` : place;
 
     view.setPlayhead(undefined);
     view.select(cursor);

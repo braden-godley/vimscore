@@ -107,8 +107,10 @@ INSERT MODES
                       articulation, it's removed instead. A chord has one value, so all of its
                       notes change length together
     <S-Space>         Place a rest as long as the phantom
-    j  k              The phantom's pitch a step down or up the scale
-    J  K              The phantom's pitch a semitone down or up
+    j  k              The phantom's pitch a step down or up the scale. On a percussion
+                      staff, the next drum down or up the kit as it's written
+    J  K              The phantom's pitch a semitone down or up. On a percussion staff,
+                      the next sound down or up the stave, in or out of the kit
     h  l              A shorter or longer value
     <C-h>  <C-l>      Back or on a chord or rest, across barlines, keeping the phantom
     <S-1> .. <S-6>    Pick a value outright, as in normal mode
@@ -233,11 +235,38 @@ CLEFS
     Treble          G clef
     Bass            F clef
     Alto            C clef, with middle C on the middle line, as violas read
-    Percussion      A neutral clef, for drums; notes sit where treble clef puts them
+    Percussion      A neutral clef, for drums; each drum is written on its own line or
+                    space, as below
     Treble 8va      Treble clef with an 8 above: written an octave below how it sounds
     Bass 8vb        Bass clef with an 8 below: written an octave above how it sounds
 
     Clef changes are saved with the score, and come in from MuseScore files.
+
+    On a percussion staff, notes are written the way drum parts usually are: each General
+    MIDI drum on its own line or space with its own notehead, stems up, with no key
+    signature or accidentals. The status bar names the phantom's drum, like Closed Hi-Hat
+    F♯2. In insert mode, j and k move the phantom through the kit from line to line, drums
+    sharing a line in the order below, and on a rest it starts on the snare. J and K move
+    it through every MIDI sound the same way, taking in the sounds outside the kit, so the
+    phantom only ever moves the way you asked. The kit, with
+    lines and spaces named as in treble clef, from the bottom up, down the left column and
+    then the right:
+
+    Pedal Hi-Hat        D4 x            Cowbell             E5 triangle
+    Acoustic Bass Drum  E4              Ride Cymbal 2       E5 x
+    Bass Drum           F4              High Tom            F5
+    Low Floor Tom       G4              Ride Cymbal         F5 x
+    High Floor Tom      A4              Ride Bell           F5 diamond
+    Low Tom             B4              Closed Hi-Hat       G5 x
+    Side Stick          C5 circled x    Open Hi-Hat         G5 x, o above
+    Acoustic Snare      C5              Crash Cymbal        A5 x
+    Electric Snare      C5 diamond      Chinese Cymbal      B5 circled x
+    Hand Clap           D5 x            Crash Cymbal 2      B5 x
+    Low-Mid Tom         D5              Splash Cymbal       C6 x
+    Tambourine          D5 triangle     Vibraslap           C6 triangle
+    Hi-Mid Tom          E5
+
+    Any other sound sits where its pitch would in treble clef, without an accidental.
 
 THE SCORE
     :title name     Name the whole score

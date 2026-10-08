@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describePhantom, durationCode, keySpec, pitchKey } from './notation';
+import { describePhantom, durationCode, keySpec, noteKey, pitchKey } from './notation';
 import { pitch } from '../../../services/pitch/Pitch';
 
 describe('pitchKey', () => {
@@ -9,6 +9,25 @@ describe('pitchKey', () => {
         expect(pitchKey(pitch('Bb3'))).toBe('bb/3');
         expect(pitchKey(pitch('Ebb2'))).toBe('ebb/2');
         expect(pitchKey(pitch('A0'))).toBe('a/0');
+    });
+});
+
+describe('noteKey', () => {
+    it('writes pitches where they are on pitched staves', () => {
+        expect(noteKey(pitch('F#2'), 'treble')).toBe('f#/2');
+    });
+
+    it('writes drums on their line or space, with their notehead', () => {
+        expect(noteKey(pitch('C2'), 'percussion')).toBe('f/4');
+        expect(noteKey(pitch('D2'), 'percussion')).toBe('c/5');
+        expect(noteKey(pitch('F#2'), 'percussion')).toBe('g/5/x');
+        expect(noteKey(pitch('Gb2'), 'percussion')).toBe('g/5/x');
+        expect(noteKey(pitch('C#3'), 'percussion')).toBe('a/5/x');
+        expect(noteKey(pitch('F3'), 'percussion')).toBe('f/5/di');
+    });
+
+    it('writes sounds outside the kit at their pitch, without accidentals', () => {
+        expect(noteKey(pitch('C#4'), 'percussion')).toBe('c/4');
     });
 });
 
@@ -27,6 +46,12 @@ describe('describePhantom', () => {
         expect(describePhantom({ pitch: pitch('G4'), duration: { base: 8, dots: 0 }, tenuto: true, marcato: true })).toBe(
             'G4 eighth tenuto marcato',
         );
+    });
+
+    it('names the drum on a percussion staff', () => {
+        expect(describePhantom({ pitch: pitch('F#2'), duration: { base: 8, dots: 0 } }, 'percussion')).toBe('Closed Hi-Hat F♯2 eighth');
+        expect(describePhantom({ pitch: pitch('C#4'), duration: { base: 4, dots: 0 } }, 'percussion')).toBe('C♯4 quarter');
+        expect(describePhantom({ pitch: pitch('F#2'), duration: { base: 8, dots: 0 } }, 'treble')).toBe('F♯2 eighth');
     });
 });
 

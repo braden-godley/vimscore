@@ -31,8 +31,9 @@ import { ZERO, add, toNumber } from '../../../services/fraction/Fraction';
 import { ResolvedMeasure, TimeSignature, resolveMeasures } from '../../../services/measure/Measure';
 import { ARTICULATIONS, Articulation as ArticulationName } from '../../../services/note/Note';
 import { Clef, resolveClefs } from '../../../services/clef/Clef';
-import { VEX_CLEFS, durationCode, keySpec, pitchKey, restKey } from './notation';
-import { midi } from '../../../services/pitch/Pitch';
+import { VEX_CLEFS, durationCode, keySpec, noteKey, restKey } from './notation';
+import { drumNotation } from '../../../services/instrument/Drums';
+import { Pitch, midi } from '../../../services/pitch/Pitch';
 
 export const LEFT_MARGIN = 30;
 /** Staff names sit left of the first measure, this far from its start */
@@ -140,10 +141,25 @@ export function addArticulations(note: StaveNote, marked: Partial<Record<Articul
     }
 }
 
-/** Puts articulations on the notehead side, away from the stem, once the stem direction is final */
+/** VexFlow's code for the small circle over an open hi-hat */
+const OPEN_CODE = 'ah';
+
+/** Marks a chord on a percussion staff with the circle any open drums in it have, above the stave */
+export function addOpenMarks(note: StaveNote, sounds: { pitch: Pitch }[], clef: Clef) {
+    if (clef === 'percussion' && sounds.some(({ pitch }) => drumNotation(pitch).open)) {
+        note.addModifier(new Articulation(OPEN_CODE).setPosition(Modifier.Position.ABOVE), 0);
+    }
+}
+
+/**
+ * Puts articulations on the notehead side, away from the stem, once the stem direction is
+ * final. An open drum's circle stays above.
+ */
 export function placeArticulations(note: StaveNote) {
     const position = note.getStemDirection() === Stem.UP ? Modifier.Position.BELOW : Modifier.Position.ABOVE;
-    for (const modifier of note.getModifiersByType(Articulation.CATEGORY)) modifier.setPosition(position);
+    for (const modifier of note.getModifiersByType(Articulation.CATEGORY)) {
+        if ((modifier as Articulation).type !== OPEN_CODE) modifier.setPosition(position);
+    }
 }
 
 /** One voice of one part in one measure, ready to format */
@@ -160,7 +176,7 @@ interface BuiltVoice {
 function makeNote(event: Chord | Rest, clef: Clef, stemDirection: number | undefined): StaveNote {
     const { duration } = event;
     const note = new StaveNote({
-        keys: event.kind === 'chord' ? event.notes.map(({ pitch }) => pitchKey(pitch)) : [restKey(clef)],
+        keys: event.kind === 'chord' ? event.notes.map(({ pitch }) => noteKey(pitch, clef)) : [restKey(clef)],
         duration: durationCode(duration) + (event.kind === 'rest' ? 'r' : ''),
         dots: duration.dots,
         clef: VEX_CLEFS[clef].clef,
@@ -170,6 +186,7 @@ function makeNote(event: Chord | Rest, clef: Clef, stemDirection: number | undef
     });
     if (duration.dots) Dot.buildAndAttach([note], { all: true });
     if (event.kind === 'chord') addArticulations(note, event.notes);
+    if (event.kind === 'chord') addOpenMarks(note, event.notes, clef);
     // Only this chord's notes, not another voice's sharing the stave
     if (event.kind === 'chord' && event.arpeggio) {
         note.addModifier(new Stroke(Stroke.Type.ARPEGGIO_DIRECTIONLESS, { allVoices: false }), 0);
@@ -231,9 +248,12 @@ function hasNotes(voice: BuiltVoice): boolean {
     return voice.notes.length > 0;
 }
 
-/** With several voices on a stave, even voices stem up and odd ones down */
-function stemDirectionFor(voice: number, voiceCount: number): number | undefined {
-    if (voiceCount < 2) return undefined;
+/**
+ * With several voices on a stave, even voices stem up and odd ones down. A lone voice of drums
+ * stems up, as drum parts are written.
+ */
+export function stemDirectionFor(voice: number, voiceCount: number, clef: Clef): number | undefined {
+    if (voiceCount < 2) return clef === 'percussion' ? Stem.UP : undefined;
     return voice % 2 === 0 ? Stem.UP : Stem.DOWN;
 }
 
@@ -305,7 +325,7 @@ function buildColumn(
 
     const column = composition.parts.map((part, p) => {
         const voices = part.measures[m]?.voices ?? [];
-        return voices.map((voice, v) => buildVoice(voice.events, clefs[p]!, timeSignature, stemDirectionFor(v, voices.length)));
+        return voices.map((voice, v) => buildVoice(voice.events, clefs[p]!, timeSignature, stemDirectionFor(v, voices.length, clefs[p]!)));
     });
 
     const staves = composition.parts.map((_, p) => {
@@ -315,9 +335,9 @@ function buildColumn(
             const { clef, annotation } = VEX_CLEFS[clefs[p]!];
             stave.addClef(clef, m === 0 ? 'default' : 'small', annotation);
         }
-        // A key change cancels the old key's sharps or flats with naturals
+        // A key change cancels the old key's sharps or flats with naturals. Drums have no key
         const previousKey = resolved[m - 1]?.keySignature;
-        if (showKeySignature) stave.addKeySignature(keySpec(keySignature), previousKey && keySpec(previousKey));
+        if (showKeySignature && clefs[p] !== 'percussion') stave.addKeySignature(keySpec(keySignature), previousKey && keySpec(previousKey));
         if (showTimeSignature) stave.addTimeSignature(`${timeSignature.beats}/${timeSignature.beatValue}`);
         const info = composition.measures[m];
         if (info?.repeatStart) stave.setBegBarType(BarlineType.REPEAT_BEGIN);
@@ -336,7 +356,8 @@ function buildColumn(
         for (const { notes } of voices) for (const note of notes) note.setStave(staves[p]!);
         const vfVoices = voices.filter(hasNotes).map(({ voice }) => voice);
         if (vfVoices.length === 0) return;
-        Accidental.applyAccidentals(vfVoices, keySpec(keySignature));
+        // Drums are written without accidentals
+        if (clefs[p] !== 'percussion') Accidental.applyAccidentals(vfVoices, keySpec(keySignature));
         formatter.joinVoices(vfVoices);
     });
     const allVoices = column.flat().filter(hasNotes).map(({ voice }) => voice);

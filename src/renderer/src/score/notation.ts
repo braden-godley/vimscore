@@ -6,11 +6,26 @@ import { ARTICULATIONS } from '../../../services/note/Note';
 import { Clef, MIDDLE_LINE_PITCH } from '../../../services/clef/Clef';
 import { Phantom } from '../../../services/phantom/Phantom';
 import { Pitch } from '../../../services/pitch/Pitch';
+import { Notehead, drumName, drumNotation } from '../../../services/instrument/Drums';
 
 /** A pitch as a VexFlow key like `c#/4` or `bb/3`, where c/4 is middle C */
 export function pitchKey({ letter, alter, octave }: Pitch): string {
     const accidental = alter > 0 ? '#'.repeat(alter) : 'b'.repeat(-alter);
     return `${letter.toLowerCase()}${accidental}/${octave}`;
+}
+
+/** VexFlow's codes for the noteheads drums are written with */
+const NOTEHEAD_CODES: Record<Notehead, string> = { normal: '', x: 'x', 'circle-x': 'cx', diamond: 'di', triangle: 'tu' };
+
+/**
+ * The key VexFlow draws a note at. On a percussion staff that's where its drum is written,
+ * with the drum's notehead, like `g/5/x` for a closed hi-hat.
+ */
+export function noteKey(sound: Pitch, clef: Clef): string {
+    if (clef !== 'percussion') return pitchKey(sound);
+    const { position, notehead } = drumNotation(sound);
+    const code = NOTEHEAD_CODES[notehead];
+    return code ? `${pitchKey(position)}/${code}` : pitchKey(position);
 }
 
 /** VexFlow's name for a key signature, by its major key: `-7` (Cb) through `7` (C#) */
@@ -52,7 +67,6 @@ export function restKey(clef: Clef): string {
     return pitchKey(MIDDLE_LINE_PITCH[clef]);
 }
 
-
 const VALUE_NAMES: Record<Duration['base'], string> = {
     1: 'whole',
     2: 'half',
@@ -63,11 +77,15 @@ const VALUE_NAMES: Record<Duration['base'], string> = {
     64: '64th',
 };
 
-/** Reads like `C♯4 dotted quarter staccato accent`, for the status bar */
-export function describePhantom(phantom: Phantom): string {
+/**
+ * Reads like `C♯4 dotted quarter staccato accent`, for the status bar. On a percussion staff
+ * the drum's name comes first, as `Closed Hi-Hat F♯2 eighth`.
+ */
+export function describePhantom(phantom: Phantom, clef?: Clef): string {
     const { pitch, duration } = phantom;
     const accidental = pitch.alter > 0 ? '♯'.repeat(pitch.alter) : '♭'.repeat(-pitch.alter);
     return [
+        clef === 'percussion' && drumName(pitch),
         `${pitch.letter}${accidental}${pitch.octave}`,
         ['', 'dotted ', 'double-dotted '][duration.dots] + VALUE_NAMES[duration.base],
         ...ARTICULATIONS.filter((articulation) => phantom[articulation]),

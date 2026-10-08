@@ -9,6 +9,7 @@ import { Duration } from '../duration/Duration';
 import { KeySignature } from '../key/KeySignature';
 import { Articulation, withArticulation, withoutArticulations } from '../note/Note';
 import { MIDDLE_LINE_PITCH, clefAt } from '../clef/Clef';
+import { SNARE, stepKit, stepSounds } from '../instrument/Drums';
 import { HIGHEST_MIDI, LOWEST_MIDI, Pitch, midi, scaleStep, transpose } from '../pitch/Pitch';
 
 /** Its articulations are what the note it places gets */
@@ -23,11 +24,11 @@ const BASES: Duration['base'][] = [64, 32, 16, 8, 4, 2, 1];
 /** A phantom copying the pitch and written duration of the cursor's note */
 export function phantomAt(composition: Composition, cursor: Cursor): Phantom {
     const event = voiceLeaves(composition, cursor.part, cursor.measure, cursor.voice)[cursor.leaf]?.event;
-    // On a rest it starts on the middle line of the stave
+    // On a rest it starts on the middle line of the stave, or on the snare for drums
     const part = composition.parts[cursor.part];
     const clef = part ? clefAt(part, cursor.measure) : 'treble';
     return {
-        pitch: cursorPitch(composition, cursor) ?? MIDDLE_LINE_PITCH[clef],
+        pitch: cursorPitch(composition, cursor) ?? (clef === 'percussion' ? SNARE : MIDDLE_LINE_PITCH[clef]),
         duration: event?.duration ?? QUARTER,
     };
 }
@@ -46,6 +47,19 @@ export function shiftPitch(phantom: Phantom, semitones: number): Phantom {
 /** Steps to the next note of the key's scale: positive goes up */
 export function stepScale(phantom: Phantom, key: KeySignature, steps: number): Phantom {
     return { ...phantom, pitch: scaleStep(phantom.pitch, key, steps) };
+}
+
+/** Steps to the next drum of the kit as it's written on a percussion staff: positive goes up */
+export function stepDrums(phantom: Phantom, steps: number): Phantom {
+    return { ...phantom, pitch: stepKit(phantom.pitch, steps) };
+}
+
+/**
+ * Steps through every sound as it's written on a percussion staff, the kit and the sounds
+ * outside it, so it never moves the other way on the stave: positive goes up
+ */
+export function shiftDrums(phantom: Phantom, steps: number): Phantom {
+    return { ...phantom, pitch: stepSounds(phantom.pitch, steps) };
 }
 
 /** A new value starts plain: no dot and no articulation */
