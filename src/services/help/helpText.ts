@@ -52,7 +52,11 @@ PLAYING
 
 EDITING IN NORMAL MODE
     u  <C-r>          Undo or redo
-    J  K              Move the cursor's note down or up a semitone
+    .                 Make the last change again at the cursor: the keys that made it, from
+                      normal mode back to normal mode, like a whole stay in insert mode or
+                      a visual selection and what was done to it. A count replaces the one
+                      it was typed with. Undone in one step
+    J  K           Move the cursor's note down or up a semitone
     <S-1> .. <S-6>    Give the cursor's chord or rest a value: <S-1> a 32nd, <S-2> a 16th,
                       <S-3> an eighth, <S-4> a quarter, <S-5> a half, <S-6> a whole
     gw                Dot the cursor's chord or rest, or take the dot off. A dot that

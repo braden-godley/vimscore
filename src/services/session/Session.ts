@@ -23,6 +23,19 @@ export interface Session {
      * so `u` there can take back one note at a time
      */
     insertSteps: Snapshot[];
+    /** The keys of the last change, for `.` to make again */
+    lastChange?: TypedKey[];
+    /**
+     * The keys typed since the editor was last waiting in normal mode, and whether they've
+     * changed the score yet. Back in normal mode, they become the last change if they did.
+     */
+    typing?: { keys: TypedKey[]; changed: boolean };
+}
+
+/** A key as it was typed, with the character it typed for the command line and pickers */
+export interface TypedKey {
+    key: string;
+    text?: string;
 }
 
 export function startSession(composition: Composition): Session {
@@ -64,8 +77,52 @@ function undoInsertSteps(session: Session, count: number): Session {
     };
 }
 
-/** `input` is what the key typed, and what the instrument picker offers; see `handleKey` */
+const isWaiting = ({ mode, pending }: EditorState) => mode === 'normal' && pending === '';
+
+/**
+ * `input` is what the key typed, and what the instrument picker offers; see `handleKey`. `.` in
+ * normal mode makes the last change again, from the cursor.
+ */
 export function sessionKey(session: Session, key: string, input: KeyInput = {}): { session: Session; effect?: EditorEffect } {
+    const { editor } = session;
+    if (key === '.' && editor.mode === 'normal' && /^[0-9]*$/.test(editor.pending)) return repeatChange(session, input);
+
+    const typing = session.typing ?? (isWaiting(editor) ? { keys: [], changed: false } : undefined);
+    const result = applyKey(session, key, input);
+    const changed = result.session.composition !== session.composition && !result.undone;
+    const typed = typing && { keys: [...typing.keys, { key, text: input.text }], changed: typing.changed || changed };
+    if (!isWaiting(result.session.editor)) return { session: { ...result.session, typing: typed }, effect: result.effect };
+
+    const lastChange = typed?.changed ? typed.keys : session.lastChange;
+    return { session: { ...result.session, typing: undefined, lastChange }, effect: result.effect };
+}
+
+/**
+ * Types the last change's keys again. A count typed before `.` takes the place of the one the
+ * change was typed with. However many edits the keys make, they're undone together.
+ */
+function repeatChange(session: Session, input: KeyInput): { session: Session; effect?: EditorEffect } {
+    const count = session.editor.pending;
+    const ready: Session = { ...session, editor: { ...session.editor, pending: '' } };
+    if (!session.lastChange) return { session: ready };
+
+    const uncounted = session.lastChange.slice(session.lastChange.findIndex(({ key }) => !/^[0-9]$/.test(key)));
+    const keys = count ? [...[...count].map((digit) => ({ key: digit, text: digit })), ...uncounted] : session.lastChange;
+    let repeated = ready;
+    let effect: EditorEffect | undefined;
+    for (const { key, text } of keys) {
+        const result = sessionKey(repeated, key, { ...input, text });
+        repeated = result.session;
+        effect = result.effect ?? effect;
+    }
+
+    if (repeated.composition === session.composition) return { session: repeated, effect };
+    const before = { composition: session.composition, cursor: session.editor.cursor };
+    return { session: { ...repeated, history: record(session.history, before) }, effect };
+}
+
+/** One key, with the edit history kept. `undone` when it went back or forward through the history */
+function applyKey(session: Session, key: string, input: KeyInput): { session: Session; effect?: EditorEffect; undone?: boolean } {
     const { composition, editor, history } = session;
     const result = handleKey(composition, editor, key, input);
     const next: Session = {
@@ -76,7 +133,7 @@ export function sessionKey(session: Session, key: string, input: KeyInput = {}):
         insertSteps: isInsert(result.state) ? session.insertSteps : [],
     };
 
-    if (result.history && isInsert(editor)) return { session: undoInsertSteps(next, result.history.count) };
+    if (result.history && isInsert(editor)) return { session: undoInsertSteps(next, result.history.count), undone: true };
 
     if (result.history) {
         const current = { composition, cursor: editor.cursor };
@@ -86,7 +143,10 @@ export function sessionKey(session: Session, key: string, input: KeyInput = {}):
 
         const { composition: restored, cursor } = step.snapshot;
         const restoredEditor = { ...next.editor, cursor: clampCursor(restored, cursor) };
-        return { session: { ...next, composition: restored, history: step.history, editor: restoredEditor } };
+        return {
+            session: { ...next, composition: restored, history: step.history, editor: restoredEditor },
+            undone: true,
+        };
     }
 
     if (result.composition && result.composition !== composition) {

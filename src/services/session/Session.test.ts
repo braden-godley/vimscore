@@ -500,3 +500,41 @@ describe('moving by notes and rests in insert mode', () => {
         expect(type(['i', '3', '<C-l>', '2', '<C-h>'], start).editor.cursor).toMatchObject({ measure: 0, leaf: 1 });
     });
 });
+
+describe('repeating the last change', () => {
+    const chordAt = ({ composition }: Session, leaf: number) => {
+        const event = composition.parts[0]!.measures[0]!.voices[0]!.events[leaf]!;
+        return event.kind === 'chord' ? event.notes.map(({ pitch }) => midi(pitch)) : null;
+    };
+
+    it('makes the last change again with .', () => {
+        expect(firstChord(type(['d', 'd', '.']))).toEqual([60]);
+    });
+
+    it('makes it at the cursor, and moving the cursor is not a change', () => {
+        const repeated = type(['K', 'l', 'k', '.']);
+        expect(chordAt(repeated, 0)).toEqual([60, 64, 68]);
+        expect(chordAt(repeated, 1)).toEqual([55, 59, 63]);
+    });
+
+    it('repeats a whole stay in insert mode', () => {
+        const repeated = type(['i', 'k', '<Space>', '<Esc>', 'l', '.']);
+        expect(chordAt(repeated, 0)).toHaveLength(4);
+        expect(chordAt(repeated, 1)).toHaveLength(4);
+    });
+
+    it('takes a count in place of the one the change was typed with', () => {
+        expect(chordAt(type(['2', 'K', 'l', '.']), 1)).toEqual([55, 59, 64]);
+        expect(chordAt(type(['2', 'K', 'l', '1', '.']), 1)).toEqual([55, 59, 63]);
+    });
+
+    it('undoes a repeat in one step', () => {
+        const once = type(['i', 'k', '<Space>', 'k', '<Space>', '<Esc>']);
+        expect(type(['l', '.', 'u'], once).composition).toEqual(once.composition);
+    });
+
+    it('does nothing before any change', () => {
+        const start = startSession(exampleComposition);
+        expect(type(['u', '.']).composition).toEqual(start.composition);
+    });
+});
