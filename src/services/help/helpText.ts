@@ -246,6 +246,9 @@ CLEFS
 
     Clef changes are saved with the score, and come in from MuseScore files.
 
+    Once the start of the score is scrolled out of sight, each part's name, and the clef and
+    key signature in effect at the left edge, stay pinned there at the start of its stave.
+
     On a percussion staff, notes are written the way drum parts usually are: each General
     MIDI drum on its own line or space with its own notehead, stems up, with no key
     signature or accidentals. The status bar names the phantom's drum, like Closed Hi-Hat

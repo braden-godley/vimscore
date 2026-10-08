@@ -45,6 +45,12 @@
       .score {
         position: relative;
       }
+      /* Block, so no room for a text baseline goes under the drawing: the pinned staff headers
+         line up with the staves by the layout's height */
+      .score svg,
+      .staff-names svg {
+        display: block;
+      }
       .selection-box {
         position: absolute;
         background: var(--visual-shade);
@@ -68,22 +74,18 @@
       .staff-names {
         position: absolute;
         inset: 0 auto 0 0;
+        overflow: hidden;
         pointer-events: none;
+        background: #fff;
       }
       .staff-names[hidden] {
         display: none;
       }
-      .staff-names div {
+      .staff-names > div {
         position: absolute;
+        top: 0;
         left: 0;
-        transform: translateY(-50%);
-        padding: 0.15rem 0.6rem 0.15rem 0.5rem;
-        background: rgba(255, 255, 255, 0.88);
-        border-right: 1px solid #ddd;
-        border-radius: 0 4px 4px 0;
-        font: 13px Georgia, serif;
-        color: #333;
-        white-space: nowrap;
+        transform-origin: 0 0;
       }
       .playhead {
         position: absolute;

@@ -3,7 +3,7 @@
  * CSS transform on the score, so moving between measures is smooth and needs no re-render.
  */
 
-import { clefAt } from '../../../services/clef/Clef';
+import { clefAt, resolveClefs } from '../../../services/clef/Clef';
 import { Composition } from '../../../services/composition/Composition';
 import { Cursor } from '../../../services/cursor/Cursor';
 import { toNumber } from '../../../services/fraction/Fraction';
@@ -12,6 +12,7 @@ import { resolveMeasures } from '../../../services/measure/Measure';
 import { Phantom } from '../../../services/phantom/Phantom';
 import { Selection, TimePoint, selectedLeaves } from '../../../services/selection/Selection';
 import { drawPhantom } from './drawPhantom';
+import { drawStaffHeaders, staffHeaderSize } from './drawStaffHeaders';
 import {
     LEFT_MARGIN,
     ScoreCache,
@@ -36,8 +37,11 @@ export class ScoreView {
     private readonly playhead: HTMLDivElement;
     private readonly selectionBox: HTMLDivElement;
     private readonly phantomLayer: HTMLDivElement;
-    /** Staff names pinned to the left edge, for when the ones in the score are scrolled away */
+    /** Staff names and clefs pinned to the left edge, for when the start of the score is scrolled away */
     private readonly names: HTMLDivElement;
+    private readonly namesDrawing: HTMLDivElement;
+    /** What the pinned headers were last drawn with, so scrolling redraws them only when that changes */
+    private namesDrawn = '';
     private centeredMeasure = 0;
     /** The part kept in view when the score is taller than the viewport; undefined keeps the last */
     private centeredPart = 0;
@@ -61,6 +65,8 @@ export class ScoreView {
         this.strip.append(this.selectionBox, this.score, this.phantomLayer, this.playhead);
         this.names = document.createElement('div');
         this.names.className = 'staff-names';
+        this.namesDrawing = document.createElement('div');
+        this.names.append(this.namesDrawing);
         viewport.append(this.strip, this.names);
 
         new ResizeObserver(() => this.applyScroll(false)).observe(viewport);
@@ -188,24 +194,40 @@ export class ScoreView {
     }
 
     /**
-     * Shows the staff names at the left edge, beside each stave, once the score is scrolled far
-     * enough that its own names at the start are cut off. `left` and `top` are where the
-     * score's top left corner is on screen.
+     * Pins each staff's name, clef and key signature to the left edge, as the start of its
+     * stave, once the score is scrolled far enough that its own start is out of sight. They're
+     * the ones in effect in the measure just past the header. `left` and `top` are where the score's top
+     * left corner is on screen.
      */
     private showPinnedNames(left: number, top: number, scale: number) {
         const { layout, composition } = this;
-        const cut = layout && left + LEFT_MARGIN * scale < 0;
+        const first = layout?.measures[0];
+        if (!layout || !composition || !first) return;
+        const names = composition.parts.map(({ name }) => name);
+        const resolved = resolveMeasures(composition.measures);
+        /** The measure at the header's right edge, in the score's x */
+        const measureAt = (width: number) => {
+            const past = layout.measures.findIndex(({ x }) => x > width - left / scale);
+            return Math.max(0, (past === -1 ? layout.measures.length : past) - 1);
+        };
+        // The header is as wide as the key signature it shows, so its edge depends on the key there
+        const keyAt = (measure: number) => resolved[measure]?.keySignature ?? C_MAJOR;
+        let { width } = staffHeaderSize(names, C_MAJOR);
+        const measure = measureAt(staffHeaderSize(names, keyAt(measureAt(width))).width);
+        const keySignature = keyAt(measure);
+        width = staffHeaderSize(names, keySignature).width;
+        const cut = left + LEFT_MARGIN * scale < 0 || left + first.x * scale < width * scale;
         this.names.hidden = !cut;
-        if (!cut || !composition) return;
+        if (!cut) return;
 
-        const labels = composition.parts.map(({ name }, p) => {
-            const stave = layout.parts[p]!;
-            const label = document.createElement('div');
-            label.textContent = name;
-            label.style.top = `${top + ((stave.top + stave.bottom) / 2) * scale}px`;
-            return label;
-        });
-        this.names.replaceChildren(...labels);
+        const parts = composition.parts.map((part) => ({ name: part.name, clef: resolveClefs(part)[measure] ?? 'treble' }));
+        const drawn = JSON.stringify([parts, keySignature, layout.parts]);
+        if (drawn !== this.namesDrawn) {
+            drawStaffHeaders(this.namesDrawing, layout, parts, keySignature);
+            this.namesDrawn = drawn;
+        }
+        this.names.style.width = `${width * scale}px`;
+        this.namesDrawing.style.transform = `translateY(${top}px) scale(${scale})`;
     }
 
     /**
