@@ -43,8 +43,10 @@ PLAYING
     r                 Skip repeats, or play them again. Playback carries on from the same
                       place, and later plays keep the choice
     g                 Carry on from the start of the score
-    h  l              Carry on from the start of the measure before or after, going through
-                      repeats as they're played. Past the last note, l does nothing
+    h                 Carry on from the start of the measure played before, going back
+                      through repeats as they're played
+    l                 Carry on from the start of the next measure in the score, jumping over
+                      repeats instead of playing them again. Past the last note, l does nothing
     m                 Open the mixer on the cursor's part, to change the mix as it plays.
                       Its keys work as in the mixer (see MIXER), so h and l turn the volume
                       instead of jumping; <Esc> closes it and playing carries on. <Space>

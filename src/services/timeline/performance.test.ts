@@ -5,7 +5,7 @@ import { toggleRepeat } from '../edit/Repeats';
 import { setTimeSignature } from '../edit/MeasureChanges';
 import { readScore, writeScore } from '../file/ScoreFile';
 import { MeasureInfo } from '../measure/Measure';
-import { performance, performanceOrder, playedMeasureAt } from './performance';
+import { PlayedMeasure, nextPlayedMeasure, performance, performanceOrder, playedMeasureAt } from './performance';
 import { timeline } from './timeline';
 
 const bars = (count: number, marks: Record<number, MeasureInfo> = {}): MeasureInfo[] =>
@@ -33,6 +33,25 @@ describe('performanceOrder', () => {
 
     it('repeats a measure that both starts and ends a section', () => {
         expect(performanceOrder(bars(3, { 1: { repeatStart: true, repeatEnd: true } }))).toEqual([0, 1, 1, 2]);
+    });
+});
+
+describe('nextPlayedMeasure', () => {
+    // Measures 1 and 2 repeated: 0, 1, 2, 1, 2, 3
+    const played: PlayedMeasure[] = [0, 1, 2, 1, 2, 3].map((measure, i) => ({ measure, startSeconds: i, seconds: 1 }));
+    const next = (index: number) => played.indexOf(nextPlayedMeasure(played, index)!);
+
+    it('goes on to the next measure', () => {
+        expect(next(0)).toBe(1);
+        expect(next(1)).toBe(2);
+    });
+
+    it('jumps over the repeat from its end', () => {
+        expect(next(2)).toBe(5);
+    });
+
+    it('stops at the last measure', () => {
+        expect(nextPlayedMeasure(played, 5)).toBeUndefined();
     });
 });
 

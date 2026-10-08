@@ -61,3 +61,13 @@ export function playedMeasureAt(played: PlayedMeasure[], seconds: number): Playe
     while (index + 1 < played.length && played[index + 1]!.startSeconds <= seconds) index++;
     return played[index];
 }
+
+/**
+ * The played measure after `index` that's further on in the score, so going forward jumps
+ * over repeats instead of going back through them. Nothing past the last measure.
+ */
+export function nextPlayedMeasure(played: PlayedMeasure[], index: number): PlayedMeasure | undefined {
+    const from = played[index];
+    if (!from) return played[0];
+    return played.slice(index + 1).find(({ measure }) => measure > from.measure);
+}

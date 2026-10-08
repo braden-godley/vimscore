@@ -15,7 +15,7 @@ import { Composition, newComposition } from '../../services/composition/Composit
 import { addSoundfont, describeSoundfonts, findSoundfont, soundfontName } from '../../services/soundfont/Soundfont';
 import { GENERAL_MIDI_INSTRUMENTS, Instrument, partInstrument, sameSound } from '../../services/instrument/Instrument';
 import { resolveMeasures, secondsPerWholeNote } from '../../services/measure/Measure';
-import { PlayedMeasure, performance, playedMeasureAt } from '../../services/timeline/performance';
+import { PlayedMeasure, nextPlayedMeasure, performance, playedMeasureAt } from '../../services/timeline/performance';
 import { Player } from '../../services/player/Player';
 import { sessionEdit, sessionKey } from '../../services/session/Session';
 import { ToneSynth } from '../../services/synth/ToneSynth';
@@ -568,13 +568,15 @@ function toggleRepeats() {
 }
 
 /**
- * `g`, `h` and `l` while playing: carries on from the start, or from the start of the measure
- * played before or after this one, so repeats are gone through as they're played
+ * `g`, `h` and `l` while playing: carries on from the start, from the start of the measure
+ * played before this one, so repeats are gone back through as they're played, or from the next
+ * measure further on in the score, jumping over repeats
  */
 function jumpPlayback(key: 'g' | 'h' | 'l') {
     const at = playedMeasureAt(played, player.position);
     const index = at ? played.indexOf(at) : 0;
-    const target = played[key === 'g' ? 0 : Math.max(0, index + (key === 'h' ? -1 : 1))];
+    const target =
+        key === 'g' ? played[0] : key === 'h' ? played[Math.max(0, index - 1)] : nextPlayedMeasure(played, index);
     // Past the last note there's nothing left to play
     if (!target || target.startSeconds >= player.end) return;
     player.stop();
