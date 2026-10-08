@@ -332,7 +332,25 @@ describe('readMuseScore', () => {
                    <Instrument><concertClef>F8vb</concertClef><Channel><program value="32"/></Channel></Instrument></Part>`,
             ),
         );
-        expect(bass.parts[0]).toMatchObject({ name: 'Acoustic Bass', clef: 'bass', program: 32 });
+        expect(bass.parts[0]).toMatchObject({ name: 'Acoustic Bass', clef: 'bass8vb', program: 32 });
+    });
+
+    it('reads clef changes, including ones written at the end of the measure before', () => {
+        const rest = '<Rest><durationType>measure</durationType><duration>4/4</duration></Rest>';
+        const clef = (type: string) => `<Clef><concertClefType>${type}</concertClefType></Clef>`;
+        const changing = read(
+            mscx(
+                `<Staff id="1">
+                   <Measure><voice>${rest}${clef('PERC')}</voice></Measure>
+                   <Measure><voice>${rest}</voice></Measure>
+                   <Measure><voice>${clef('G8va')}${rest}</voice></Measure>
+                   <Measure><voice>${clef('G8va')}${rest}</voice></Measure>
+                 </Staff>`,
+                `<Part><Staff id="1"/><Instrument><Channel><program value="0"/></Channel></Instrument></Part>`,
+            ),
+        );
+        const part = changing.parts[0]!;
+        expect([part.clef, ...part.measures.map(({ clef }) => clef)]).toEqual(['treble', undefined, 'percussion', 'treble8va', undefined]);
     });
 
     it('reads repeat barlines', () => {

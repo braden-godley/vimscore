@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { newComposition, withTrailingEmptyMeasure } from '../composition/Composition';
 import { exampleComposition } from '../composition/example-composition';
 import { pitchName } from '../pitch/Pitch';
+import { setClef } from '../edit/Parts';
 import { readScore, writeScore } from './ScoreFile';
 
 describe('writeScore and readScore', () => {
@@ -18,6 +19,12 @@ describe('writeScore and readScore', () => {
         };
         expect(readScore(writeScore(kit))).toEqual(kit);
         expect(writeScore(kit)).toContain('"bank": 128,\n      "drums": true');
+    });
+
+    it('keep clef changes at measures', () => {
+        const changed = setClef(setClef(exampleComposition, 1, 1, 'bass8vb'), 0, 2, 'percussion');
+        expect(readScore(writeScore(changed))).toEqual(changed);
+        expect(writeScore(changed)).toContain('"clef": "bass8vb"');
     });
 
     it('keep the mixer’s volumes, leaving normal unwritten', () => {

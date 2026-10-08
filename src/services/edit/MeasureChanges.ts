@@ -3,6 +3,7 @@
  * Each one carries on until the next measure that sets its own, like in a printed score.
  */
 
+import { withoutRepeatedClefs } from '../clef/Clef';
 import { Composition } from '../composition/Composition';
 import { durationsFilling } from '../duration/Duration';
 import { Event } from '../event/Event';
@@ -144,7 +145,12 @@ export function setTimeSignature(composition: Composition, measure: number, time
                 ...(dynamics[i]!.length > 0 && { dynamics: dynamics[i] }),
                 ...(hairpins[i]!.length > 0 && { hairpins: hairpins[i] }),
             }));
-            return { ...part, measures: [...part.measures.slice(0, measure), ...newMeasures, ...part.measures.slice(end)] };
+            // Clef changes, like tempo and key changes, go to the measure their moment falls in
+            stretch.forEach(({ clef }, i) => {
+                if (clef) newMeasures[measureAt(mul(oldLength, fraction(i)))]!.clef = clef;
+            });
+            const measures = [...part.measures.slice(0, measure), ...newMeasures, ...part.measures.slice(end)];
+            return stretch.some(({ clef }) => clef) ? withoutRepeatedClefs({ ...part, measures }) : { ...part, measures };
         }),
     };
     // Also drops markings the re-barring left repeating what came before

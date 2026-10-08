@@ -82,6 +82,7 @@ EDITING IN NORMAL MODE
     vd                Take the dynamic marking at the cursor's beat off
     <  >              A crescendo or diminuendo over the cursor's chord, and count - 1 after it
     rs  re            Put a repeat start or end barline at the cursor's measure, or take it away
+    gS                Pick the clef of the cursor's part from its measure on (see CLEFS)
     dd                Delete the cursor's note, keeping it to put back
     yy                Copy the cursor's note
     d{motion}         Delete from the cursor through a motion: dl the chord, dh the one before,
@@ -201,7 +202,9 @@ PARTS
     :delpart               Delete the cursor's part
     :parts                 Open the parts list, to add, delete and reorder parts
     :rename name           Rename the cursor's part
-    :clef treble|bass      The cursor's part's clef
+    :clef name             The cursor's part's clef from the cursor's measure on, by name:
+                           treble, bass, alto, percussion, treble8va or bass8vb
+                           (see CLEFS)
 
     In a picker, type to filter, <C-n> <C-p> <Tab> or the arrows to move, <CR> to choose,
     <Esc> to close.
@@ -213,6 +216,28 @@ PARTS
     d  x            Delete the part; the last one stays
     u  <C-r>        Undo or redo, one change at a time
     q  <Esc>  <CR>  Close
+
+CLEFS
+    Each part starts in a clef, and can change to another at the start of any measure. A
+    change holds until the next one, and shows as a small clef where it happens. Changing
+    back to the clef already in effect takes the change away. A new part gets the clef for
+    its instrument's range: bass for low instruments, percussion for drums, treble otherwise.
+
+    gS              Pick the clef of the cursor's part from the cursor's measure on, starting
+                    at the clef it has there. In the clef picker:
+      j  k            The next or previous clef (the arrows work too)
+      <CR>            Choose it
+      <Esc>           Close, changing nothing
+    :clef name      The same from the command line
+
+    Treble          G clef
+    Bass            F clef
+    Alto            C clef, with middle C on the middle line, as violas read
+    Percussion      A neutral clef, for drums; notes sit where treble clef puts them
+    Treble 8va      Treble clef with an 8 above: written an octave below how it sounds
+    Bass 8vb        Bass clef with an 8 below: written an octave above how it sounds
+
+    Clef changes are saved with the score, and come in from MuseScore files.
 
 THE SCORE
     :title name     Name the whole score

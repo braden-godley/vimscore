@@ -1,5 +1,6 @@
 /** Changes to the score's parts (staves) and what they play */
 
+import { withoutRepeatedClefs } from '../clef/Clef';
 import { Composition } from '../composition/Composition';
 import { durationsFilling } from '../duration/Duration';
 import { Instrument, clefFor, generalMidiName, partInstrument } from '../instrument/Instrument';
@@ -47,8 +48,13 @@ export function renamePart(composition: Composition, index: number, name: string
     return withPart(composition, index, (part) => ({ ...part, name }));
 }
 
-export function setClef(composition: Composition, index: number, clef: Clef): Composition {
-    return withPart(composition, index, (part) => ({ ...part, clef }));
+/** Changes a part's clef from a measure on, until the next measure that sets its own */
+export function setClef(composition: Composition, index: number, measure: number, clef: Clef): Composition {
+    return withPart(composition, index, (part) => {
+        if (!part.measures[measure]) return measure === 0 ? { ...part, clef } : part;
+        const measures = part.measures.map((partMeasure, m) => (m === measure ? { ...partMeasure, clef } : partMeasure));
+        return withoutRepeatedClefs({ ...part, measures });
+    });
 }
 
 /**

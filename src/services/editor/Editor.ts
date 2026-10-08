@@ -58,7 +58,8 @@ import { toggleRepeat } from '../edit/Repeats';
 import { setDynamic, stepDynamicAt, toggleHairpin } from '../edit/Dynamics';
 import { GENERAL_MIDI_INSTRUMENTS, Instrument } from '../instrument/Instrument';
 import { Command, EditCommand, isEditCommand, parseCommand } from './CommandLine';
-import { Picker, auditionPitch, filterPaths, listKey, pickerKey } from './Picker';
+import { Picker, auditionPitch, clefPickerKey, filterPaths, listKey, pickerKey } from './Picker';
+import { CLEFS, clefAt } from '../clef/Clef';
 import { Mixer, mixerKey } from './MixerMode';
 import { partsKey } from './PartsMode';
 import { HelpView, helpKey, openHelp } from '../help/Help';
@@ -271,6 +272,14 @@ const toggleSelectedArticulations =
 /** The keys after `g` that put each articulation on in normal and visual mode */
 const ARTICULATION_KEYS: Record<Articulation, string> = { staccato: 's', tenuto: '-', accent: '>', marcato: 'v' };
 
+/** `gS`: picks the cursor's part's clef from its measure on, starting at the one it has there */
+const openClefPicker: Action = (state, composition) => {
+    const { part, measure } = state.cursor;
+    const current = composition.parts[part];
+    const selected = current ? CLEFS.indexOf(clefAt(current, measure)) : 0;
+    return { state: { ...state, mode: 'picker', picker: { purpose: 'clef', query: '', selected } } };
+};
+
 /** `(`: slurs the cursor's chord on to the next, or count chords on, in its voice; or takes the slur off */
 const slurFromCursor: Action = (state, composition, count = 1) => {
     const { part, voice } = state.cursor;
@@ -379,6 +388,7 @@ const NORMAL_ACTIONS: Record<string, Action> = {
     ga: toggleCursorArpeggio,
     gl: toggleCursorGlissando,
     gt: toggleCursorTie,
+    gS: openClefPicker,
     '(': slurFromCursor,
     // Dots the cursor's chord or rest, or takes the dot off, like `w` in the insert modes
     gw: changeDuration(({ base, dots }) => ({ base, dots: dots ? 0 : 1 })),
@@ -761,7 +771,7 @@ function runEditCommand(composition: Composition, state: EditorState, command: E
         case 'title':
             return { state, composition: { ...composition, title: command.text } };
         case 'clef':
-            return { state, composition: setClef(composition, part, command.clef) };
+            return { state, composition: setClef(composition, part, measure, command.clef) };
         case 'keySignature':
             return { state, composition: setKeySignature(composition, measure, command.value) };
         case 'tempo': {
@@ -791,6 +801,7 @@ function pickerModeKey(composition: Composition, state: EditorState, key: string
     const closed: EditorState = { ...state, mode: state.picker?.fromParts ? 'parts' : 'normal', picker: undefined };
     if (!state.picker) return { state: closed };
     if (state.picker.purpose === 'recent') return recentPickerKey(state, closed, key, input);
+    if (state.picker.purpose === 'clef') return clefPickerModeKey(composition, state, closed, key);
 
     const outcome = pickerKey(state.picker, instruments, key, input.text);
     if ('cancelled' in outcome) return { state: closed };
@@ -823,6 +834,15 @@ function recentPickerKey(state: EditorState, closed: EditorState, key: string, i
     if ('cancelled' in outcome) return { state: closed };
     if ('picker' in outcome) return { state: { ...state, picker: outcome.picker } };
     return { state: closed, effect: { kind: 'command', command: { name: 'edit', path: outcome.chosen, force: false } } };
+}
+
+/** Choosing a clef changes it from the cursor's measure on */
+function clefPickerModeKey(composition: Composition, state: EditorState, closed: EditorState, key: string): KeyResult {
+    const outcome = clefPickerKey(state.picker!, key);
+    if ('cancelled' in outcome) return { state: closed };
+    if ('picker' in outcome) return { state: { ...state, picker: outcome.picker } };
+    const { part, measure } = state.cursor;
+    return { state: closed, composition: setClef(composition, part, measure, outcome.chosen) };
 }
 
 /** Opens the mixer on the cursor's part: `:mixer`, or `m` in normal mode and while playing */

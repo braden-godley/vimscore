@@ -2,13 +2,18 @@
  * The pickers: a list filtered by what's typed, with a selection moved by arrow keys or Ctrl-N/P
  * (letters go into the filter, so j/k can't move it). The instrument picker plays the selected
  * instrument so you can hear it before choosing; the recent picker opens a score from before.
+ * The clef picker is short enough not to need a filter, so j and k move it.
  */
 
+import { CLEFS, Clef } from '../clef/Clef';
 import { Instrument, clefFor, filterInstruments } from '../instrument/Instrument';
 
 export interface Picker {
-    /** What the choice is for: the cursor's part, a new part below it, or a score to open */
-    purpose: 'instrument' | 'addPart' | 'recent';
+    /**
+     * What the choice is for: the cursor's part's instrument, a new part below it, a score to
+     * open, or the cursor's part's clef from its measure on
+     */
+    purpose: 'instrument' | 'addPart' | 'recent' | 'clef';
     query: string;
     /** Index into the filtered list */
     selected: number;
@@ -49,6 +54,13 @@ export function pickerKey(picker: Picker, instruments: Instrument[], key: string
     const outcome = listKey(picker, pickerItems(picker, instruments), key, text);
     if (!('picker' in outcome)) return outcome;
     return outcome.moved ? { picker: outcome.picker, audition: outcome.moved } : { picker: outcome.picker };
+}
+
+/** j and k move as well as the arrows; there's nothing to type */
+export function clefPickerKey(picker: Picker, key: string): ListOutcome<Clef> {
+    const moved = key === 'j' ? '<Down>' : key === 'k' ? '<Up>' : key;
+    if (!['<Esc>', '<CR>', ...DOWN, ...UP].includes(moved)) return { picker };
+    return listKey(picker, [...CLEFS], moved);
 }
 
 export function listKey<T>(picker: Picker, items: T[], key: string, text?: string): ListOutcome<T> {

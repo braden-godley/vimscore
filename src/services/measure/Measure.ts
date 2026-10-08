@@ -1,3 +1,4 @@
+import type { Clef } from '../clef/Clef';
 import { Duration, durationValue } from '../duration/Duration';
 import { Dynamic } from '../dynamic/Dynamic';
 import { Event } from '../event/Event';
@@ -67,6 +68,8 @@ export interface Hairpin {
 /** One part's contents for one measure */
 export interface PartMeasure {
     voices: Voice[];
+    /** The part changes to this clef here, until the next measure that sets one */
+    clef?: Clef;
     /** In time order, at most one at an offset */
     dynamics?: DynamicMark[];
     /** Hairpins starting in this measure, in time order, at most one at an offset */

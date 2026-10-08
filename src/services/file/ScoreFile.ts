@@ -17,7 +17,8 @@ import { Dynamic, isDynamic, nearestDynamic } from '../dynamic/Dynamic';
 import { DynamicMark, Hairpin, MeasureInfo, PartMeasure, Tempo, TimeSignature } from '../measure/Measure';
 import { C_MAJOR, KeySignature } from '../key/KeySignature';
 import { ARTICULATIONS, Note, articulationsOf } from '../note/Note';
-import { Clef, Part } from '../part/Part';
+import { CLEFS, Clef, isClef } from '../clef/Clef';
+import { Part } from '../part/Part';
 import { Pitch, parsePitch, pitchName, spell } from '../pitch/Pitch';
 import { Soundfont } from '../soundfont/Soundfont';
 
@@ -42,7 +43,6 @@ const DURATION_CODES: Record<Duration['base'], string> = {
 const CODE_BASES = new Map(
     Object.entries(DURATION_CODES).map(([base, code]) => [code, Number(base) as Duration['base']]),
 );
-const CLEFS: Clef[] = ['treble', 'bass'];
 
 const durationText = ({ base, dots }: Duration) => DURATION_CODES[base] + '.'.repeat(dots);
 
@@ -132,8 +132,9 @@ export function writeScore(composition: Composition): string {
             ...(volume !== undefined && { volume }),
             ...(muted && { muted }),
             ...(solo && { solo }),
-            measures: measures.map(({ voices, dynamics, hairpins }) => ({
+            measures: measures.map(({ voices, clef, dynamics, hairpins }) => ({
                 voices: voices.map(({ events }) => events.map(eventData)),
+                ...(clef && { clef }),
                 ...(dynamics?.length && {
                     dynamic: dynamics.map(({ offset, dynamic }) => ({ at: fractionText(offset), mark: dynamic })),
                 }),
@@ -303,6 +304,12 @@ function readHairpin(value: unknown, path: Path): Hairpin {
     return hairpin;
 }
 
+function readClef(value: unknown, path: Path): Clef {
+    const clef = string(value, path);
+    if (!isClef(clef)) fail(path, `"${clef}" isn't a clef (${CLEFS.join(', ')})`);
+    return clef;
+}
+
 function readPartMeasure(value: unknown, path: Path, key: KeySignature): PartMeasure {
     const data = object(value, path);
     const voices = array(data['voices'], `${path}.voices`);
@@ -311,6 +318,7 @@ function readPartMeasure(value: unknown, path: Path, key: KeySignature): PartMea
             events: array(voice, `${path}.voices[${v}]`).map((event, i) => readEvent(event, `${path}.voices[${v}][${i}]`, key)),
         })),
     };
+    if (data['clef'] !== undefined) partMeasure.clef = readClef(data['clef'], `${path}.clef`);
     // Version 2 called them volume
     const field = data['dynamic'] !== undefined ? 'dynamic' : 'volume';
     if (data[field] !== undefined) {
@@ -338,10 +346,12 @@ function readPart(value: unknown, path: Path, keys: KeySignature[]): Part {
     if (data['volume'] !== undefined) part.volume = integer(data['volume'], `${path}.volume`, 0, MAX_PART_VOLUME);
     if (data['muted'] === true) part.muted = true;
     if (data['solo'] === true) part.solo = true;
-    if (data['clef'] !== undefined) {
-        const clef = string(data['clef'], `${path}.clef`);
-        if (!CLEFS.includes(clef as Clef)) fail(`${path}.clef`, `"${clef}" isn't a clef (${CLEFS.join(' or ')})`);
-        part.clef = clef as Clef;
+    if (data['clef'] !== undefined) part.clef = readClef(data['clef'], `${path}.clef`);
+    // A clef set on the first measure is the one the part starts in
+    const first = part.measures[0];
+    if (first?.clef) {
+        part.clef = first.clef;
+        delete first.clef;
     }
     if (part.measures.length !== keys.length) {
         fail(`${path}.measures`, `has ${part.measures.length} measures but the score has ${keys.length}`);

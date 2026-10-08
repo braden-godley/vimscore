@@ -3,6 +3,7 @@ import { EditMode, EditorState, editorSelection, openMixer } from '../../service
 import { keyName } from '../../services/editor/keys';
 import { Command, isFileCommand } from '../../services/editor/CommandLine';
 import { Picker, filterPaths, pickerItems } from '../../services/editor/Picker';
+import { CLEFS, CLEF_NAMES, Clef } from '../../services/clef/Clef';
 import { Completion, completeCommandLine, completionText, cycleCompletion } from '../../services/editor/Completion';
 import { Mixer } from '../../services/editor/MixerMode';
 import { HelpView, matchesQuery } from '../../services/help/Help';
@@ -251,7 +252,7 @@ async function completeFileName(step: 1 | -1) {
 }
 
 /** A picker's heading, its list (a window of it around the selection), and a count beneath */
-function showPickerPanel(heading: string, query: string, rows: HTMLLIElement[], selected: number, count: string) {
+function showPickerPanel(heading: string, query: string | undefined, rows: HTMLLIElement[], selected: number, count: string) {
     const shown = 12;
     const first = Math.max(0, Math.min(selected - Math.floor(shown / 2), rows.length - shown));
     rows[selected]?.classList.add('selected');
@@ -262,7 +263,8 @@ function showPickerPanel(heading: string, query: string, rows: HTMLLIElement[], 
     }
     pickerPanel.replaceChildren(
         Object.assign(document.createElement('div'), { className: 'picker-heading', textContent: heading }),
-        Object.assign(document.createElement('div'), { className: 'picker-query', textContent: query }),
+        // Pickers with nothing to type have no filter to show
+        ...(query === undefined ? [] : [Object.assign(document.createElement('div'), { className: 'picker-query', textContent: query })]),
         list,
         Object.assign(document.createElement('div'), { className: 'picker-count', textContent: count }),
     );
@@ -284,11 +286,31 @@ function showRecentPicker(picker: Picker) {
     showPickerPanel('Open recent', picker.query, rows, picker.selected, count);
 }
 
+/** What sets each clef apart, beside its name */
+const CLEF_DETAILS: Record<Clef, string> = {
+    treble: 'G clef',
+    bass: 'F clef',
+    alto: 'C clef, middle C on the middle line',
+    percussion: 'neutral, for drums',
+    treble8va: 'sounds an octave higher',
+    bass8vb: 'sounds an octave lower',
+};
+
+/** `gs`: the clefs, for the cursor's part from its measure on */
+function showClefPicker(picker: Picker) {
+    const { composition, editor } = current.session;
+    const partName = composition.parts[editor.cursor.part]?.name ?? '';
+    const rows = CLEFS.map((clef) => pickerRow(CLEF_NAMES[clef], CLEF_DETAILS[clef]));
+    const heading = `Clef for ${partName} from measure ${editor.cursor.measure + 1}`;
+    showPickerPanel(heading, undefined, rows, picker.selected, 'j k to move, <CR> to choose');
+}
+
 /** The instrument list over the score while choosing, like a fuzzy finder */
 function showPicker(picker: Picker | undefined) {
     pickerPanel.hidden = !picker;
     if (!picker) return;
     if (picker.purpose === 'recent') return showRecentPicker(picker);
+    if (picker.purpose === 'clef') return showClefPicker(picker);
     const items = pickerItems(picker, instruments);
     const partName = current.session.composition.parts[current.session.editor.cursor.part]?.name ?? '';
     const heading = picker.purpose === 'addPart' ? 'New part' : `Instrument for ${partName}`;
@@ -355,7 +377,7 @@ function showParts(open: boolean) {
         ...composition.parts.map((part, i) => {
             const played = partInstrument(part);
             const name = instruments.find((instrument) => sameSound(instrument, played))?.name ?? played.name;
-            const row = pickerRow(`${i + 1}  ${part.name}`, `${name} · ${part.clef}`);
+            const row = pickerRow(`${i + 1}  ${part.name}`, `${name} · ${CLEF_NAMES[part.clef ?? 'treble']}`);
             if (i === editor.cursor.part) row.classList.add('selected');
             return row;
         }),

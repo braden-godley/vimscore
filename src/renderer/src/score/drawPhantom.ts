@@ -5,9 +5,9 @@
 
 import { Accidental, Dot, Formatter, Renderer, Stave, StaveNote, Voice } from 'vexflow/bravura';
 import { KeySignature } from '../../../services/key/KeySignature';
-import { Clef } from '../../../services/part/Part';
+import { Clef } from '../../../services/clef/Clef';
 import { Phantom } from '../../../services/phantom/Phantom';
-import { durationCode, keySpec, pitchKey } from './notation';
+import { VEX_CLEFS, durationCode, keySpec, pitchKey } from './notation';
 import { ScoreLayout, addArticulations, placeArticulations } from './renderScore';
 
 export interface PhantomPlace {
@@ -37,7 +37,8 @@ export function drawPhantom(container: HTMLElement, layout: ScoreLayout, phantom
         keys: [pitchKey(pitch)],
         duration: durationCode(duration),
         dots: duration.dots,
-        clef: place.clef,
+        clef: VEX_CLEFS[place.clef].clef,
+        octaveShift: VEX_CLEFS[place.clef].octaveShift,
         autoStem: true,
     });
     if (duration.dots) Dot.buildAndAttach([note], { all: true });

@@ -19,7 +19,7 @@ describe('addPart', () => {
 
     it('keeps a soundfont bank and drums', () => {
         const kit = addPart(exampleComposition, 0, { name: 'Standard', program: 0, bank: 128, drums: true });
-        expect(kit.parts[0]).toMatchObject({ name: 'Standard', bank: 128, drums: true, clef: 'treble' });
+        expect(kit.parts[0]).toMatchObject({ name: 'Standard', bank: 128, drums: true, clef: 'percussion' });
     });
 });
 
@@ -72,6 +72,30 @@ describe('setInstrument', () => {
 describe('renamePart and setClef', () => {
     it('change just that', () => {
         expect(renamePart(exampleComposition, 1, 'Left hand').parts[1]!.name).toBe('Left hand');
-        expect(setClef(exampleComposition, 0, 'bass').parts[0]!.clef).toBe('bass');
+        expect(setClef(exampleComposition, 0, 0, 'bass').parts[0]!.clef).toBe('bass');
+    });
+});
+
+describe('setClef', () => {
+    const clefs = (composition: typeof exampleComposition, part = 0) =>
+        [composition.parts[part]!.clef, ...composition.parts[part]!.measures.map(({ clef }) => clef)];
+
+    it('changes the clef from a measure on, keeping later changes', () => {
+        const changed = setClef(exampleComposition, 0, 1, 'treble8va');
+        expect(clefs(changed)).toEqual(['treble', undefined, 'treble8va', undefined]);
+        const later = setClef(changed, 0, 2, 'percussion');
+        expect(clefs(setClef(later, 0, 1, 'bass'))).toEqual(['treble', undefined, 'bass', 'percussion']);
+    });
+
+    it("drops changes that don't change anything", () => {
+        const changed = setClef(setClef(exampleComposition, 0, 1, 'bass'), 0, 2, 'treble');
+        expect(clefs(setClef(changed, 0, 1, 'treble'))).toEqual(['treble', undefined, undefined, undefined]);
+        // A new starting clef makes a change to it no change
+        expect(clefs(setClef(setClef(exampleComposition, 0, 2, 'bass8vb'), 0, 0, 'bass8vb'))).toEqual([
+            'bass8vb',
+            undefined,
+            undefined,
+            undefined,
+        ]);
     });
 });

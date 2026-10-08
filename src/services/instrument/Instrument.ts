@@ -67,12 +67,13 @@ export function generalMidiName(program: number): string {
 
 /**
  * Programs that sit low enough to be written in bass clef: the basses, cello, timpani, trombone,
- * tuba, bassoon and baritone sax. Everything else reads treble.
+ * tuba, bassoon and baritone sax. Drums get the percussion clef, and everything else reads treble.
  */
 const BASS_CLEF_PROGRAMS = new Set([32, 33, 34, 35, 36, 37, 38, 39, 42, 43, 47, 57, 58, 67, 70]);
 
 export function clefFor({ program, drums }: Instrument): Clef {
-    return !drums && BASS_CLEF_PROGRAMS.has(program) ? 'bass' : 'treble';
+    if (drums) return 'percussion';
+    return BASS_CLEF_PROGRAMS.has(program) ? 'bass' : 'treble';
 }
 
 /**

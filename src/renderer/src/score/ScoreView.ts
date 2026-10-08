@@ -3,6 +3,7 @@
  * CSS transform on the score, so moving between measures is smooth and needs no re-render.
  */
 
+import { clefAt } from '../../../services/clef/Clef';
 import { Composition } from '../../../services/composition/Composition';
 import { Cursor } from '../../../services/cursor/Cursor';
 import { toNumber } from '../../../services/fraction/Fraction';
@@ -148,7 +149,7 @@ export class ScoreView {
             part: cursor.part,
             measure: cursor.measure,
             x,
-            clef: this.composition.parts[cursor.part]?.clef ?? 'treble',
+            clef: clefAt(this.composition.parts[cursor.part] ?? { measures: [] }, cursor.measure),
             keySignature: resolveMeasures(this.composition.measures)[cursor.measure]?.keySignature ?? C_MAJOR,
         });
     }

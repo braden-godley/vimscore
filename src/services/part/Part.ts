@@ -2,13 +2,14 @@
  * A part is one instrument's line through the whole composition
  */
 
+import type { Clef } from '../clef/Clef';
 import { PartMeasure } from '../measure/Measure';
 
-export type Clef = 'treble' | 'bass';
+export type { Clef };
 
 export interface Part {
     name: string;
-    /** Defaults to treble */
+    /** The clef it starts in, treble when not set; measures can change it */
     clef?: Clef;
     /** Soundfont preset number, 0 to 127 */
     program: number;

@@ -3,7 +3,7 @@
 import { Duration } from '../duration/Duration';
 import { KeySignature } from '../key/KeySignature';
 import { TimeSignature } from '../measure/Measure';
-import { Clef } from '../part/Part';
+import { CLEFS, Clef, isClef } from '../clef/Clef';
 import { parseKeySignature, parseTempo, parseTimeSignature } from './MeasureValues';
 
 export type Command =
@@ -125,7 +125,6 @@ const NAMES: Record<string, Command['name']> = {
 /** The command a name typed after `:` stands for, like `w` for `write` */
 export const commandName = (typed: string): Command['name'] | undefined => NAMES[typed];
 
-const CLEFS: Clef[] = ['treble', 'bass'];
 
 export function parseCommand(text: string): Command | { error: string } {
     const match = /^\s*([a-z]+)(!?)\s*(.*?)\s*$/.exec(text);
@@ -161,7 +160,7 @@ export function parseCommand(text: string): Command | { error: string } {
         case 'title':
             return args ? { name, text: args } : { error: 'Title it what? :title Aqua Game' };
         case 'clef':
-            return CLEFS.includes(args as Clef) ? { name, clef: args as Clef } : { error: `Expected :clef ${CLEFS.join(' or ')}` };
+            return isClef(args) ? { name, clef: args } : { error: `Expected :clef ${CLEFS.join(', ')}` };
         case 'timeSignature': {
             const value = parseTimeSignature(args);
             return value ? { name, value } : { error: 'Expected a time signature, like :time 3/4' };

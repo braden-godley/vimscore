@@ -30,8 +30,8 @@ import { Chord, Event, Rest, glissandoTarget, leaves } from '../../../services/e
 import { ZERO, add, toNumber } from '../../../services/fraction/Fraction';
 import { ResolvedMeasure, TimeSignature, resolveMeasures } from '../../../services/measure/Measure';
 import { ARTICULATIONS, Articulation as ArticulationName } from '../../../services/note/Note';
-import { Clef } from '../../../services/part/Part';
-import { REST_KEYS, durationCode, keySpec, pitchKey } from './notation';
+import { Clef, resolveClefs } from '../../../services/clef/Clef';
+import { VEX_CLEFS, durationCode, keySpec, pitchKey, restKey } from './notation';
 import { midi } from '../../../services/pitch/Pitch';
 
 export const LEFT_MARGIN = 30;
@@ -160,10 +160,11 @@ interface BuiltVoice {
 function makeNote(event: Chord | Rest, clef: Clef, stemDirection: number | undefined): StaveNote {
     const { duration } = event;
     const note = new StaveNote({
-        keys: event.kind === 'chord' ? event.notes.map(({ pitch }) => pitchKey(pitch)) : [REST_KEYS[clef]],
+        keys: event.kind === 'chord' ? event.notes.map(({ pitch }) => pitchKey(pitch)) : [restKey(clef)],
         duration: durationCode(duration) + (event.kind === 'rest' ? 'r' : ''),
         dots: duration.dots,
-        clef,
+        clef: VEX_CLEFS[clef].clef,
+        octaveShift: VEX_CLEFS[clef].octaveShift,
         autoStem: stemDirection === undefined,
         stemDirection,
     });
@@ -276,7 +277,8 @@ export class ScoreCache {
 
 const sameInputs = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((input, i) => input === b[i]);
 
-function columnInputs(composition: Composition, resolved: ResolvedMeasure[], m: number): unknown[] {
+/** `clefs` is [part][measure], the clef in effect */
+function columnInputs(composition: Composition, resolved: ResolvedMeasure[], clefs: Clef[][], m: number): unknown[] {
     const { timeSignature, keySignature, tempo } = resolved[m]!;
     const previousKey = resolved[m - 1]?.keySignature;
     return [
@@ -284,13 +286,19 @@ function columnInputs(composition: Composition, resolved: ResolvedMeasure[], m: 
         composition.measures[m],
         // Inherited from earlier measures, so compared by value
         `${timeSignature.beats}/${timeSignature.beatValue} ${keySignature.fifths} ${previousKey?.fifths} ${tempo.bpm} ${tempo.beat.base}.${tempo.beat.dots}`,
-        ...composition.parts.flatMap((part) => [part.clef ?? 'treble', part.measures[m]]),
+        ...composition.parts.flatMap((part, p) => [clefs[p]![m], part.measures[m]]),
     ];
 }
 
-function buildColumn(composition: Composition, resolved: ResolvedMeasure[], m: number, inputs: unknown[]): Column {
+function buildColumn(
+    composition: Composition,
+    resolved: ResolvedMeasure[],
+    partClefs: Clef[][],
+    m: number,
+    inputs: unknown[],
+): Column {
     const { timeSignature, keySignature, tempo, length } = resolved[m]!;
-    const clefs = composition.parts.map((part) => part.clef ?? 'treble');
+    const clefs = partClefs.map((measureClefs) => measureClefs[m] ?? 'treble');
     const showTimeSignature = m === 0 || composition.measures[m]?.timeSignature !== undefined;
     const showKeySignature = m === 0 || composition.measures[m]?.keySignature !== undefined;
     const showTempo = m === 0 || composition.measures[m]?.tempo !== undefined;
@@ -302,7 +310,11 @@ function buildColumn(composition: Composition, resolved: ResolvedMeasure[], m: n
 
     const staves = composition.parts.map((_, p) => {
         const stave = new Stave(0, TOP_MARGIN + p * PART_SPACING, 0);
-        if (m === 0) stave.addClef(clefs[p]!);
+        // A clef starts the score, and a smaller one marks a change
+        if (m === 0 || composition.parts[p]!.measures[m]?.clef) {
+            const { clef, annotation } = VEX_CLEFS[clefs[p]!];
+            stave.addClef(clef, m === 0 ? 'default' : 'small', annotation);
+        }
         // A key change cancels the old key's sharps or flats with naturals
         const previousKey = resolved[m - 1]?.keySignature;
         if (showKeySignature) stave.addKeySignature(keySpec(keySignature), previousKey && keySpec(previousKey));
@@ -406,10 +418,11 @@ export function renderScore(target: ScoreTarget, composition: Composition, cache
     }
 
     const previous = cache.columns;
+    const clefs = composition.parts.map(resolveClefs);
     const columns = resolved.map((_, m) => {
-        const inputs = columnInputs(composition, resolved, m);
+        const inputs = columnInputs(composition, resolved, clefs, m);
         const old = previous[m];
-        return old && sameInputs(old.inputs, inputs) ? old : buildColumn(composition, resolved, m, inputs);
+        return old && sameInputs(old.inputs, inputs) ? old : buildColumn(composition, resolved, clefs, m, inputs);
     });
 
     // Room on the left for the longest staff name

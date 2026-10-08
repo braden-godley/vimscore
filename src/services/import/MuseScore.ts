@@ -31,7 +31,8 @@ import {
 } from '../measure/Measure';
 import { Articulation, Note, notePiece, withArticulation } from '../note/Note';
 import { fromTpc, spell } from '../pitch/Pitch';
-import { Clef, Part } from '../part/Part';
+import { Clef, withoutRepeatedClefs } from '../clef/Clef';
+import { Part } from '../part/Part';
 
 const DURATION_TYPES: Record<string, Duration['base']> = {
     whole: 1,
@@ -133,8 +134,12 @@ interface StaffSetup {
 
 function clefFromLetter(letter: string | undefined): Clef | undefined {
     if (!letter) return undefined;
+    if (letter === 'PERC' || letter === 'PERC2') return 'percussion';
+    if (letter === 'G8va') return 'treble8va';
+    if (letter === 'F8vb') return 'bass8vb';
+    if (letter === 'C3') return 'alto';
     if (letter.startsWith('F')) return 'bass';
-    // G, G8vb and so on; alto and tenor clefs aren't in the model, so they read as treble
+    // G, G8vb and so on; tenor and other C clefs aren't in the model, so they read as treble
     return 'treble';
 }
 
@@ -366,6 +371,8 @@ interface VoiceContents {
     keySignature?: KeySignature;
     tempo?: Tempo;
     clef?: Clef;
+    /** A clef after the last note, which MuseScore writes for a change at the next measure */
+    nextClef?: Clef;
     dynamics: DynamicMark[];
     hairpins: HairpinStart[];
     slurs: SlurStart[];
@@ -407,7 +414,11 @@ function readVoice(voice: Element, length: Fraction): VoiceContents {
                 contents.tempo = readTempo(element) ?? contents.tempo;
                 break;
             case 'Clef':
-                contents.clef = clefFromLetter(text(element, 'concertClefType')) ?? contents.clef;
+                if (compare(position, length) >= 0) {
+                    contents.nextClef = clefFromLetter(text(element, 'concertClefType')) ?? contents.nextClef;
+                } else {
+                    contents.clef = clefFromLetter(text(element, 'concertClefType')) ?? contents.clef;
+                }
                 break;
             case 'Dynamic': {
                 const dynamic = readDynamic(element);
@@ -509,6 +520,8 @@ function convertScore(score: Element): Composition {
     const infos: MeasureInfo[] = [];
     const partMeasures: PartMeasure[][] = staves.map(() => []);
     const clefs: (Clef | undefined)[] = staves.map(() => undefined);
+    /** Each staff's clef change written at the end of the measure before */
+    const nextClefs: (Clef | undefined)[] = staves.map(() => undefined);
     /** Each staff's hairpins by the measure they start in, placed once every measure's start is known */
     const hairpinStarts: HairpinStart[][][] = staves.map(() => []);
     /** Each staff's slurs by the measure they start in, likewise */
@@ -538,16 +551,21 @@ function convertScore(score: Element): Composition {
             // A staff missing the measure gets a measure of rest
             if (voices.length === 0) voices.push({ events: rests(length), dynamics: [], hairpins: [], slurs: [] });
 
+            let clef = nextClefs[s];
+            nextClefs[s] = undefined;
             for (const voice of voices) {
                 if (voice.keySignature && !info.keySignature) info.keySignature = voice.keySignature;
                 if (voice.tempo && !info.tempo) info.tempo = voice.tempo;
-                if (voice.clef && m === 0 && !clefs[s]) clefs[s] = voice.clef;
+                clef = voice.clef ?? clef;
+                nextClefs[s] ??= voice.nextClef;
             }
+            if (clef && m === 0) clefs[s] ??= clef;
             const dynamics = voices.flatMap((voice) => voice.dynamics).sort((a, b) => compare(a.offset, b.offset));
             hairpinStarts[s]!.push(voices.flatMap((voice) => voice.hairpins));
             slurStarts[s]!.push(voices.flatMap((voice, v) => voice.slurs.map((slur) => ({ ...slur, voice: v }))));
             partMeasures[s]!.push({
                 voices: voices.map(({ events }) => ({ events })),
+                ...(clef && m > 0 && { clef }),
                 ...(dynamics.length > 0 && { dynamics: dedupeByOffset(dynamics) }),
             });
         });
@@ -585,13 +603,14 @@ function convertScore(score: Element): Composition {
 
     const parts: Part[] = staves.map((staff, s) => {
         const setup = setups.get(staff.getAttribute('id') ?? '') ?? { name: `Staff ${s + 1}`, clef: 'treble', program: 0, drums: false };
-        return {
+        // Changes back to the clef already in effect aren't kept
+        return withoutRepeatedClefs({
             name: setup.name,
             clef: clefs[s] ?? setup.clef,
             program: setup.program,
             ...(setup.drums && { bank: 128, drums: true }),
             measures: partMeasures[s]!,
-        };
+        });
     });
 
     const title = children(score, 'metaTag').find((tag) => tag.getAttribute('name') === 'workTitle')?.textContent?.trim();

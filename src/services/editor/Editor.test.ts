@@ -330,6 +330,29 @@ describe('gs', () => {
     });
 });
 
+describe('gS', () => {
+    it("opens the clef picker on the clef at the cursor's measure", () => {
+        const opened = type(['}', 'g', 'S']);
+        expect(opened.state.mode).toBe('picker');
+        expect(opened.state.picker).toMatchObject({ purpose: 'clef', selected: 0 });
+        expect(type(['<C-j>', 'g', 'S']).state.picker).toMatchObject({ selected: 1 });
+    });
+
+    it('moves with j and k and changes the clef from the measure on with <CR>', () => {
+        const chosen = type(['}', 'g', 'S', 'j', 'j', 'j', 'j', 'k', '<CR>']);
+        expect(chosen.state.mode).toBe('normal');
+        const melody = chosen.composition!.parts[0]!;
+        expect([melody.clef, ...melody.measures.map(({ clef }) => clef)]).toEqual(['treble', undefined, 'percussion', undefined]);
+    });
+
+    it('wraps around, ignores other keys and changes nothing on <Esc>', () => {
+        expect(type(['g', 'S', 'k', 'x']).state.picker).toMatchObject({ selected: 5, query: '' });
+        const cancelled = type(['g', 'S', 'j', '<Esc>']);
+        expect(cancelled.state.mode).toBe('normal');
+        expect(cancelled.composition).toBeUndefined();
+    });
+});
+
 describe('(', () => {
     it("slurs the cursor's chord on to the next, or count chords on", () => {
         expect(written(type(['(']).composition!, 0, 0)).toBe('60,64,67/q( 55,59,62/q 60,64,67/h');
@@ -722,7 +745,9 @@ describe('parseCommand for parts', () => {
         expect(parseCommand('inst  string ens')).toEqual({ name: 'instrument', query: 'string ens' });
         expect(parseCommand('delpart')).toEqual({ name: 'deletePart' });
         expect(parseCommand('rename Violin I')).toEqual({ name: 'rename', text: 'Violin I' });
-        expect(parseCommand('clef alto')).toEqual({ error: 'Expected :clef treble or bass' });
+        expect(parseCommand('clef tenor')).toEqual({ error: 'Expected :clef treble, bass, alto, percussion, treble8va, bass8vb' });
+        expect(parseCommand('clef treble8va')).toEqual({ name: 'clef', clef: 'treble8va' });
+        expect(parseCommand('clef alto')).toEqual({ name: 'clef', clef: 'alto' });
         expect(parseCommand('rename')).toEqual({ error: 'Rename to what? :rename Violin I' });
         expect(parseCommand('title Aqua Game')).toEqual({ name: 'title', text: 'Aqua Game' });
         expect(parseCommand('title')).toEqual({ error: 'Title it what? :title Aqua Game' });

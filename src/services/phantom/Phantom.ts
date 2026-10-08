@@ -8,8 +8,8 @@ import { Cursor, cursorPitch, voiceLeaves } from '../cursor/Cursor';
 import { Duration } from '../duration/Duration';
 import { KeySignature } from '../key/KeySignature';
 import { Articulation, withArticulation, withoutArticulations } from '../note/Note';
-import { Clef } from '../part/Part';
-import { HIGHEST_MIDI, LOWEST_MIDI, Pitch, midi, pitch, scaleStep, transpose } from '../pitch/Pitch';
+import { MIDDLE_LINE_PITCH, clefAt } from '../clef/Clef';
+import { HIGHEST_MIDI, LOWEST_MIDI, Pitch, midi, scaleStep, transpose } from '../pitch/Pitch';
 
 /** Its articulations are what the note it places gets */
 export interface Phantom extends Partial<Record<Articulation, boolean>> {
@@ -17,16 +17,15 @@ export interface Phantom extends Partial<Record<Articulation, boolean>> {
     duration: Duration;
 }
 
-/** Where a phantom starts when the cursor is on a rest: the middle line of the stave */
-const MIDDLE_LINE_PITCH: Record<Clef, Pitch> = { treble: pitch('B4'), bass: pitch('D3') };
-
 const QUARTER: Duration = { base: 4, dots: 0 };
 const BASES: Duration['base'][] = [64, 32, 16, 8, 4, 2, 1];
 
 /** A phantom copying the pitch and written duration of the cursor's note */
 export function phantomAt(composition: Composition, cursor: Cursor): Phantom {
     const event = voiceLeaves(composition, cursor.part, cursor.measure, cursor.voice)[cursor.leaf]?.event;
-    const clef = composition.parts[cursor.part]?.clef ?? 'treble';
+    // On a rest it starts on the middle line of the stave
+    const part = composition.parts[cursor.part];
+    const clef = part ? clefAt(part, cursor.measure) : 'treble';
     return {
         pitch: cursorPitch(composition, cursor) ?? MIDDLE_LINE_PITCH[clef],
         duration: event?.duration ?? QUARTER,
