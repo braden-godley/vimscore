@@ -192,5 +192,5 @@ export async function exportMusanim(
         drawIntro(context, composition, seconds);
     };
 
-    return encodeVideo(audio, draw, onProgress);
+    return encodeVideo(audio, draw, onProgress, 60);
 }

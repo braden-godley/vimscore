@@ -176,7 +176,8 @@ FILES
 EXPORTING
     :export mp3 [file]       The audio, through the score's soundfonts
     :export mp4 [file]       A video of the score, following the music
-    :export musanim [file]   A video of the music as colored bars of light
+    :export musanim [file]   A video of the music as colored bars of light, at 60 frames a
+                             second
     :export midi [file]      A MIDI file (also :export mid)
 
     Without a file, it's written beside the score. Add ! to write over a file that's there.

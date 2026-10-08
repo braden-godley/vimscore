@@ -9,7 +9,6 @@ import { RenderedAudio } from '../../../services/export/renderAudio';
 
 export const WIDTH = 1920;
 export const HEIGHT = 1080;
-const FPS = 30;
 /**
  * Silence the AAC encoder puts before the sound, in samples. Starting the sound this far before
  * zero has the MP4 skip it; otherwise every note would play about 48ms late.
@@ -19,11 +18,12 @@ const AAC_PRIMING = 2112;
 /** Gives the page a moment to show progress */
 const breathe = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-/** A video as long as the sound, each frame drawn by `draw` at its time in seconds */
+/** A video as long as the sound at `fps` frames a second, each frame drawn by `draw` at its time in seconds */
 export async function encodeVideo(
     audio: RenderedAudio,
     draw: (context: CanvasRenderingContext2D, seconds: number) => void,
     onProgress: (fraction: number) => void,
+    fps = 30,
 ): Promise<Uint8Array> {
     const canvas = document.createElement('canvas');
     canvas.width = WIDTH;
@@ -36,19 +36,19 @@ export async function encodeVideo(
         { codec: 'aac', quality: new Quality('high') },
         { startTimestamp: -AAC_PRIMING / audio.sampleRate },
     );
-    output.addVideoTrack(video, { frameRate: FPS });
+    output.addVideoTrack(video, { frameRate: fps });
     output.addAudioTrack(sound);
     await output.start();
 
     const seconds = audio.left.length / audio.sampleRate;
-    const frames = Math.ceil(seconds * FPS);
+    const frames = Math.ceil(seconds * fps);
     for (let frame = 0; frame < frames; frame++) {
-        const time = frame / FPS;
+        const time = frame / fps;
         // A frame stays up for its whole span, so it shows the middle of it: drawn at its start,
         // everything would land up to a frame late
-        draw(context, time + 0.5 / FPS);
-        await video.add(time, 1 / FPS);
-        if (frame % FPS === 0) {
+        draw(context, time + 0.5 / fps);
+        await video.add(time, 1 / fps);
+        if (frame % fps === 0) {
             onProgress(0.95 * (frame / frames));
             await breathe();
         }
