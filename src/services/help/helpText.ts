@@ -79,6 +79,7 @@ EDITING IN NORMAL MODE
                       Notes under a slur with no other marking are held their full length
     vk  vj            The cursor's part a dynamic louder or softer from its beat on, or with a
                       count that many; back to the dynamic before takes it off (see DYNAMICS)
+    vd                Take the dynamic marking at the cursor's beat off
     <  >              A crescendo or diminuendo over the cursor's chord, and count - 1 after it
     rs  re            Put a repeat start or end barline at the cursor's measure, or take it away
     dd                Delete the cursor's note, keeping it to put back
@@ -226,6 +227,8 @@ DYNAMICS
     vk  vj          A dynamic louder or softer from the cursor's beat on, stopping at ff and
                     ppp; a count steps that many. Stepping back to the dynamic already in
                     effect takes the marking off
+    vd              Take the marking at the cursor's beat off, so the dynamic before it
+                    carries on
     <  >            A crescendo or diminuendo. It ramps to the dynamic marked where it ends,
                     or without one there, to one dynamic louder or softer
     g>  gv          An accent strikes 1.2 times as hard, a marcato 1.35 times, up to 127

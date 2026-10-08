@@ -400,6 +400,12 @@ describe('dynamic keys', () => {
         expect(type(['l', 'v', 'k', 'v', 'j']).composition).toEqual(startSession(exampleComposition).composition);
     });
 
+    it('vd takes the marking at the cursor beat off, and does nothing where there is none', () => {
+        const marked = type(['l', '2', 'v', 'k']);
+        expect(type(['v', 'd'], marked).composition).toEqual(startSession(exampleComposition).composition);
+        expect(type(['h', 'v', 'd'], marked).composition).toBe(marked.composition);
+    });
+
     it(':volume, :v and :gv are gone', () => {
         for (const command of ['volume 60', 'vol 60', 'v 80', 'gv 80']) {
             expect(type([':', ...command, '<CR>']).editor.commandLine?.error).toBe(`Not a command: ${command}`);

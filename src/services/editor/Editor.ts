@@ -22,7 +22,7 @@ import {
     transposeSelection,
 } from '../edit/Edit';
 import { Duration } from '../duration/Duration';
-import { ZERO, add, sub } from '../fraction/Fraction';
+import { ZERO, add, compare, sub } from '../fraction/Fraction';
 import { KeySignature } from '../key/KeySignature';
 import { HairpinKind, resolveMeasures } from '../measure/Measure';
 import {
@@ -55,7 +55,7 @@ import { LeafRef, Selection, VisualKind, selectedChordPitches, selectedLeaves, v
 import { setKeySignature, setTempo, setTimeSignature } from '../edit/MeasureChanges';
 import { addPart, deletePart, renamePart, setClef, setInstrument } from '../edit/Parts';
 import { toggleRepeat } from '../edit/Repeats';
-import { stepDynamicAt, toggleHairpin } from '../edit/Dynamics';
+import { setDynamic, stepDynamicAt, toggleHairpin } from '../edit/Dynamics';
 import { GENERAL_MIDI_INSTRUMENTS, Instrument } from '../instrument/Instrument';
 import { Command, EditCommand, isEditCommand, parseCommand } from './CommandLine';
 import { Picker, auditionPitch, filterPaths, listKey, pickerKey } from './Picker';
@@ -344,6 +344,14 @@ const stepDynamicAtCursor =
         return { state, composition: stepDynamicAt(composition, part, measure, offset, direction * count) };
     };
 
+/** `vd` takes the dynamic marking at the cursor's beat off its part */
+const removeDynamicAtCursor: Action = (state, composition) => {
+    const { part, measure } = state.cursor;
+    const offset = cursorOffset(composition, state.cursor);
+    const marked = composition.parts[part]?.measures[measure]?.dynamics?.some((mark) => compare(mark.offset, offset) === 0);
+    return marked ? { state, composition: setDynamic(composition, part, measure, offset, undefined) } : { state };
+};
+
 /** `<` crescendos and `>` diminuendos over the cursor's chord or rest and count - 1 after it */
 const hairpinFromCursor =
     (kind: HairpinKind): Action =>
@@ -378,6 +386,7 @@ const NORMAL_ACTIONS: Record<string, Action> = {
     '>': hairpinFromCursor('diminuendo'),
     vk: stepDynamicAtCursor(1),
     vj: stepDynamicAtCursor(-1),
+    vd: removeDynamicAtCursor,
     '<C-r>': (state, _, count = 1) => ({ state, history: { direction: 'redo', count } }),
     // Just the note under the cursor. A lone `d` or `y` waits for a motion
     dd: (state, composition) => {
