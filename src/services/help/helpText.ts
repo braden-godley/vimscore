@@ -104,8 +104,10 @@ EDITING IN NORMAL MODE
 
 INSERT MODES
     A green phantom note shows what <Space> will place. It starts as a copy of the note under
-    the cursor. In melody mode (a) the cursor moves on after each note, and the score grows
-    as it fills; in insert mode (i) it stays.
+    the cursor. On a rest it starts on the top note of the last chord before it in the voice,
+    or, with none before it, on the root of the key nearest the middle line of the stave. In
+    melody mode (a) the cursor moves on after each note, and the score grows as it fills; in
+    insert mode (i) it stays.
 
     <Space>           Place the phantom. If that pitch is there already with the same value and
                       articulation, it's removed instead. A chord has one value, so all of its
@@ -253,9 +255,9 @@ CLEFS
     MIDI drum on its own line or space with its own notehead, stems up, with no key
     signature or accidentals. The status bar names the phantom's drum, like Closed Hi-Hat
     F♯2. In insert mode, j and k move the phantom through the kit from line to line, drums
-    sharing a line in the order below, and on a rest it starts on the snare. J and K move
-    it through every MIDI sound the same way, taking in the sounds outside the kit, so the
-    phantom only ever moves the way you asked. The kit, with
+    sharing a line in the order below; on a rest with no drum before it, it starts on the
+    snare. J and K move it through every MIDI sound the same way, taking in the sounds
+    outside the kit, so the phantom only ever moves the way you asked. The kit, with
     lines and spaces named as in treble clef, from the bottom up, down the left column and
     then the right:
 

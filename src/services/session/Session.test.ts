@@ -153,7 +153,7 @@ describe('a new composition', () => {
         expect(written.composition.measures).toHaveLength(2);
         expect(written.composition.parts[0]!.measures[0]!.voices[0]!.events[0]).toMatchObject({
             kind: 'chord',
-            notes: [{ pitch: spell(71) }],
+            notes: [{ pitch: spell(72) }],
         });
     });
 });

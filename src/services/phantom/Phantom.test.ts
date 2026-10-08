@@ -13,10 +13,24 @@ import {
     toggleArticulation,
 } from './Phantom';
 import { Pitch, pitch, spell } from '../pitch/Pitch';
-import { drumName, drumNotation } from '../instrument/Drums';
+import { SNARE, drumName, drumNotation } from '../instrument/Drums';
+import { Composition } from '../composition/Composition';
+import { Event } from '../event/Event';
+import { Clef } from '../clef/Clef';
 
 const at = (part: number, measure: number, leaf: number, note = 0) => ({ part, measure, voice: 0, leaf, note });
 const quarterC: Phantom = { pitch: pitch('C4'), duration: { base: 4, dots: 0 } };
+/** One part of quarters in 4/4, each a chord of the pitches named or a rest (null) */
+function compose(fifths: number, clef: Clef, ...measures: (string[] | null)[][]): Composition {
+    const event = (notes: string[] | null): Event =>
+        notes ? { kind: 'chord', duration: quarterC.duration, notes: notes.map((name) => ({ pitch: pitch(name) })) } : { kind: 'rest', duration: quarterC.duration };
+    return {
+        title: 'Test',
+        measures: measures.map((_, i) => (i === 0 ? { keySignature: { fifths } } : {})),
+        parts: [{ name: 'Test', program: 0, clef, measures: measures.map((events) => ({ voices: [{ events: events.map(event) }] })) }],
+        soundfonts: [],
+    };
+}
 const toggleStaccato = (phantom: Phantom) => toggleArticulation(phantom, 'staccato');
 
 describe('phantomAt', () => {
@@ -27,8 +41,19 @@ describe('phantomAt', () => {
         expect(phantomAt(exampleComposition, at(1, 1, 0)).duration).toEqual({ base: 2, dots: 1 });
     });
 
-    it('starts on the middle line of the stave from a rest', () => {
-        expect(phantomAt(exampleComposition, at(0, 2, 3))).toEqual({ ...quarterC, pitch: pitch('B4'), duration: { base: 8, dots: 0 } });
+    it('starts on the top note of the last chord before a rest, across barlines', () => {
+        expect(phantomAt(exampleComposition, at(0, 2, 3))).toEqual({ ...quarterC, pitch: pitch('C5'), duration: { base: 8, dots: 0 } });
+        const rested = compose(0, 'treble', [['C4', 'G4'], null], [null]);
+        expect(phantomAt(rested, at(0, 0, 1)).pitch).toEqual(pitch('G4'));
+        expect(phantomAt(rested, at(0, 1, 0)).pitch).toEqual(pitch('G4'));
+    });
+
+    it("starts on the key's root nearest the middle line when nothing comes before a rest", () => {
+        expect(phantomAt(compose(0, 'treble', [null]), at(0, 0, 0)).pitch).toEqual(pitch('C5'));
+        expect(phantomAt(compose(2, 'treble', [null], [null]), at(0, 1, 0)).pitch).toEqual(pitch('D5'));
+        expect(phantomAt(compose(-2, 'treble', [null]), at(0, 0, 0)).pitch).toEqual(pitch('Bb4'));
+        expect(phantomAt(compose(-1, 'bass', [null]), at(0, 0, 0)).pitch).toEqual(pitch('F3'));
+        expect(phantomAt(compose(0, 'percussion', [null]), at(0, 0, 0)).pitch).toEqual(SNARE);
     });
 });
 
