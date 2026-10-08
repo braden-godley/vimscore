@@ -58,6 +58,17 @@ export function pitchRange(notes: TimedNote[], minSpan = 24, padding = 2): { low
 }
 
 /**
+ * The rows of the drum band, one for each drum sound the drum parts play: which row each note
+ * number is drawn on, counting down from the top, with the lowest number (the kick, usually)
+ * at the bottom. A kit's note numbers name drums rather than pitches, so they get evenly
+ * spaced rows of their own instead of places on the pitch scale.
+ */
+export function drumRows(notes: TimedNote[]): Map<number, number> {
+    const sounds = [...new Set(notes.map(({ pitch }) => pitch))].sort((a, b) => b - a);
+    return new Map(sounds.map((pitch, row) => [pitch, row]));
+}
+
+/**
  * The notes sounding at any time between `from` and `to`, from notes sorted by start (as the
  * timeline gives them). `longest` is the longest note's duration, so the search can start
  * where nothing before could still be sounding.

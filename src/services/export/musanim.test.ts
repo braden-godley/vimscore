@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TimedNote } from '../timeline/timeline';
-import { lighten, notesBetween, partColor, pitchRange, unwarp, warp } from './musanim';
+import { drumRows, lighten, notesBetween, partColor, pitchRange, unwarp, warp } from './musanim';
 
 const note = (pitch: number, start: number, duration: number): TimedNote => ({ part: 0, pitch, start, duration, velocity: 127 });
 
@@ -29,6 +29,21 @@ describe('pitchRange', () => {
 
     it('has somewhere to be with no notes', () => {
         expect(pitchRange([])).toEqual({ low: 48, high: 72 });
+    });
+});
+
+describe('drumRows', () => {
+    it('gives each drum sound a row, the lowest number at the bottom', () => {
+        const rows = drumRows([note(42, 0, 1), note(36, 0, 1), note(38, 1, 1), note(42, 1, 1)]);
+        expect([...rows]).toEqual([
+            [42, 0],
+            [38, 1],
+            [36, 2],
+        ]);
+    });
+
+    it('has no rows without drums', () => {
+        expect(drumRows([]).size).toBe(0);
     });
 });
 

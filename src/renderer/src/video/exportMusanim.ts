@@ -4,12 +4,13 @@
  * light as long as it sounds, scrolling right to left past the middle of the frame. Notes
  * drift in from the right, speed up through the middle, stretching out as they go, and slow
  * again as they leave. A note sparkles where it sounds, flaring as it starts, and dims once
- * it's passed. The edges of the frame fade to black, so notes glow in and out of view. The
- * title and the parts' names show at the start, then fade away.
+ * it's passed. Drum parts play in a band of their own along the bottom, a row for each drum.
+ * The edges of the frame fade to black, so notes glow in and out of view. The title and the
+ * parts' names show at the start, then fade away.
  */
 
 import { Composition } from '../../../services/composition/Composition';
-import { Rgb, lighten, notesBetween, partColor, pitchRange, unwarp, warp } from '../../../services/export/musanim';
+import { Rgb, drumRows, lighten, notesBetween, partColor, pitchRange, unwarp, warp } from '../../../services/export/musanim';
 import { RenderedAudio } from '../../../services/export/renderAudio';
 import { TimedNote, timeline } from '../../../services/timeline/timeline';
 import { HEIGHT, WIDTH, encodeVideo } from './encode';
@@ -24,6 +25,9 @@ const CENTER_SPEED = 440;
  */
 const REACH = NOW_X * 1.3;
 const MARGIN = 48;
+/** The height of the band along the bottom the drums play in, and the space above it */
+const DRUM_BAND = HEIGHT * 0.12;
+const DRUM_GAP = 24;
 /** How far in from each side the frame fades up from black */
 const EDGE_FADE = 380;
 /** How quickly the flare as a note starts dies down, in seconds */
@@ -116,18 +120,32 @@ export async function exportMusanim(
 ): Promise<Uint8Array> {
     const notes = timeline(composition).filter(({ duration }) => duration > 0);
     const longest = Math.max(0, ...notes.map(({ duration }) => duration));
-    const { low, high } = pitchRange(notes);
-    const row = (HEIGHT - 2 * MARGIN) / (high - low + 1);
-    /** A star's glow, and how thick its tail starts */
-    const radius = Math.max(8, Math.min(30, row * 1.4));
-    const tail = Math.max(2, Math.min(10, row * 0.45));
+    const drumParts = composition.parts.map(({ drums }) => drums ?? false);
+    const isDrum = (note: TimedNote) => drumParts[note.part] ?? false;
+    const { low, high } = pitchRange(notes.filter((note) => !isDrum(note)));
+    const drumRow = drumRows(notes.filter(isDrum));
+    // The drums take the bottom of the frame, if there are any
+    const drumTop = drumRow.size > 0 ? HEIGHT - MARGIN - DRUM_BAND : HEIGHT - MARGIN + DRUM_GAP;
+    const row = (drumTop - DRUM_GAP - MARGIN) / (high - low + 1);
+    const drumHeight = DRUM_BAND / Math.max(1, drumRow.size);
+    /** A star's glow, and how thick its tail starts, for rows `height` pixels apart */
+    const sizes = (height: number) => ({
+        radius: Math.max(8, Math.min(30, height * 1.4)),
+        tail: Math.max(2, Math.min(10, height * 0.45)),
+    });
+    const pitchedSizes = sizes(row);
+    // No bigger than the pitched notes, so the drums don't drown them out
+    const drumSizes = sizes(Math.min(row, drumHeight));
     const colors = composition.parts.map((_, p) => partColor(p));
     const glows = colors.map(glowSprite);
     const sparkles = colors.map(sparkleSprite);
 
     /** Where on the frame a moment is drawn, at a time */
     const xAt = (moment: number, seconds: number) => NOW_X + warp(moment - seconds, CENTER_SPEED, REACH);
-    const yOf = (pitch: number) => MARGIN + (high - pitch + 0.5) * row;
+    const yOf = (note: TimedNote) =>
+        isDrum(note)
+            ? drumTop + ((drumRow.get(note.pitch) ?? 0) + 0.5) * drumHeight
+            : MARGIN + (high - note.pitch + 0.5) * row;
     // How far either side of now the frame shows
     const shown = unwarp(NOW_X, CENTER_SPEED, REACH);
 
@@ -150,7 +168,8 @@ export async function exportMusanim(
             const color = colors[note.part] ?? [255, 255, 255];
             const start = xAt(note.start, seconds);
             const end = xAt(note.start + note.duration, seconds);
-            const y = yOf(note.pitch);
+            const y = yOf(note);
+            const { radius, tail } = isDrum(note) ? drumSizes : pitchedSizes;
             const sounding = note.start <= seconds && seconds < note.start + note.duration;
             // Quieter notes are a little dimmer; played ones fade back
             const loudness = 0.55 + 0.45 * (note.velocity / 127);
