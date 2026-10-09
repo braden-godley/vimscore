@@ -71,3 +71,17 @@ export function nextPlayedMeasure(played: PlayedMeasure[], index: number): Playe
     if (!from) return played[0];
     return played.slice(index + 1).find(({ measure }) => measure > from.measure);
 }
+
+/** How long the whole score takes to play, in seconds, to the end of its last measure */
+export function performanceSeconds(played: PlayedMeasure[]): number {
+    const last = played[played.length - 1];
+    return last ? last.startSeconds + last.seconds : 0;
+}
+
+/** Seconds as a clock reads, like 1:30, or 1:02:05 past an hour; parts of a second are dropped */
+export function clockTime(seconds: number): string {
+    const whole = Math.max(0, Math.floor(seconds + 1e-9));
+    const [h, m, s] = [Math.floor(whole / 3600), Math.floor(whole / 60) % 60, whole % 60];
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+}

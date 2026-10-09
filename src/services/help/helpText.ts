@@ -11,7 +11,8 @@ DESCRIPTION
     Notes are entered and edited from the keyboard in modes, like vim. Normal mode moves the
     cursor and edits what's under it, the insert modes enter notes, the visual modes select,
     and the : command line does everything else. The status bar shows the mode, the keys typed
-    so far, and the cursor's part and measure.
+    so far, the cursor's part and measure, and how far into the score it is out of how long
+    the score takes to play, like 0:30 / 1:30. In a repeat, that's the first time through.
 
     Keys are written in vim notation: <C-d> is Ctrl-D, <S-Space> is Shift-Space, <CR> is
     Enter, <Esc> is Escape (Ctrl-[ works too). Most commands take a count typed before them,
@@ -38,6 +39,9 @@ MOVING
 
 PLAYING
     <Space>           Play from the cursor
+    While playing, the status bar shows the measure playing and how far into the score it is,
+    counting repeats as they're played, out of how long the score takes, like 0:30 / 1:30.
+    Skipping repeats leaves them out of both.
     While playing:
     <Space>  <Esc>    Stop
     r                 Skip repeats, or play them again. Playback carries on from the same

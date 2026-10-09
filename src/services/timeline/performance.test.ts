@@ -5,7 +5,15 @@ import { toggleRepeat } from '../edit/Repeats';
 import { setTimeSignature } from '../edit/MeasureChanges';
 import { readScore, writeScore } from '../file/ScoreFile';
 import { MeasureInfo } from '../measure/Measure';
-import { PlayedMeasure, nextPlayedMeasure, performance, performanceOrder, playedMeasureAt } from './performance';
+import {
+    PlayedMeasure,
+    clockTime,
+    nextPlayedMeasure,
+    performance,
+    performanceOrder,
+    performanceSeconds,
+    playedMeasureAt,
+} from './performance';
 import { timeline } from './timeline';
 
 const bars = (count: number, marks: Record<number, MeasureInfo> = {}): MeasureInfo[] =>
@@ -104,5 +112,34 @@ describe('repeat marks', () => {
         expect(changed.measures[0]).toMatchObject({ repeatStart: true });
         expect(changed.measures[0]?.repeatEnd).toBeUndefined();
         expect(changed.measures[1]).toMatchObject({ repeatEnd: true });
+    });
+});
+
+describe('performanceSeconds', () => {
+    it('runs to the end of the last measure played', () => {
+        const played: PlayedMeasure[] = [
+            { measure: 0, startSeconds: 0, seconds: 2 },
+            { measure: 1, startSeconds: 2, seconds: 3 },
+        ];
+        expect(performanceSeconds(played)).toBe(5);
+        expect(performanceSeconds([])).toBe(0);
+    });
+
+    it('counts repeats unless they are skipped', () => {
+        const repeated = toggleRepeat(exampleComposition, 0, 'end');
+        const once = performanceSeconds(performance(repeated, { skipRepeats: true }));
+        expect(performanceSeconds(performance(repeated))).toBeGreaterThan(once);
+    });
+});
+
+describe('clockTime', () => {
+    it('reads minutes and seconds, dropping parts of a second', () => {
+        expect(clockTime(0)).toBe('0:00');
+        expect(clockTime(30.9)).toBe('0:30');
+        expect(clockTime(90)).toBe('1:30');
+    });
+
+    it('reads hours past an hour', () => {
+        expect(clockTime(3725)).toBe('1:02:05');
     });
 });

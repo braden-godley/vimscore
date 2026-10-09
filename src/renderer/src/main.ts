@@ -15,7 +15,14 @@ import { Composition, newComposition } from '../../services/composition/Composit
 import { addSoundfont, describeSoundfonts, findSoundfont, soundfontName } from '../../services/soundfont/Soundfont';
 import { GENERAL_MIDI_INSTRUMENTS, Instrument, partInstrument, sameSound } from '../../services/instrument/Instrument';
 import { resolveMeasures, secondsPerWholeNote } from '../../services/measure/Measure';
-import { PlayedMeasure, nextPlayedMeasure, performance, playedMeasureAt } from '../../services/timeline/performance';
+import {
+    PlayedMeasure,
+    clockTime,
+    nextPlayedMeasure,
+    performance,
+    performanceSeconds,
+    playedMeasureAt,
+} from '../../services/timeline/performance';
 import { Player } from '../../services/player/Player';
 import { sessionEdit, sessionKey } from '../../services/session/Session';
 import { ToneSynth } from '../../services/synth/ToneSynth';
@@ -463,6 +470,9 @@ function showComposition() {
 /** `z` shows every staff at once while editing; playback always does */
 let zoomedOut = false;
 
+/** How far into the score a moment is, and how long it all takes, like 0:30 / 1:30 */
+const timeIn = (seconds: number) => `${clockTime(seconds)} / ${clockTime(performanceSeconds(played))}`;
+
 function showEditing() {
     showTitle();
     view.fitHeight(zoomedOut);
@@ -485,7 +495,9 @@ function showEditing() {
         return;
     }
     const part = composition.parts[cursor.part];
-    const place = `${part?.name ?? ''}  m${cursor.measure + 1}`;
+    // The first time the cursor's measure is played
+    const time = timeIn(cursorSeconds(composition, cursor, { skipRepeats }));
+    const place = `${part?.name ?? ''}  m${cursor.measure + 1}  ${time}`;
     const clef = part && clefAt(part, cursor.measure);
     positionLabel.textContent = editor.phantom ? `${describePhantom(editor.phantom, clef)}  ${place}` : place;
 
@@ -509,7 +521,7 @@ function followPlayback() {
     const { tempo } = measures[measure]!;
     view.setPlayhead({ measure, time: (seconds - startSeconds) / secondsPerWholeNote(tempo) });
     view.centerOn(measure);
-    positionLabel.textContent = `m${measure + 1}`;
+    positionLabel.textContent = `m${measure + 1}  ${timeIn(seconds)}`;
     requestAnimationFrame(followPlayback);
 }
 
