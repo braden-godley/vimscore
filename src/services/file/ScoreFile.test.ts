@@ -27,6 +27,12 @@ describe('writeScore and readScore', () => {
         expect(writeScore(changed)).toContain('"clef": "bass8vb"');
     });
 
+    it('keep the swing, leaving straight unwritten', () => {
+        expect(readScore(writeScore({ ...exampleComposition, swing: 6 }))).toEqual({ ...exampleComposition, swing: 6 });
+        expect(writeScore(exampleComposition)).not.toContain('swing');
+        expect(readScore(writeScore({ ...exampleComposition, swing: 11 }))).toEqual({ error: expect.stringContaining('swing') });
+    });
+
     it('keep the mixer’s volumes, leaving normal unwritten', () => {
         const mixed = { ...exampleComposition, volume: 80, parts: exampleComposition.parts.map((part, i) => (i === 0 ? { ...part, volume: 120 } : part)) };
         expect(readScore(writeScore(mixed))).toEqual(mixed);

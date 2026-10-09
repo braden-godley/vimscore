@@ -4,6 +4,7 @@
  * - Measures, holding what all parts share: time signature and tempo
  * - Parts, each holding its own contents for every measure
  * - Soundfonts, in priority order
+ * - How much its eighths swing
  */
 
 import { durationsFilling } from '../duration/Duration';
@@ -21,7 +22,12 @@ export interface Composition {
     soundfonts: Soundfont[];
     /** The mixer's master volume over every part, in percent (0 to 100); 100 when not set */
     volume?: number;
+    /** How much eighth notes swing when played, 0 (straight) to MAX_SWING; straight when not set */
+    swing?: number;
 }
+
+/** The most swing `:swing` takes */
+export const MAX_SWING = 10;
 
 /**
  * A blank score to start from: a piano's treble and bass staves, with nothing in them yet. With no

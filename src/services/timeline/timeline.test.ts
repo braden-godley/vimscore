@@ -4,7 +4,7 @@ import { exampleComposition } from '../composition/example-composition';
 import { Duration } from '../duration/Duration';
 import { Chord, Event } from '../event/Event';
 import { Note } from '../note/Note';
-import { ARPEGGIO_STEP, MARCATO_LENGTH, NOTE_LENGTH, SLURRED_LENGTH, TimedNote, timeline } from './timeline';
+import { ARPEGGIO_STEP, swingRatio, MARCATO_LENGTH, NOTE_LENGTH, SLURRED_LENGTH, TimedNote, timeline } from './timeline';
 import { spell } from '../pitch/Pitch';
 
 const quarter: Duration = { base: 4, dots: 0 };
@@ -204,5 +204,31 @@ describe('timeline', () => {
         expect(rounded(intoRest)).toEqual([{ pitch: 60, start: 0, duration: NOTE_LENGTH }]);
         const semitone = timeline(compose([[chord(quarter, { pitch: spell(60), glissando: true }), chord(quarter, { pitch: spell(61) })]]));
         expect(rounded(semitone).map(({ pitch }) => pitch)).toEqual([60, 61]);
+    });
+
+    it('swings eighths, stretching the first of each pair', () => {
+        const ratio = swingRatio(10);
+        expect(ratio).toBe(0.75);
+        const eighths = compose([[chord(eighth, { pitch: spell(60) }), chord(eighth, { pitch: spell(62) }), chord(quarter, { pitch: spell(64) })]]);
+        expect(rounded(timeline({ ...eighths, swing: 10 }))).toEqual([
+            { pitch: 60, start: 0, duration: round(ratio * NOTE_LENGTH) },
+            { pitch: 62, start: ratio, duration: round((1 - ratio) * NOTE_LENGTH) },
+            { pitch: 64, start: 1, duration: NOTE_LENGTH },
+        ]);
+        expect(rounded(timeline({ ...eighths, swing: 0 }))).toEqual(rounded(timeline(eighths)));
+    });
+
+    it('leaves quarters, triplets and time signatures counting eighths straight', () => {
+        const triplet: Event = {
+            kind: 'tuplet',
+            actual: 3,
+            normal: 2,
+            events: [chord(eighth, { pitch: spell(60) }), chord(eighth, { pitch: spell(62) }), chord(eighth, { pitch: spell(64) })],
+        };
+        const straight = compose([[chord(quarter, { pitch: spell(60) }), triplet]]);
+        expect(rounded(timeline({ ...straight, swing: 10 }))).toEqual(rounded(timeline(straight)));
+        const sixEight = compose([[chord(eighth, { pitch: spell(60) }), chord(eighth, { pitch: spell(62) })]]);
+        sixEight.measures[0]!.timeSignature = { beats: 6, beatValue: 8 };
+        expect(rounded(timeline({ ...sixEight, swing: 10 }))).toEqual(rounded(timeline(sixEight)));
     });
 });

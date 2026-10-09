@@ -1,4 +1,4 @@
-import { Composition } from '../composition/Composition';
+import { Composition, MAX_SWING } from '../composition/Composition';
 import { Chord, glissandoTarget, leaves } from '../event/Event';
 import { Fraction, ZERO, add, compare, sub, toNumber } from '../fraction/Fraction';
 import {
@@ -8,7 +8,7 @@ import {
     SOFTEST_VELOCITY,
     dynamicVelocity,
 } from '../dynamic/Dynamic';
-import { HairpinKind, ResolvedMeasure, resolveMeasures, secondsPerWholeNote } from '../measure/Measure';
+import { HairpinKind, ResolvedMeasure, Voice, resolveMeasures, secondsPerWholeNote } from '../measure/Measure';
 import { Note } from '../note/Note';
 import { Part } from '../part/Part';
 import { PerformanceOptions, performance } from './performance';
@@ -115,6 +115,40 @@ function arpeggioStep(notes: number, seconds: number): number {
     return notes < 2 ? 0 : Math.min(ARPEGGIO_STEP, seconds / 2 / (notes - 1));
 }
 
+/**
+ * How much of a beat a swung pair of eighths gives the first: half when straight, up to three
+ * quarters (a dotted eighth and a sixteenth) at the most swing. About 7 is triplet swing.
+ */
+export function swingRatio(swing: number): number {
+    return 0.5 + (0.25 * Math.max(0, Math.min(MAX_SWING, swing))) / MAX_SWING;
+}
+
+/**
+ * Where a moment in a voice's measure (in whole notes from its start) is played once swung.
+ * Swing goes by quarter-note beats, so it only applies in time signatures counting quarters or
+ * halves, and only to the beats where something in the voice starts on the eighth between:
+ * there, the first half of the beat is stretched and the second squeezed. Quarter notes and
+ * triplets play straight, and sixteenths are swung along with the eighths they fill.
+ */
+function swungTime(measure: ResolvedMeasure, voice: Voice, ratio: number): (offset: Fraction) => number {
+    if (ratio === 0.5 || measure.timeSignature.beatValue > 4) return toNumber;
+    const swung = new Set<number>();
+    let offset = ZERO;
+    for (const { length } of leaves(voice.events)) {
+        // An odd number of eighths in is between the beats
+        if (offset.den === 8) swung.add(Math.floor(toNumber(offset) * 4));
+        offset = add(offset, length);
+    }
+    return (at) => {
+        const time = toNumber(at);
+        const beat = Math.floor(time * 4);
+        if (!swung.has(beat)) return time;
+        const into = time - beat / 4;
+        const swungInto = into < 1 / 8 ? into * 2 * ratio : ratio / 4 + (into - 1 / 8) * 2 * (1 - ratio);
+        return beat / 4 + swungInto;
+    };
+}
+
 /** A note sliding on to the next chord in its voice, waiting to find out where it lands */
 interface Glide {
     timed: TimedNote;
@@ -149,11 +183,12 @@ function slide({ timed, from, to }: Glide, target: number): TimedNote[] {
  * under a slur), tenuto ones all of it, staccato ones half (three quarters with tenuto) and
  * marcatos a little short, accents and marcatos are struck louder, an arpeggio's notes come in
  * one after another from the bottom, all ending together, and a glissando runs through the
- * semitones on the way to its next note.
+ * semitones on the way to its next note. Eighths are swung as much as the composition asks.
  */
 export function timeline(composition: Composition, options: PerformanceOptions = {}): TimedNote[] {
     const measures = resolveMeasures(composition.measures);
     const played = performance(composition, options);
+    const ratio = swingRatio(composition.swing ?? 0);
     const notes: TimedNote[] = [];
 
     for (const [partIndex, part] of composition.parts.entries()) {
@@ -185,11 +220,12 @@ export function timeline(composition: Composition, options: PerformanceOptions =
             }
 
             partMeasure.voices.forEach((voice, voiceIndex) => {
+                const time = swungTime(measure, voice, ratio);
                 let offset = ZERO;
 
                 for (const { event, length } of leaves(voice.events)) {
-                    const start = startSeconds + toNumber(offset) * secondsPerWhole;
-                    const seconds = toNumber(length) * secondsPerWhole;
+                    const start = startSeconds + time(offset) * secondsPerWhole;
+                    const seconds = startSeconds + time(add(offset, length)) * secondsPerWhole - start;
                     const tiedIn = tiedByVoice.get(voiceIndex);
                     const tiedOut = new Map<number, TimedNote>();
                     const glides: Glide[] = [];

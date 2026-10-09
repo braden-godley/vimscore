@@ -4,6 +4,7 @@ import { Duration } from '../duration/Duration';
 import { KeySignature } from '../key/KeySignature';
 import { TimeSignature } from '../measure/Measure';
 import { CLEFS, Clef, isClef } from '../clef/Clef';
+import { MAX_SWING } from '../composition/Composition';
 import { parseKeySignature, parseTempo, parseTimeSignature } from './MeasureValues';
 
 export type Command =
@@ -42,6 +43,8 @@ export type Command =
     | { name: 'keySignature'; value: KeySignature }
     /** Without a beat, the tempo keeps counting the one it had */
     | { name: 'tempo'; bpm: number; beat?: Duration }
+    /** `:swing 0` plays eighths straight, up to `:swing 10` for the most swing, over the whole score */
+    | { name: 'swing'; amount: number }
     /** `:mixer` opens the mixer, to set every part's volume */
     | { name: 'mixer' }
     /** `:recent [filter]` picks a score opened before, to open again */
@@ -69,6 +72,7 @@ const EDIT_COMMANDS = [
     'timeSignature',
     'keySignature',
     'tempo',
+    'swing',
     'mixer',
     'recent',
     'help',
@@ -115,6 +119,7 @@ const NAMES: Record<string, Command['name']> = {
     time: 'timeSignature',
     key: 'keySignature',
     tempo: 'tempo',
+    swing: 'swing',
     mixer: 'mixer',
     mix: 'mixer',
     recent: 'recent',
@@ -172,6 +177,10 @@ export function parseCommand(text: string): Command | { error: string } {
         case 'tempo': {
             const value = parseTempo(args);
             return value ? { name, ...value } : { error: 'Expected a tempo, like :tempo 120 or :tempo q.=60' };
+        }
+        case 'swing': {
+            const amount = /^\d+$/.test(args) ? Number(args) : NaN;
+            return amount <= MAX_SWING ? { name, amount } : { error: `Expected :swing 0 (straight) to ${MAX_SWING}` };
         }
         case 'export': {
             const [typed = '', ...rest] = args.split(/\s+/);

@@ -9,7 +9,7 @@
  */
 
 import { MAX_MASTER_VOLUME, MAX_PART_VOLUME } from '../edit/Mixer';
-import { Composition } from '../composition/Composition';
+import { Composition, MAX_SWING } from '../composition/Composition';
 import { Duration } from '../duration/Duration';
 import { Chord, Event } from '../event/Event';
 import { Fraction, fraction } from '../fraction/Fraction';
@@ -122,6 +122,7 @@ export function writeScore(composition: Composition): string {
         ...(composition.soundfonts.length && { soundfonts: composition.soundfonts.map(({ filePath }) => filePath) }),
         measures: composition.measures.map(measureInfoData),
         ...(composition.volume !== undefined && { volume: composition.volume }),
+        ...(composition.swing !== undefined && { swing: composition.swing }),
         parts: composition.parts.map(({ name, clef, program, bank, drums, soundfont, volume, muted, solo, measures }) => ({
             name,
             ...(clef && { clef }),
@@ -392,6 +393,7 @@ export function readScore(text: string): Composition | { error: string } {
             parts: array(data['parts'], 'parts').map((part, i) => readPart(part, `parts[${i}]`, keys)),
             soundfonts: readSoundfonts(data),
             ...(data['volume'] !== undefined && { volume: integer(data['volume'], 'volume', 0, MAX_MASTER_VOLUME) }),
+            ...(data['swing'] !== undefined && { swing: integer(data['swing'], 'swing', 0, MAX_SWING) }),
         };
     } catch (error) {
         if (error instanceof ReadError) return { error: error.message };

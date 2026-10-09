@@ -285,6 +285,12 @@ THE SCORE
     :key D          A key from the cursor's measure on: :key Bb, :key F#m, :key 2#, :key 3b
     :tempo 120      A tempo from the cursor's measure on, counting the beat it had there.
                     :tempo q.=60 names the beat: w h q e s for whole to sixteenth, . to dot it
+    :swing 5        Swing the eighths when playing, from 0 (straight) to 10 (a dotted eighth
+                    and a sixteenth); about 7 is triplet swing. It's for the whole score and
+                    saved with it, and exports play it too. Only beats with a note starting on
+                    the eighth between swing, so quarters and triplets stay straight, and
+                    sixteenths swing along with them. Time signatures counting eighths, like
+                    6/8, play straight
 
 DYNAMICS
     Each part plays at a dynamic, which sets how hard its notes are struck (their MIDI

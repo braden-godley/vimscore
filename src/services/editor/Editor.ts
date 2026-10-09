@@ -786,6 +786,12 @@ function runEditCommand(composition: Composition, state: EditorState, command: E
             if (!beat) return { state };
             return { state, composition: setTempo(composition, measure, { bpm: command.bpm, beat }) };
         }
+        case 'swing': {
+            if ((composition.swing ?? 0) === command.amount) return { state };
+            // Straight is left unwritten
+            const { swing: _, ...rest } = composition;
+            return { state, composition: command.amount === 0 ? rest : { ...rest, swing: command.amount } };
+        }
         case 'mixer':
             return { state: openMixer(state) };
         case 'parts':

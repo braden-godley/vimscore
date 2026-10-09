@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { Composition } from '../composition/Composition';
 import { exampleComposition } from '../composition/example-composition';
 import { Cursor } from '../cursor/Cursor';
 import { Chord } from '../event/Event';
@@ -776,6 +777,28 @@ describe('parseCommand for parts', () => {
         expect(parseCommand('delsf')).toEqual({ error: 'Remove which? :delsf 2, or :delsf and its name' });
         expect(parseCommand('soundfonts')).toEqual({ name: 'listSoundfonts' });
         expect(parseCommand('sfs x')).toEqual({ error: ':sfs takes nothing after it' });
+    });
+});
+
+describe(':swing', () => {
+    it('reads 0 to 10', () => {
+        expect(parseCommand('swing 7')).toEqual({ name: 'swing', amount: 7 });
+        expect(parseCommand('swing 0')).toEqual({ name: 'swing', amount: 0 });
+        for (const bad of ['swing', 'swing 11', 'swing -1', 'swing 2.5', 'swing lots']) {
+            expect(parseCommand(bad)).toEqual({ error: 'Expected :swing 0 (straight) to 10' });
+        }
+    });
+
+    it('swings the whole score, leaving straight unwritten', () => {
+        const swing = (composition: Composition, amount: string) => {
+            let result: KeyResult = { state: initialEditorState(composition) };
+            for (const key of [':', ...`swing ${amount}`, '<CR>']) result = handleKey(composition, result.state, key);
+            return result.composition;
+        };
+        const swung = swing(exampleComposition, '4')!;
+        expect(swung.swing).toBe(4);
+        expect(swing(swung, '0')).not.toHaveProperty('swing');
+        expect(swing(swung, '4')).toBeUndefined();
     });
 });
 
