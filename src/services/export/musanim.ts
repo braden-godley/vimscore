@@ -69,6 +69,22 @@ export function drumRows(notes: TimedNote[]): Map<number, number> {
 }
 
 /**
+ * The colors the music is drawn in: each pitched part its own, in order, then each drum sound
+ * its own after them, from the kick up, so every kind of hit stands apart from the others and
+ * from the pitched parts. `drumParts` says which parts are drums; their own entries are unused.
+ */
+export function musanimColors(
+    drumParts: boolean[],
+    drumRow: Map<number, number>,
+): { parts: Rgb[]; drums: Map<number, Rgb> } {
+    let next = 0;
+    const parts = drumParts.map((drums) => (drums ? ([255, 255, 255] as Rgb) : partColor(next++)));
+    const sounds = [...drumRow.keys()].sort((a, b) => a - b);
+    const drums = new Map(sounds.map((pitch): [number, Rgb] => [pitch, partColor(next++)]));
+    return { parts, drums };
+}
+
+/**
  * The notes sounding at any time between `from` and `to`, from notes sorted by start (as the
  * timeline gives them). `longest` is the longest note's duration, so the search can start
  * where nothing before could still be sounding.

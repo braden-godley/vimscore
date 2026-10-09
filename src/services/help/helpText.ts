@@ -189,7 +189,8 @@ EXPORTING
     :export mp4 [file]       A video of the score, following the music
     :export musanim [file]   A video of the music as colored bars of light, at 60 frames a
                              second. Drum parts play in their own band along the bottom,
-                             a row for each drum
+                             a row and a color for each drum; the names shown at the start
+                             are just the other parts'
     :export midi [file]      A MIDI file (also :export mid)
 
     Without a file, it's written beside the score. Add ! to write over a file that's there.

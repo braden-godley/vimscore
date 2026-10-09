@@ -4,13 +4,13 @@
  * light as long as it sounds, scrolling right to left past the middle of the frame. Notes
  * drift in from the right, speed up through the middle, stretching out as they go, and slow
  * again as they leave. A note sparkles where it sounds, flaring as it starts, and dims once
- * it's passed. Drum parts play in a band of their own along the bottom, a row for each drum.
- * The edges of the frame fade to black, so notes glow in and out of view. The title and the
- * parts' names show at the start, then fade away.
+ * it's passed. Drum parts play in a band of their own along the bottom, a row and a color for
+ * each drum. The edges of the frame fade to black, so notes glow in and out of view. The title
+ * and the pitched parts' names show at the start, then fade away.
  */
 
 import { Composition } from '../../../services/composition/Composition';
-import { Rgb, drumRows, lighten, notesBetween, partColor, pitchRange, unwarp, warp } from '../../../services/export/musanim';
+import { Rgb, drumRows, lighten, musanimColors, notesBetween, pitchRange, unwarp, warp } from '../../../services/export/musanim';
 import { RenderedAudio } from '../../../services/export/renderAudio';
 import { TimedNote, timeline } from '../../../services/timeline/timeline';
 import { HEIGHT, WIDTH, encodeVideo } from './encode';
@@ -79,7 +79,7 @@ function sparkleSprite(color: Rgb): HTMLCanvasElement {
     return canvas;
 }
 
-function drawIntro(context: CanvasRenderingContext2D, composition: Composition, seconds: number) {
+function drawIntro(context: CanvasRenderingContext2D, composition: Composition, colors: Rgb[], seconds: number) {
     const alpha = Math.max(0, Math.min(1, (INTRO_SECONDS + FADE_SECONDS - seconds) / FADE_SECONDS));
     if (alpha === 0) return;
     context.textBaseline = 'middle';
@@ -88,9 +88,11 @@ function drawIntro(context: CanvasRenderingContext2D, composition: Composition, 
     context.font = '56px Georgia, serif';
     context.fillText(composition.title, MARGIN * 1.5, MARGIN * 2);
     context.font = '28px Georgia, serif';
-    composition.parts.forEach(({ name }, p) => {
-        const y = MARGIN * 2 + 70 + p * 40;
-        context.fillStyle = rgba(partColor(p), alpha);
+    // Drum parts are left out: each of their drums has a color of its own
+    const pitched = composition.parts.flatMap((part, p) => (part.drums ? [] : [{ name: part.name, color: colors[p]! }]));
+    pitched.forEach(({ name, color }, i) => {
+        const y = MARGIN * 2 + 70 + i * 40;
+        context.fillStyle = rgba(color, alpha);
         context.beginPath();
         context.arc(MARGIN * 1.5 + 12, y, 9, 0, Math.PI * 2);
         context.fill();
@@ -136,9 +138,11 @@ export async function exportMusanim(
     const pitchedSizes = sizes(row);
     // No bigger than the pitched notes, so the drums don't drown them out
     const drumSizes = sizes(Math.min(row, drumHeight));
-    const colors = composition.parts.map((_, p) => partColor(p));
-    const glows = colors.map(glowSprite);
-    const sparkles = colors.map(sparkleSprite);
+    const colors = musanimColors(drumParts, drumRow);
+    const glows = colors.parts.map(glowSprite);
+    const sparkles = colors.parts.map(sparkleSprite);
+    const drumGlows = new Map([...colors.drums].map(([pitch, color]) => [pitch, glowSprite(color)]));
+    const drumSparkles = new Map([...colors.drums].map(([pitch, color]) => [pitch, sparkleSprite(color)]));
 
     /** Where on the frame a moment is drawn, at a time */
     const xAt = (moment: number, seconds: number) => NOW_X + warp(moment - seconds, CENTER_SPEED, REACH);
@@ -165,11 +169,12 @@ export async function exportMusanim(
         // Light adds up where stars overlap, as it would
         context.globalCompositeOperation = 'lighter';
         for (const note of notesBetween(notes, seconds - shown, seconds + shown, longest)) {
-            const color = colors[note.part] ?? [255, 255, 255];
+            const drum = isDrum(note);
+            const color = (drum ? colors.drums.get(note.pitch) : colors.parts[note.part]) ?? [255, 255, 255];
             const start = xAt(note.start, seconds);
             const end = xAt(note.start + note.duration, seconds);
             const y = yOf(note);
-            const { radius, tail } = isDrum(note) ? drumSizes : pitchedSizes;
+            const { radius, tail } = drum ? drumSizes : pitchedSizes;
             const sounding = note.start <= seconds && seconds < note.start + note.duration;
             // Quieter notes are a little dimmer; played ones fade back
             const loudness = 0.55 + 0.45 * (note.velocity / 127);
@@ -189,8 +194,8 @@ export async function exportMusanim(
             context.closePath();
             context.fill();
 
-            const glow = glows[note.part];
-            const sparkle = sparkles[note.part];
+            const glow = drum ? drumGlows.get(note.pitch) : glows[note.part];
+            const sparkle = drum ? drumSparkles.get(note.pitch) : sparkles[note.part];
             if (!glow || !sparkle) continue;
             context.globalAlpha = brightness;
             sprite(context, glow, start, y, radius * 2);
@@ -208,7 +213,7 @@ export async function exportMusanim(
         context.globalCompositeOperation = 'source-over';
         context.globalAlpha = 1;
         fadeEdges(context);
-        drawIntro(context, composition, seconds);
+        drawIntro(context, composition, colors.parts, seconds);
     };
 
     return encodeVideo(audio, draw, onProgress, 60);
