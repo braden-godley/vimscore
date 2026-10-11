@@ -4,6 +4,7 @@ import {
     Cursor,
     START,
     clampCursor,
+    cursorAtSeconds,
     cursorPitch,
     cursorSeconds,
     gotoMeasure,
@@ -100,5 +101,26 @@ describe('cursorSeconds', () => {
         expect(cursorSeconds(exampleComposition, at(1, 1))).toBeCloseTo(2 + 1 / 6);
         // Measure 3 starts at 3.5s at dotted quarter = 60, so the second leaf is a second in
         expect(cursorSeconds(exampleComposition, at(2, 1))).toBeCloseTo(4.5);
+    });
+});
+
+describe('cursorAtSeconds', () => {
+    it('lands on the top note sounding in the part', () => {
+        expect(cursorAtSeconds(exampleComposition, 0, 0)).toEqual(at(0, 0, 0, 0, 2));
+        // Partway through the second triplet eighth of measure 2
+        expect(cursorAtSeconds(exampleComposition, 0, 2 + 1 / 6 + 0.05)).toEqual(at(1, 1));
+        expect(cursorAtSeconds(exampleComposition, 0, 4.5)).toEqual(at(2, 1));
+        expect(cursorAtSeconds(exampleComposition, 1, 2.5)).toEqual(at(1, 0, 1));
+    });
+
+    it('stays in the last measure past the end', () => {
+        expect(cursorAtSeconds(exampleComposition, 0, 99)).toEqual(at(2, 3));
+    });
+
+    it('takes the highest note out of every voice', () => {
+        const [melody, bass] = exampleComposition.parts;
+        const measures = bass!.measures.map((measure) => ({ voices: [...measure.voices, ...melody!.measures[0]!.voices] }));
+        const twoVoices = { ...exampleComposition, parts: [melody!, { ...bass!, measures }] };
+        expect(cursorAtSeconds(twoVoices, 1, 0)).toEqual(at(0, 0, 1, 1, 2));
     });
 });

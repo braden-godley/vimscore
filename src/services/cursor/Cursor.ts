@@ -6,10 +6,10 @@
 
 import { Composition } from '../composition/Composition';
 import { Leaf, leaves } from '../event/Event';
-import { Fraction, ZERO, add, compare, toNumber } from '../fraction/Fraction';
+import { Fraction, ZERO, add, compare, fraction, toNumber } from '../fraction/Fraction';
 import { resolveMeasures, secondsPerWholeNote } from '../measure/Measure';
 import { Pitch, comparePitch, midi } from '../pitch/Pitch';
-import { PerformanceOptions, performance } from '../timeline/performance';
+import { PerformanceOptions, performance, playedMeasureAt } from '../timeline/performance';
 
 export interface Cursor {
     part: number;
@@ -214,4 +214,29 @@ export function cursorAtOffset(
 ): Cursor {
     const leaf = leafAtOffset(voiceLeaves(composition, part, measure, voice), offset);
     return withNote(composition, clampCursor(composition, { part, measure, voice, leaf, note: 0 }), 'top');
+}
+
+/** Fine enough to land exactly on any leaf's start, tuplets included */
+const OFFSET_STEPS = 2 ** 10 * 3 * 5 * 7;
+
+/**
+ * The highest note sounding in a part `seconds` into playing the score, out of all its voices,
+ * or its chord or rest when nothing sounds there: where playing stops
+ */
+export function cursorAtSeconds(composition: Composition, part: number, seconds: number, options: PerformanceOptions = {}): Cursor {
+    const played = playedMeasureAt(performance(composition, options), seconds);
+    const info = played && resolveMeasures(composition.measures)[played.measure];
+    if (!played || !info) return clampCursor(composition, { ...START, part });
+    const { measure } = played;
+    const wholeNotes = Math.max(0, seconds - played.startSeconds) / secondsPerWholeNote(info.tempo);
+    // A hair over, so a leaf starting right there isn't missed by rounding
+    const offset = fraction(Math.floor(wholeNotes * OFFSET_STEPS + 1e-6), OFFSET_STEPS);
+    const voices = composition.parts[part]?.measures[measure]?.voices ?? [];
+    const pitchOf = (cursor: Cursor) => {
+        const pitch = cursorPitch(composition, cursor);
+        return pitch ? midi(pitch) : -Infinity;
+    };
+    return voices
+        .map((_, voice) => cursorAtOffset(composition, part, measure, offset, voice))
+        .reduce<Cursor>((best, cursor) => (pitchOf(cursor) > pitchOf(best) ? cursor : best), cursorAtOffset(composition, part, measure, offset));
 }

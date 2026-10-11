@@ -1,4 +1,4 @@
-import { cursorSeconds } from '../../services/cursor/Cursor';
+import { cursorAtSeconds, cursorSeconds } from '../../services/cursor/Cursor';
 import { EditMode, EditorState, editorSelection, openMixer } from '../../services/editor/Editor';
 import { keyName } from '../../services/editor/keys';
 import { Command, isFileCommand } from '../../services/editor/CommandLine';
@@ -508,13 +508,18 @@ function showEditing() {
     view.centerOn(cursor.measure, cursor.part);
 }
 
+/** How far playback got, in the score it was playing, for leaving the cursor where it stopped */
+let lastPlayed: { composition: Composition; seconds: number } | undefined;
+
 function followPlayback() {
     if (!player.playing) {
+        stopCursorWherePlayed();
         showEditing();
         return;
     }
 
     const seconds = player.position;
+    lastPlayed = { composition: current.session.composition, seconds };
     const playing = playedMeasureAt(played, seconds);
     if (!playing) return;
     const { measure, startSeconds } = playing;
@@ -523,6 +528,17 @@ function followPlayback() {
     view.centerOn(measure);
     positionLabel.textContent = `m${measure + 1}  ${timeIn(seconds)}`;
     requestAnimationFrame(followPlayback);
+}
+
+/** Selects the highest note sounding where playing stopped, in the cursor's part */
+function stopCursorWherePlayed() {
+    const { session } = current;
+    // A score opened while playing starts where it starts
+    if (lastPlayed?.composition === session.composition) {
+        const cursor = cursorAtSeconds(session.composition, session.editor.cursor.part, lastPlayed.seconds, { skipRepeats });
+        current = { ...current, session: { ...session, editor: { ...session.editor, cursor } } };
+    }
+    lastPlayed = undefined;
 }
 
 function startPlayback() {

@@ -43,7 +43,8 @@ PLAYING
     counting repeats as they're played, out of how long the score takes, like 0:30 / 1:30.
     Skipping repeats leaves them out of both.
     While playing:
-    <Space>  <Esc>    Stop
+    <Space>  <Esc>    Stop, selecting the highest note sounding where it stopped in the
+                      cursor's part, out of all its voices. Playing to the end stops there too
     r                 Skip repeats, or play them again. Playback carries on from the same
                       place, and later plays keep the choice
     g                 Carry on from the start of the score
