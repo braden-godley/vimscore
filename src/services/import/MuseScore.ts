@@ -373,10 +373,16 @@ interface VoiceContents {
     clef?: Clef;
     /** A clef after the last note, which MuseScore writes for a change at the next measure */
     nextClef?: Clef;
-    dynamics: DynamicMark[];
+    dynamics: StaffDynamic[];
     hairpins: HairpinStart[];
     slurs: SlurStart[];
 }
+
+/** A dynamic, and whether MuseScore keeps it to its own staff rather than its whole part */
+type StaffDynamic = DynamicMark & { staffOnly?: boolean };
+
+/** MuseScore 4's voice assignments that keep a dynamic off its part's other staves */
+const STAFF_ONLY_DYNAMICS = ['allVoicesInStaff', 'currentVoiceOnly'];
 
 function readVoice(voice: Element, length: Fraction): VoiceContents {
     const contents: VoiceContents = { events: [], dynamics: [], hairpins: [], slurs: [] };
@@ -422,7 +428,8 @@ function readVoice(voice: Element, length: Fraction): VoiceContents {
                 break;
             case 'Dynamic': {
                 const dynamic = readDynamic(element);
-                if (dynamic) contents.dynamics.push({ offset: position, dynamic });
+                const staffOnly = STAFF_ONLY_DYNAMICS.includes(text(element, 'voiceAssignment') ?? '');
+                if (dynamic) contents.dynamics.push({ offset: position, dynamic, ...(staffOnly && { staffOnly }) });
                 break;
             }
             case 'Spanner': {
@@ -528,6 +535,8 @@ function convertScore(score: Element): Composition {
     const slurStarts: (SlurStart & { voice: number })[][][] = staves.map(() => []);
     /** Where each measure starts, in whole notes, and finally where the last one ends */
     const measureStarts: Fraction[] = [ZERO];
+    /** Each staff's MuseScore part, whose other staves its dynamics apply to as well */
+    const staffParts = staves.map((staff, s) => setups.get(staff.getAttribute('id') ?? '')?.partId ?? `staff ${s}`);
     let timeSignature: TimeSignature = { beats: 4, beatValue: 4 };
     let current: { timeSignature?: TimeSignature; keySignature?: KeySignature; tempo?: Tempo } = {};
 
@@ -546,6 +555,7 @@ function convertScore(score: Element): Composition {
         const measureSignature = declared ? { beats: declared.num, beatValue: declared.den } : timeSignature;
 
         const info: MeasureInfo = {};
+        const staffDynamics: StaffDynamic[][] = [];
         elements.forEach((measure, s) => {
             const voices = (measure ? children(measure, 'voice') : []).map((voice) => readVoice(voice, length));
             // A staff missing the measure gets a measure of rest
@@ -560,14 +570,23 @@ function convertScore(score: Element): Composition {
                 nextClefs[s] ??= voice.nextClef;
             }
             if (clef && m === 0) clefs[s] ??= clef;
-            const dynamics = voices.flatMap((voice) => voice.dynamics).sort((a, b) => compare(a.offset, b.offset));
+            staffDynamics.push(voices.flatMap((voice) => voice.dynamics));
             hairpinStarts[s]!.push(voices.flatMap((voice) => voice.hairpins));
             slurStarts[s]!.push(voices.flatMap((voice, v) => voice.slurs.map((slur) => ({ ...slur, voice: v }))));
             partMeasures[s]!.push({
                 voices: voices.map(({ events }) => ({ events })),
                 ...(clef && m > 0 && { clef }),
-                ...(dynamics.length > 0 && { dynamics: dedupeByOffset(dynamics) }),
             });
+        });
+
+        // A dynamic marks its whole part, like both staves of a piano, unless it's kept to its
+        // staff. One on the staff itself wins over another staff's at the same moment.
+        staffDynamics.forEach((own, s) => {
+            const others = staffDynamics.flatMap((marks, t) =>
+                t !== s && staffParts[t] === staffParts[s] ? marks.filter((mark) => !mark.staffOnly) : [],
+            );
+            const dynamics = dedupeByOffset([...own, ...others].sort((a, b) => compare(a.offset, b.offset)));
+            if (dynamics.length > 0) partMeasures[s]![m]!.dynamics = dynamics.map(({ offset, dynamic }) => ({ offset, dynamic }));
         });
 
         // Repeat barlines are on every staff's copy of the measure. MuseScore can repeat more

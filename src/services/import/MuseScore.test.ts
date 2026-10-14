@@ -204,6 +204,26 @@ describe('readMuseScore', () => {
         expect(voice(score, 0, 1)).toBe('r/2.');
     });
 
+    it("puts a staff's dynamics on its part's other staves, keeping each staff's own and those kept to a staff", () => {
+        const dynamic = (subtype: string, inside = '') => `<Dynamic><subtype>${subtype}</subtype>${inside}</Dynamic>`;
+        const quarter = '<Rest><durationType>quarter</durationType></Rest>';
+        const staff = (id: number, ...beats: string[]) =>
+            `<Staff id="${id}"><Measure><voice>${beats.map((beat) => `${beat}${quarter}`).join('')}</voice></Measure></Staff>`;
+        const marked = read(
+            mscx(
+                staff(1, dynamic('p'), '', '', '') +
+                    staff(2, dynamic('mf'), dynamic('f'), dynamic('mp', '<voiceAssignment>allVoicesInStaff</voiceAssignment>'), '') +
+                    staff(3, '', '', '', dynamic('pp')),
+                `<Part><Staff id="1"/><Staff id="2"/><Instrument><Channel><program value="0"/></Channel></Instrument></Part>
+                 <Part><Staff id="3"/><Instrument><Channel><program value="40"/></Channel></Instrument></Part>`,
+            ),
+        );
+        const dynamics = (part: number) => marked.parts[part]!.measures[0]!.dynamics?.map(({ offset, dynamic }) => `${offset.num}/${offset.den} ${dynamic}`);
+        expect(dynamics(0)).toEqual(['0/1 p', '1/4 f']);
+        expect(dynamics(1)).toEqual(['0/1 mf', '1/4 f', '1/2 mp']);
+        expect(dynamics(2)).toEqual(['3/4 pp']);
+    });
+
     it('reads dynamics past ppp and ff as those, and others by their velocity', () => {
         const dynamic = (inside: string) => `<Dynamic>${inside}</Dynamic><Rest><durationType>quarter</durationType></Rest>`;
         const marked = read(

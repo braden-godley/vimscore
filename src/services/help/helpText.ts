@@ -314,6 +314,8 @@ DYNAMICS
 
     Scores saved with volumes in percent open with the nearest dynamic in their place.
     MuseScore dynamics come in by name; louder than ff or softer than ppp come in as those.
+    A dynamic on one staff of a MuseScore part, like a piano's, marks every staff of the
+    part, unless MuseScore keeps it to its staff or that staff has its own there.
 
 MIXER
     The mixer sets how loud each whole part plays, and the master over them all, without
