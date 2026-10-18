@@ -71,6 +71,14 @@ export async function renderAudio(
 ): Promise<RenderedAudio> {
     const loaded = await Promise.all(soundfonts.map(loadLayer));
     const mix = partMix(composition);
+    const channels = composition.parts.length === 0 ? 0 : channelFor(composition.parts.length - 1) + 1;
+    for (const { processor } of loaded) {
+        if (processor.midiChannels.length >= channels) continue;
+        while (processor.midiChannels.length < channels) processor.createMIDIChannel();
+        // Channels added past the first 16 start with every controller at 0, expression and pan
+        // too, so they'd be silent: a reset gives them the defaults the first 16 have
+        processor.reset();
+    }
     composition.parts.forEach((part, index) => {
         const instrument = partInstrument(part);
         const layer = soundfontFor(instrument, loaded);
@@ -78,7 +86,6 @@ export async function renderAudio(
         layer.parts.add(index);
         const { processor } = layer;
         const channel = channelFor(index);
-        while (processor.midiChannels.length <= channel) processor.createMIDIChannel();
         processor.midiChannels[channel]?.setDrums(instrument.drums);
         processor.controllerChange(channel, BANK_SELECT, instrument.bank);
         processor.programChange(channel, instrument.program);

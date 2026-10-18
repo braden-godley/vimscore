@@ -29,6 +29,18 @@ describe.skipIf(!existsSync(SOUNDFONT))('exporting through a soundfont', () => {
         expect(progress.length).toBeGreaterThan(10);
     }, 30000);
 
+    it('plays parts past the first 14, on the channels added for them, as loud as the first', async () => {
+        const [melody] = exampleComposition.parts as [Part];
+        const peak = (samples: Float32Array) => samples.reduce((max, sample) => Math.max(max, Math.abs(sample)), 0);
+        const alone = await renderAudio({ ...exampleComposition, parts: [melody] }, [load()]);
+        const silent = Array.from({ length: 16 }, () => ({ ...melody, muted: true }));
+        for (const index of [14, 15]) {
+            const parts = silent.map((part, i) => (i === index ? melody : part));
+            const late = await renderAudio({ ...exampleComposition, parts }, [load()]);
+            expect(peak(late.left)).toBeCloseTo(peak(alone.left), 3);
+        }
+    }, 30000);
+
     it('encodes MP3 frames', async () => {
         const mp3 = encodeMp3(await renderAudio(exampleComposition, [load()]));
         // Each frame starts with an 11-bit sync word

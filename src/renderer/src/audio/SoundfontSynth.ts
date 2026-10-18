@@ -71,7 +71,7 @@ export class SoundfontSynth implements Synth {
 
     setMix(mix: number[]) {
         this.mix = mix;
-        this.addChannels(mix.length);
+        if (this.addChannels(mix.length)) this.instruments.forEach((instrument, part) => this.select(channelFor(part), instrument));
         mix.forEach((level, part) => this.synth.controllerChange(channelFor(part), CHANNEL_VOLUME, channelVolume(level)));
     }
 
@@ -92,10 +92,17 @@ export class SoundfontSynth implements Synth {
         this.synth.stopAll(true);
     }
 
-    /** Adds channels until every one of so many parts has its own */
-    private addChannels(parts: number) {
-        if (parts === 0) return;
+    /**
+     * Adds channels until every one of so many parts has its own. Added channels start with every
+     * controller at 0, expression and pan too, so they'd be silent: the synth is reset to give
+     * them the defaults the first 16 have, which takes every channel's instrument and volume off
+     * too. Returns whether it did, for those to be set again.
+     */
+    private addChannels(parts: number): boolean {
+        if (parts === 0 || this.channels > channelFor(parts - 1)) return false;
         for (; this.channels <= channelFor(parts - 1); this.channels++) this.synth.addNewChannel();
+        this.synth.reset();
+        return true;
     }
 
     private select(channel: number, { program, bank, drums }: Instrument) {
