@@ -802,6 +802,52 @@ describe(':swing', () => {
     });
 });
 
+describe(':delmeasure', () => {
+    const command = (text: string) => [':', ...text.split(''), '<CR>'];
+
+    it('reads an optional count', () => {
+        expect(parseCommand('delmeasure')).toEqual({ name: 'deleteMeasures', count: 1 });
+        expect(parseCommand('delmeasure 3')).toEqual({ name: 'deleteMeasures', count: 3 });
+        expect(parseCommand('delmeasure 0')).toEqual({ error: 'Expected :delmeasure, or a count like :delmeasure 4' });
+    });
+
+    it("removes the cursor's measure and count - 1 after it from every part, into the register", () => {
+        const removed = type(['}', '<C-j>', ...command('delmeasure 2')]);
+        // The score ends with an empty measure to write into again
+        expect(removed.composition?.measures).toHaveLength(2);
+        expect(removed.composition?.parts[0]!.measures[0]).toEqual(exampleComposition.parts[0]!.measures[0]);
+        expect(where(removed.state.cursor)).toEqual(at(1, 0, 1));
+        expect(removed.state.register).toMatchObject({ kind: 'clip', measures: true, parts: [{}, {}] });
+    });
+
+    it('removes the measures a visual selection covers, from every part, back in normal mode', () => {
+        for (const keys of [['V', '}'], ['<C-v>', '}']]) {
+            const removed = type([...keys, ...command('delmeasure')]);
+            expect(removed.state.mode).toBe('normal');
+            expect(removed.state.anchor).toBeUndefined();
+            expect(removed.composition?.parts[1]!.measures[0]).toBe(exampleComposition.parts[1]!.measures[2]);
+        }
+    });
+});
+
+describe('the command line in visual modes', () => {
+    it('keeps the selection shown while typing', () => {
+        const typing = type(['V', '}', ':', 'd']).state;
+        expect(typing.mode).toBe('command');
+        expect(typing.commandLine).toEqual({ text: 'd', visual: 'visual' });
+        expect(editorSelection(exampleComposition, typing)).toMatchObject({ kind: 'measures', first: 0, last: 1 });
+    });
+
+    it('leaves the visual mode when cancelled or run', () => {
+        for (const keys of [['<Esc>'], ['<BS>', '<BS>'], ['<BS>', ...'title X', '<CR>']]) {
+            const { state } = type(['V', '}', ':', 'd', ...keys]);
+            expect(state.mode).toBe('normal');
+            expect(state.anchor).toBeUndefined();
+            expect(editorSelection(exampleComposition, state)).toBeUndefined();
+        }
+    });
+});
+
 describe('keyName for Shift-Space', () => {
     it('is <S-Space>', () => {
         expect(keyName({ key: ' ', ctrlKey: false, shiftKey: true, metaKey: false, altKey: false })).toBe('<S-Space>');

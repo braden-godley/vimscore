@@ -149,6 +149,9 @@ VISUAL MODES
                       have it already
     (                 Slur the selected chords together, in each voice, or take the slur off
     <  >              A crescendo or diminuendo over the selection
+    :                 The command line, keeping the selection shown. :delmeasure removes the
+                      selected measures; other commands work as in normal mode. Either way,
+                      it's back to normal mode after
     <Esc>             Back to normal mode
 
 THE COMMAND LINE
@@ -291,6 +294,12 @@ THE SCORE
     :key D          A key from the cursor's measure on: :key Bb, :key F#m, :key 2#, :key 3b
     :tempo 120      A tempo from the cursor's measure on, counting the beat it had there.
                     :tempo q.=60 names the beat: w h q e s for whole to sixteenth, . to dot it
+    :delmeasure [n] Remove the cursor's measure, and n - 1 after it, from every part. From a
+                    visual mode, every measure the selection touches. The music after closes
+                    up, keeping the time signature, key, tempo, clef and dynamic it had. Ties,
+                    slurs and glissandi into the removed measures come off, and hairpins
+                    running into them end where they started. What's removed goes in the
+                    register, for p and P to put over other measures
     :swing 5        Swing the eighths when playing, from 0 (straight) to 10 (a dotted eighth
                     and a sixteenth); about 7 is triplet swing. It's for the whole score and
                     saved with it, and exports play it too. Only beats with a note starting on

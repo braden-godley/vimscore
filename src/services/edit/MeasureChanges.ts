@@ -27,7 +27,7 @@ type Field = (typeof FIELDS)[number];
  * Drops any change that repeats what's already in effect, so the score doesn't show a change
  * that isn't one. The first measure keeps what it sets.
  */
-function withoutRepeats(measures: MeasureInfo[]): MeasureInfo[] {
+export function withoutRepeats(measures: MeasureInfo[]): MeasureInfo[] {
     const resolved = resolveMeasures(measures);
     return measures.map((info, i) => {
         const before = resolved[i - 1];

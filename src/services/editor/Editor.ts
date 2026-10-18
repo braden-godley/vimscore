@@ -57,6 +57,7 @@ import { LeafRef, Selection, VisualKind, selectedChordPitches, selectedLeaves, v
 import { setKeySignature, setTempo, setTimeSignature } from '../edit/MeasureChanges';
 import { addPart, deletePart, renamePart, setClef, setInstrument } from '../edit/Parts';
 import { toggleRepeat } from '../edit/Repeats';
+import { removeMeasures } from '../edit/RemoveMeasures';
 import { setDynamic, stepDynamicAt, toggleHairpin } from '../edit/Dynamics';
 import { GENERAL_MIDI_INSTRUMENTS, Instrument } from '../instrument/Instrument';
 import { Command, EditCommand, isEditCommand, parseCommand } from './CommandLine';
@@ -116,6 +117,8 @@ export interface CommandLineState {
     error?: string;
     /** While going back through the history: the entry shown, and what was typed before */
     recalled?: { index: number; typed: string };
+    /** Opened from a visual mode, whose selection, kept by `anchor`, commands can act on */
+    visual?: VisualKind;
 }
 
 export interface KeyResult {
@@ -476,6 +479,8 @@ const VISUAL_ACTIONS: Record<string, Action> = {
     d: operateOnSelected('d'),
     y: operateOnSelected('y'),
     c: changeSelected,
+    // The command line, keeping the selection for commands that act on it
+    ':': (state) => ({ state: { ...state, mode: 'command', commandLine: { text: '', visual: state.mode as VisualKind } } }),
     J: transpose(-1),
     K: transpose(1),
     ga: toggleSelectedArpeggios,
@@ -700,30 +705,33 @@ function insertKey(composition: Composition, state: EditorState, key: string): K
  */
 function commandLineKey(composition: Composition, state: EditorState, key: string, input: KeyInput): KeyResult {
     const { commandLine } = state;
-    const closed: EditorState = { ...state, mode: 'normal', commandLine: undefined };
+    // Like vim, a command typed in a visual mode leaves it, run or not
+    const closed: EditorState = { ...state, mode: 'normal', commandLine: undefined, anchor: undefined };
     if (!commandLine || key === '<Esc>') return { state: closed };
+    const { visual } = commandLine;
 
     if (key === '<CR>') {
         if (commandLine.text.trim() === '') return { state: closed };
         const command = parseCommand(commandLine.text);
         if ('error' in command) return { state: { ...state, commandLine: { ...commandLine, error: command.error } } };
-        if (isEditCommand(command)) return runEditCommand(composition, closed, command, input);
+        const selection = visual && state.anchor && visualSelection(composition, visual, state.anchor, state.cursor);
+        if (isEditCommand(command)) return runEditCommand(composition, closed, command, input, selection || undefined);
         return { state: closed, effect: { kind: 'command', command } };
     }
 
     if (key === '<Up>' || key === '<Down>') {
         const recalled = recallCommand(commandLine, input.commandHistory ?? [], key === '<Up>' ? 1 : -1);
-        return { state: { ...state, commandLine: recalled } };
+        return { state: { ...state, commandLine: { ...recalled, visual } } };
     }
 
     if (key === '<BS>') {
         if (commandLine.text === '') return { state: closed };
-        return { state: { ...state, commandLine: { text: commandLine.text.slice(0, -1) } } };
+        return { state: { ...state, commandLine: { text: commandLine.text.slice(0, -1), visual } } };
     }
 
     const typed = key === '<Space>' ? ' ' : (input.text ?? (key.length === 1 ? key : undefined));
     if (typed === undefined) return { state };
-    return { state: { ...state, commandLine: { text: commandLine.text + typed } } };
+    return { state: { ...state, commandLine: { text: commandLine.text + typed, visual } } };
 }
 
 /**
@@ -756,10 +764,24 @@ export interface KeyInput {
 
 const DEFAULT_HELP_PAGE_LINES = 30;
 
-/** Commands for parts, run straight away as edits */
-function runEditCommand(composition: Composition, state: EditorState, command: EditCommand, input: KeyInput): KeyResult {
+/** Commands for parts, run straight away as edits; `selection` when typed in a visual mode */
+function runEditCommand(
+    composition: Composition,
+    state: EditorState,
+    command: EditCommand,
+    input: KeyInput,
+    selection?: Selection,
+): KeyResult {
     const { part, measure } = state.cursor;
     switch (command.name) {
+        case 'deleteMeasures': {
+            const [first, last] = selection
+                ? selection.kind === 'measures'
+                    ? [selection.first, selection.last]
+                    : [selection.start.measure, selection.end.measure]
+                : [measure, measure + command.count - 1];
+            return deleteMeasures(composition, state, first, Math.min(last, composition.measures.length - 1));
+        }
         case 'instrument':
         case 'addPart':
         case 'recent': {
@@ -806,6 +828,21 @@ function runEditCommand(composition: Composition, state: EditorState, command: E
             return { state: { ...state, cursor: cursorAtOffset(edited, part, measure, ZERO) }, composition: edited };
         }
     }
+}
+
+/**
+ * Removes measures from every part, keeping them in the register to put back over others. The
+ * cursor lands at the start of the measure that takes their place.
+ */
+function deleteMeasures(composition: Composition, state: EditorState, first: number, last: number): KeyResult {
+    const removed = removeMeasures(composition, first, last);
+    if (!removed) return { state };
+    const whole: Selection = { kind: 'measures', firstPart: 0, lastPart: composition.parts.length - 1, first, last };
+    const register = yankSelection(composition, whole) ?? state.register;
+    // Removing the last measures leaves the score to end with an empty one, as it always does
+    const edited = withTrailingEmptyMeasure(removed);
+    const cursor = cursorAtOffset(edited, state.cursor.part, Math.min(first, edited.measures.length - 1), ZERO);
+    return { state: { ...state, cursor, register }, composition: edited };
 }
 
 function pickerModeKey(composition: Composition, state: EditorState, key: string, input: KeyInput): KeyResult {
@@ -910,7 +947,9 @@ export function handleKey(composition: Composition, state: EditorState, key: str
 }
 
 /** What's selected in a visual mode, or undefined outside them */
-export function editorSelection(composition: Composition, { mode, anchor, cursor }: EditorState): Selection | undefined {
-    if ((mode === 'visual' || mode === 'visualBlock') && anchor) return visualSelection(composition, mode, anchor, cursor);
+export function editorSelection(composition: Composition, { mode, anchor, cursor, commandLine }: EditorState): Selection | undefined {
+    // Still shown while typing a command on it
+    const kind = mode === 'command' ? commandLine?.visual : mode;
+    if ((kind === 'visual' || kind === 'visualBlock') && anchor) return visualSelection(composition, kind, anchor, cursor);
     return undefined;
 }
