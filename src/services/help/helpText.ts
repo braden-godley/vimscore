@@ -29,13 +29,18 @@ READING THIS PAGE
     :help topic       Open the manual at the first match for a topic, like :help tempo
 
 MOVING
-    h  l              Previous or next chord or rest, across barlines
-    j  k              Next note down or up in the chord, then into the staff below or above
+    h  l              Previous or next chord or rest in the cursor's voice, across barlines
+    j  k              Next note down or up out of every voice's chord starting at the cursor's
+                      beat, moving into that note's voice, then into the staff below or above,
+                      landing on its top or bottom note in any voice. From a rest in voice 1
+                      or 3, j goes to the top note at that beat; in voice 2 or 4, k goes to
+                      the bottom one
     {                 Back to the start of the measure, or the measure before
     }                 On to the next measure
     gg                The first measure, or with a count the measure numbered, like 12gg
     G                 The last measure, or with a count the measure numbered
-    <C-j>  <C-k>      The part below or above, at the same time (also <C-w>j <C-w>k)
+    <C-j>  <C-k>      The part below or above, at the same time, on its top note in any voice
+                      (also <C-w>j <C-w>k)
 
 PLAYING
     <Space>           Play from the cursor
@@ -103,7 +108,9 @@ EDITING IN NORMAL MODE
                       d} to the end of the measure, d{ to its start, d<C-j> the same time in
                       the part below, dG or dgg whole measures
     y{motion}         Copy, with the same motions as d
-    p  P              Put what was deleted or copied after the cursor's chord, or at it
+    p  P              Put what was deleted or copied after the cursor's chord, or at it.
+                      Copying takes every voice of the staff; putting writes over every voice,
+                      and a voice left with nothing but rests in a measure goes
     z                 Show every staff at once, or back to the normal size
     m                 Open the mixer on the cursor's part (see MIXER)
     i                 Insert mode, staying on the chord
@@ -119,6 +126,15 @@ INSERT MODES
     melody mode (a) the cursor moves on after each note, and the score grows as it fills; in
     insert mode (i) it stays.
 
+    A staff has up to four voices, each a line with its own rhythm. With more than one, voices
+    1 and 3 stem up and 2 and 4 down. The insert modes write into the voice of the note under
+    the cursor, or into voice 1 from a rest, and the status bar says which. The phantom takes
+    its voice's color: green for 1, blue for 2, orange for 3 and purple for 4, and notes
+    already in voices 2 to 4 show in their colors too. Going into a voice the measure doesn't
+    have fills it with rests to write over, and if nothing is written there before the cursor
+    leaves, they're taken away again. In melody mode a voice past the first carries on into the
+    same voice of the next measure.
+
     <Space>           Place the phantom. If that pitch is there already with the same value and
                       articulation, it's removed instead. A chord has one value, so all of its
                       notes change length together
@@ -129,12 +145,14 @@ INSERT MODES
                       the next sound down or up the stave, in or out of the kit
     h  l              A shorter or longer value
     <C-h>  <C-l>      Back or on a chord or rest, across barlines, keeping the phantom
+    vk  vj            Up a voice, toward voice 1, or down one, toward voice 4, at the same beat
     <S-1> .. <S-6>    Pick a value outright, as in normal mode
     w                 Dot the value, or not
-    s  -  >  v        Make the phantom staccato, tenuto, accented or marcato, or not; as gs g-
+    s  -  >  M        Make the phantom staccato, tenuto, accented or marcato, or not; as gs g-
                       g> gv in normal mode. A new value starts with none
     m                 Switch between insert and melody insert
-    u                 Take back the last note entered
+    u                 Take back the last note entered, or the last move into a voice the
+                      measure didn't have
     z                 Show every staff at once, or back to the normal size
     <Esc>             Back to normal mode
 

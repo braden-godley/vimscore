@@ -18,10 +18,15 @@ export interface PhantomPlace {
     clef: Clef;
     /** Decides which accidentals show */
     keySignature: KeySignature;
+    /** The voice it's written into, from 0, which sets its color and stem */
+    voice: number;
+    /** How many voices the staff has in its measure */
+    voiceCount: number;
 }
 
 export function drawPhantom(container: HTMLElement, layout: ScoreLayout, phantom: Phantom, place: PhantomPlace) {
     container.replaceChildren();
+    container.dataset['voice'] = String(place.voice + 1);
     const box = layout.measures[place.measure];
     const stavePlace = layout.parts[place.part];
     if (!box || !stavePlace) return;
@@ -39,8 +44,8 @@ export function drawPhantom(container: HTMLElement, layout: ScoreLayout, phantom
         dots: duration.dots,
         clef: VEX_CLEFS[place.clef].clef,
         octaveShift: VEX_CLEFS[place.clef].octaveShift,
-        // Stemmed like a lone voice of the staff it's on
-        stemDirection: stemDirectionFor(0, 1, place.clef),
+        // Stemmed like the voice it's written into
+        stemDirection: stemDirectionFor(place.voice, place.voiceCount, place.clef),
         autoStem: place.clef !== 'percussion',
     });
     if (duration.dots) Dot.buildAndAttach([note], { all: true });

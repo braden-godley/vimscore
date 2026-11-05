@@ -14,7 +14,9 @@ import {
     movePart,
     startCursor,
 } from './Cursor';
-import { midi } from '../pitch/Pitch';
+import { midi, spell } from '../pitch/Pitch';
+import { Composition } from '../composition/Composition';
+import { Event } from '../event/Event';
 
 const at = (measure: number, leaf: number, part = 0, voice = 0, note = 0): Cursor => ({ part, measure, voice, leaf, note });
 
@@ -122,5 +124,49 @@ describe('cursorAtSeconds', () => {
         const measures = bass!.measures.map((measure) => ({ voices: [...measure.voices, ...melody!.measures[0]!.voices] }));
         const twoVoices = { ...exampleComposition, parts: [melody!, { ...bass!, measures }] };
         expect(cursorAtSeconds(twoVoices, 1, 0)).toEqual(at(0, 0, 1, 1, 2));
+    });
+});
+
+describe('moving through voices', () => {
+    const q = { base: 4, dots: 0 } as const;
+    const h = { base: 2, dots: 0 } as const;
+    const lower: Event[] = [
+        { kind: 'chord', duration: q, notes: [{ pitch: spell(48) }] },
+        { kind: 'rest', duration: q },
+        { kind: 'chord', duration: h, notes: [{ pitch: spell(52) }] },
+    ];
+    // Melody measure 1: [60, 64, 67] q, [55, 59, 62] q, [60, 64, 67] h over 48 q, rest q, 52 h
+    const [melody, ...others] = exampleComposition.parts;
+    const [first, ...after] = melody!.measures;
+    const twoVoices: Composition = {
+        ...exampleComposition,
+        parts: [{ ...melody!, measures: [{ voices: [...first!.voices, { events: lower }] }, ...after] }, ...others],
+    };
+    const pitchAt = (cursor: Cursor) => midi(cursorPitch(twoVoices, cursor)!);
+
+    it('steps by pitch from one voice into another at the same beat', () => {
+        expect(moveNote(twoVoices, START, -1)).toEqual(at(0, 0, 0, 1));
+        expect(moveNote(twoVoices, at(0, 0, 0, 1), 1)).toEqual(START);
+        // Below the lowest note of every voice is the staff below
+        expect(moveNote(twoVoices, START, -2)).toEqual(at(0, 0, 1));
+        expect(pitchAt(moveNote(twoVoices, at(0, 2, 0, 1), 1))).toBe(60);
+        expect(moveNote(twoVoices, at(0, 2), -1)).toEqual(at(0, 2, 0, 1));
+    });
+
+    it('passes over a voice resting at the beat', () => {
+        // Under the second chord the lower voice rests, so down goes on to the bass
+        expect(moveNote(twoVoices, at(0, 1), -1)).toEqual(at(0, 0, 1));
+    });
+
+    it('goes from a rest to the nearest note on its side of the staff', () => {
+        // The rest is in the lower voice: up lands on the bottom note above it
+        expect(pitchAt(moveNote(twoVoices, at(0, 1, 0, 1), 1))).toBe(55);
+        expect(moveNote(twoVoices, at(0, 1, 0, 1), -1)).toEqual(at(0, 0, 1));
+    });
+
+    it('comes into a staff on the top or bottom note of all its voices', () => {
+        // Up from the bass lands on the lowest note sounding in the melody
+        expect(moveNote(twoVoices, at(0, 0, 1), 1)).toEqual(at(0, 0, 0, 1));
+        expect(movePart(twoVoices, at(0, 0, 1), -1)).toMatchObject({ voice: 0, note: 2 });
     });
 });

@@ -157,6 +157,8 @@ export class ScoreView {
             x,
             clef: clefAt(this.composition.parts[cursor.part] ?? { measures: [] }, cursor.measure),
             keySignature: resolveMeasures(this.composition.measures)[cursor.measure]?.keySignature ?? C_MAJOR,
+            voice: cursor.voice,
+            voiceCount: this.composition.parts[cursor.part]?.measures[cursor.measure]?.voices.length ?? 1,
         });
     }
 

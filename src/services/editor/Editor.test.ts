@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Composition } from '../composition/Composition';
 import { exampleComposition } from '../composition/example-composition';
 import { Cursor, cursorOffset } from '../cursor/Cursor';
-import { Chord } from '../event/Event';
+import { Chord, Rest } from '../event/Event';
 import { EditorState, KeyResult, editorSelection, handleKey, initialEditorState } from './Editor';
 import { parseCommand } from './CommandLine';
 import { written } from '../edit/written';
@@ -103,7 +103,7 @@ describe('insert mode', () => {
 
     it('marks it tenuto, accented or marcato, an accent and a marcato replacing each other', () => {
         expect(type(['i', '-', '>']).state.phantom).toMatchObject({ tenuto: true, accent: true });
-        const marcato = type(['i', '>', 'v']).state.phantom;
+        const marcato = type(['i', '>', 'M']).state.phantom;
         expect(marcato).toMatchObject({ marcato: true });
         expect(marcato).not.toHaveProperty('accent');
     });
@@ -869,6 +869,95 @@ describe('tt and td', () => {
         }
         // Nothing at this beat to take away
         expect(typeInto(edited, [], ['t', 'd']).composition).toBeUndefined();
+    });
+});
+
+describe('voices in the insert modes', () => {
+    /** Feeds keys, carrying each edit on to the next key, from the start of `composition` */
+    const run = (keys: string[], composition: Composition = exampleComposition) => {
+        let state = initialEditorState(composition);
+        for (const key of keys) {
+            const result = handleKey(composition, state, key);
+            state = result.state;
+            composition = result.composition ?? composition;
+        }
+        return { state, composition };
+    };
+    const kinds = (composition: Composition, voice: number) =>
+        composition.parts[0]!.measures[0]!.voices[voice]!.events.map((event) =>
+            event.kind === 'tuplet' ? 'tuplet' : `${event.kind}/${event.duration.base}`,
+        );
+
+    it('goes down a voice with vj, at the same beat, giving it rests to write over', () => {
+        const { state, composition } = run(['l', 'i', 'v', 'j']);
+        expect(where(state.cursor)).toEqual({ part: 0, measure: 0, voice: 1, leaf: 1 });
+        expect(kinds(composition, 1)).toEqual(['rest/4', 'rest/4', 'rest/2']);
+        // The phantom keeps its shape
+        expect(state.phantom).toEqual(run(['l', 'i']).state.phantom);
+    });
+
+    it('goes up with vk, no higher than the first voice and no lower than the fourth', () => {
+        expect(run(['i', 'v', 'k']).state.cursor.voice).toBe(0);
+        const lowest = run(['i', '9', 'v', 'j']);
+        expect(lowest.state.cursor.voice).toBe(3);
+        expect(lowest.composition.parts[0]!.measures[0]!.voices).toHaveLength(4);
+        expect(run(['i', '9', 'v', 'j', 'v', 'k']).state.cursor.voice).toBe(2);
+    });
+
+    it('writes into the voice, leaving the others as they were', () => {
+        const { state, composition } = run(['i', 'v', 'j', '<Space>', '<Esc>']);
+        expect(state.cursor.voice).toBe(1);
+        const [first, second] = composition.parts[0]!.measures[0]!.voices;
+        expect(first).toBe(exampleComposition.parts[0]!.measures[0]!.voices[0]);
+        expect(second!.events[0]).toMatchObject({ kind: 'chord', duration: { base: 4 } });
+    });
+
+    it('takes a voice away again if nothing was written in it', () => {
+        const left = run(['l', 'i', 'v', 'j', '<Esc>']);
+        expect(left.composition.parts[0]!.measures[0]).toEqual(exampleComposition.parts[0]!.measures[0]);
+        expect(where(left.state.cursor)).toEqual(at(0, 1));
+
+        expect(run(['i', '2', 'v', 'j', 'v', 'k']).composition.parts[0]!.measures[0]!.voices).toHaveLength(2);
+        const back = run(['i', '2', 'v', 'j', '2', 'v', 'k']).composition;
+        expect(back.parts[0]!.measures[0]).toEqual(exampleComposition.parts[0]!.measures[0]);
+    });
+
+    it("keeps a voice of rests it didn't make", () => {
+        const [melody, ...others] = exampleComposition.parts;
+        const wholeRest: Rest = { kind: 'rest', duration: { base: 1, dots: 0 } };
+        const rests = { events: [wholeRest] };
+        const [first, ...after] = melody!.measures;
+        const withRests: Composition = {
+            ...exampleComposition,
+            parts: [{ ...melody!, measures: [{ voices: [...first!.voices, rests] }, ...after] }, ...others],
+        };
+        expect(run(['i', 'v', 'j', '<Esc>'], withRests).composition).toBe(withRests);
+    });
+
+    it("starts in the cursor's voice on a note, or the first voice on a rest", () => {
+        const written2 = run(['i', 'v', 'j', '<Space>', '<Esc>']);
+        let state = written2.state;
+        expect(handleKey(written2.composition, state, 'i').state.cursor.voice).toBe(1);
+        state = handleKey(written2.composition, state, 'l').state;
+        expect(state.cursor.voice).toBe(1);
+        expect(where(handleKey(written2.composition, state, 'i').state.cursor)).toEqual(at(0, 1));
+    });
+
+    it('carries on into the same voice of the next measure in melody mode', () => {
+        const { state, composition } = run(['a', 'v', 'j', '<S-5>', '<Space>', '<Space>']);
+        expect(where(state.cursor)).toEqual({ part: 0, measure: 1, voice: 1, leaf: 0 });
+        expect(composition.parts[0]!.measures[1]!.voices).toHaveLength(2);
+        // Leaving it unwritten takes it away, keeping the measure that was written
+        const left = run(['a', 'v', 'j', '<S-5>', '<Space>', '<Space>', '<Esc>']).composition;
+        expect(left.parts[0]!.measures[1]).toEqual(exampleComposition.parts[0]!.measures[1]);
+        expect(left.parts[0]!.measures[0]!.voices).toHaveLength(2);
+    });
+
+    it('takes M for marcato, and v with anything but k or j does nothing', () => {
+        expect(run(['i', 'M']).state.phantom).toMatchObject({ marcato: true });
+        const other = run(['i', 'v', 's']);
+        expect(other.state.phantom).not.toHaveProperty('staccato');
+        expect(other.state.pending).toBe('');
     });
 });
 

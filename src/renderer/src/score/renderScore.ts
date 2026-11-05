@@ -422,11 +422,15 @@ function drawColumn(ctx: RenderContext, { staves, voices }: Column, m: number) {
                 );
             }),
         );
-        for (const { voice, beams, tuplets } of partVoices.filter(hasNotes)) {
-            voice.draw(ctx, staves[p]!);
-            for (const beam of beams) beam.setContext(ctx).draw();
-            for (const { tuplet } of tuplets) tuplet.setContext(ctx).draw();
-        }
+        partVoices.forEach((built, v) => {
+            if (!hasNotes(built)) return;
+            // Grouped by voice (`vf-voice-2`), so the insert modes can color each one
+            ctx.openGroup(`voice-${v + 1}`);
+            built.voice.draw(ctx, staves[p]!);
+            for (const beam of built.beams) beam.setContext(ctx).draw();
+            for (const { tuplet } of built.tuplets) tuplet.setContext(ctx).draw();
+            ctx.closeGroup();
+        });
     });
 }
 

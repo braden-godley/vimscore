@@ -499,7 +499,9 @@ function showEditing() {
     const time = timeIn(cursorSeconds(composition, cursor, { skipRepeats }));
     const place = `${part?.name ?? ''}  m${cursor.measure + 1}  ${time}`;
     const clef = part && clefAt(part, cursor.measure);
-    positionLabel.textContent = editor.phantom ? `${describePhantom(editor.phantom, clef)}  ${place}` : place;
+    positionLabel.textContent = editor.phantom
+        ? `${describePhantom(editor.phantom, clef)}  voice ${cursor.voice + 1}  ${place}`
+        : place;
 
     view.setPlayhead(undefined);
     view.select(cursor);

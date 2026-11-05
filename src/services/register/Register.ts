@@ -8,7 +8,8 @@ import { Composition } from '../composition/Composition';
 import { Cursor, cursorAtOffset, cursorOffset, voiceLeaves, withNote } from '../cursor/Cursor';
 import { Duration, durationsFilling } from '../duration/Duration';
 import { mergeRests, replaceLeaf, withVoiceEvents } from '../edit/Edit';
-import { cutIntoMeasures, extractSpan, rests, voiceStream } from '../edit/Stream';
+import { cutIntoMeasures, extractSpan, rests, voiceCount, voiceStream } from '../edit/Stream';
+import { withoutRestVoices } from '../edit/Voices';
 import { Event, mapLeaves } from '../event/Event';
 import { Fraction, ZERO, add, compare, fraction, mul, sub } from '../fraction/Fraction';
 import { ResolvedMeasure, resolveMeasures } from '../measure/Measure';
@@ -19,10 +20,11 @@ import { comparePitch, midi } from '../pitch/Pitch';
 export type Register =
     | { kind: 'note'; note: Note; duration: Duration }
     /**
-     * One stream of events per staff, top to bottom, all `length` long. `measures` clips are
-     * whole measures and go in at a measure's start, like vim's linewise text.
+     * For each staff, top to bottom, a stream of events per voice, all `length` long.
+     * `measures` clips are whole measures and go in at a measure's start, like vim's linewise
+     * text.
      */
-    | { kind: 'clip'; measures: boolean; length: Fraction; parts: Event[][] };
+    | { kind: 'clip'; measures: boolean; length: Fraction; parts: Event[][][] };
 
 /** The note under the cursor, with its chord's value. Undefined on a rest */
 export function yankNote(composition: Composition, cursor: Cursor): Register | undefined {
@@ -31,7 +33,10 @@ export function yankNote(composition: Composition, cursor: Cursor): Register | u
     return event && note ? { kind: 'note', note, duration: event.duration } : undefined;
 }
 
-/** What a selection covers, staff by staff. Voice 0 of each, for now */
+/**
+ * What a selection covers, staff by staff, in every voice. A voice with nothing but rests in
+ * the selection is left out, unless voices after it have something.
+ */
 export function yankSelection(composition: Composition, selection: Selection): Register | undefined {
     const resolved = resolveMeasures(composition.measures);
     const [first, last] =
@@ -47,11 +52,16 @@ export function yankSelection(composition: Composition, selection: Selection): R
             ? [ZERO, sub(add(lastMeasure.start, lastMeasure.length), streamStart)]
             : [timeOf(resolved, selection.start, streamStart), timeOf(resolved, selection.end, streamStart)];
 
-    const parts: Event[][] = [];
+    const parts: Event[][][] = [];
     for (let part = selection.firstPart; part <= selection.lastPart; part++) {
-        const span = extractSpan(voiceStream(composition, part, first, last), start, end);
-        if (!span) return undefined;
-        parts.push(span);
+        const voices: Event[][] = [];
+        for (let voice = 0; voice < voiceCount(composition, part, first, last); voice++) {
+            const span = extractSpan(voiceStream(composition, part, first, last, voice), start, end);
+            if (!span) return undefined;
+            voices.push(span);
+        }
+        while (voices.length > 1 && voices.at(-1)!.every(({ kind }) => kind === 'rest')) voices.pop();
+        parts.push(voices);
     }
     return { kind: 'clip', measures: selection.kind === 'measures', length: sub(end, start), parts };
 }
@@ -145,21 +155,28 @@ function putClip(
     const streamLength = sub(add(measures[last]!.start, measures[last]!.length), streamStart);
     const from = sub(at, streamStart);
 
-    for (const [k, clipEvents] of clip.parts.entries()) {
+    for (const [k, clipVoices] of clip.parts.entries()) {
         const part = cursor.part + k;
         if (part >= edited.parts.length) break;
 
-        const stream = voiceStream(edited, part, first, last);
-        const before = extractSpan(stream, ZERO, from, true);
-        const rest = extractSpan(stream, add(from, length), streamLength, true);
-        if (!before || !rest) return undefined;
-        const pasted = Array.from({ length: count }, () => clipEvents).flat();
+        // Every voice is written over: with the clip's, or with rests where the clip has fewer
+        const voices = Math.max(clipVoices.length, voiceCount(edited, part, first, last));
+        for (let voice = 0; voice < voices; voice++) {
+            const stream = voiceStream(edited, part, first, last, voice);
+            const before = extractSpan(stream, ZERO, from, true);
+            const rest = extractSpan(stream, add(from, length), streamLength, true);
+            if (!before || !rest) return undefined;
+            const clipEvents = clipVoices[voice] ?? rests(durationsFilling(clip.length));
+            const pasted = Array.from({ length: count }, () => clipEvents).flat();
 
-        const cut = cutIntoMeasures([...before, ...pasted, ...rest], (i) => measures[first + i]!.length, true);
-        if (!cut || cut.length !== last - first + 1) return undefined;
-        cut.forEach((events, i) => {
-            edited = withVoiceEvents(edited, { part, measure: first + i, voice: 0, leaf: 0, note: 0 }, events);
-        });
+            const cut = cutIntoMeasures([...before, ...pasted, ...rest], (i) => measures[first + i]!.length, true);
+            if (!cut || cut.length !== last - first + 1) return undefined;
+            cut.forEach((events, i) => {
+                edited = withVoiceEvents(edited, { part, measure: first + i, voice, leaf: 0, note: 0 }, events);
+            });
+        }
+        // A voice left with only rests in a measure goes, unless a later voice has something
+        for (let m = first; m <= last; m++) edited = withoutRestVoices(edited, part, m, 0, () => true);
     }
 
     const landing = measures[first]!;

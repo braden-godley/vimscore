@@ -145,22 +145,56 @@ export function moveLeaf(composition: Composition, cursor: Cursor, delta: number
 }
 
 /**
- * Steps through the chord by pitch: positive goes up. Past the top or bottom note, or from a
- * rest, it carries on into the stave above or below, and stops where there isn't one.
+ * Every note of the staff's chords starting at the cursor's beat, in every voice, from the
+ * lowest up. A note in a lower voice comes first on a unison.
+ */
+function notesAtBeat(composition: Composition, cursor: Cursor): Cursor[] {
+    const { part, measure } = cursor;
+    const offset = cursorOffset(composition, cursor);
+    const found: { cursor: Cursor; pitch: Pitch }[] = [];
+    composition.parts[part]?.measures[measure]?.voices.forEach((_, voice) => {
+        let start = ZERO;
+        voiceLeaves(composition, part, measure, voice).forEach(({ event, length }, leaf) => {
+            if (event.kind === 'chord' && compare(start, offset) === 0) {
+                event.notes.forEach(({ pitch }, note) => found.push({ cursor: { part, measure, voice, leaf, note }, pitch }));
+            }
+            start = add(start, length);
+        });
+    });
+    return found.sort((a, b) => comparePitch(a.pitch, b.pitch) || b.cursor.voice - a.cursor.voice).map(({ cursor }) => cursor);
+}
+
+/**
+ * The next note up (positive `step`) or down in the cursor's staff at its beat, whichever voice
+ * it's in. From a rest in an upper voice (1 or 3), going down lands on the top note; from one
+ * in a lower voice, going up lands on the bottom note.
+ */
+function nextNoteAtBeat(composition: Composition, cursor: Cursor, step: number): Cursor | undefined {
+    const notes = notesAtBeat(composition, cursor);
+    if (cursorLeaf(composition, cursor)?.event.kind === 'chord') {
+        const here = notes.findIndex(({ voice, leaf, note }) => voice === cursor.voice && leaf === cursor.leaf && note === cursor.note);
+        return notes[here + step];
+    }
+    const upper = cursor.voice % 2 === 0;
+    if (upper && step < 0) return notes.at(-1);
+    if (!upper && step > 0) return notes[0];
+    return undefined;
+}
+
+/**
+ * Steps through the notes starting at the cursor's beat by pitch, across the staff's voices:
+ * positive goes up. Past the top or bottom note it carries on into the stave above or below,
+ * and stops where there isn't one.
  */
 export function moveNote(composition: Composition, cursor: Cursor, delta: number): Cursor {
     const step = Math.sign(delta);
     let current = cursor;
 
     for (let remaining = Math.abs(delta); remaining > 0; remaining--) {
-        const event = cursorLeaf(composition, current)?.event;
-        if (event?.kind === 'chord') {
-            const byPitch = event.notes.map((_, i) => i).sort((a, b) => comparePitch(event.notes[a]!.pitch, event.notes[b]!.pitch));
-            const next = byPitch[byPitch.indexOf(current.note) + step];
-            if (next !== undefined) {
-                current = { ...current, note: next };
-                continue;
-            }
+        const next = nextNoteAtBeat(composition, current, step);
+        if (next) {
+            current = next;
+            continue;
         }
 
         // Parts are listed top to bottom, so going up in pitch means a lower part index
@@ -194,14 +228,28 @@ export function moveMeasure(composition: Composition, cursor: Cursor, delta: num
 /**
  * Moves to another part in the same measure, landing on whatever sounds at the cursor's time.
  * Parts are usually in different registers, so this takes the top or bottom note rather than
- * the nearest.
+ * the nearest, out of all the part's voices.
  */
 export function movePart(composition: Composition, cursor: Cursor, delta: number, land: 'top' | 'bottom' = 'top'): Cursor {
     const part = clamp(cursor.part + delta, 0, composition.parts.length - 1);
+    const { measure } = cursor;
     const offset = cursorOffset(composition, cursor);
-    const leaf = leafAtOffset(voiceLeaves(composition, part, cursor.measure, 0), offset);
-    const target = clampCursor(composition, { part, measure: cursor.measure, voice: 0, leaf, note: 0 });
-    return withNote(composition, target, land);
+    const sounding = (composition.parts[part]?.measures[measure]?.voices ?? []).map((_, voice) => {
+        const leaf = leafAtOffset(voiceLeaves(composition, part, measure, voice), offset);
+        return withNote(composition, clampCursor(composition, { part, measure, voice, leaf, note: 0 }), land);
+    });
+    const pitchOf = (target: Cursor) => {
+        const pitch = cursorPitch(composition, target);
+        return pitch === undefined ? undefined : land === 'top' ? midi(pitch) : -midi(pitch);
+    };
+    // The first voice wins a tie, and when nothing sounds
+    let best = sounding[0] ?? clampCursor(composition, { part, measure, voice: 0, leaf: 0, note: 0 });
+    for (const target of sounding.slice(1)) {
+        const pitch = pitchOf(target);
+        const bestPitch = pitchOf(best);
+        if (pitch !== undefined && (bestPitch === undefined || pitch > bestPitch)) best = target;
+    }
+    return best;
 }
 
 /** The chord or rest sounding `offset` whole notes into a measure, on its top note */

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { exampleComposition } from '../composition/example-composition';
+import { Composition } from '../composition/Composition';
 import { Cursor, cursorPitch } from '../cursor/Cursor';
 import { written } from '../edit/written';
 import { fraction } from '../fraction/Fraction';
@@ -94,5 +95,55 @@ describe('clips', () => {
         expect(written(result, 1, 2)).toBe('60,64,67/q 55,59,62/q 60~,64~,67~/q');
         expect(written(result, 1, 3)).toBe('60,64,67/q r/h');
         expect(written(result, 0, 2)).toBe(written(exampleComposition, 0, 2));
+    });
+});
+
+describe('clips of several voices', () => {
+    const w = { base: 1, dots: 0 } as const;
+    const h = { base: 2, dots: 0 } as const;
+    // Two 4/4 measures: a C over a half-note low C in the first, a whole rest in the second
+    const score: Composition = {
+        title: '',
+        soundfonts: [],
+        measures: [{ timeSignature: { beats: 4, beatValue: 4 } }, {}],
+        parts: [
+            {
+                name: 'Piano',
+                program: 0,
+                measures: [
+                    {
+                        voices: [
+                            { events: [{ kind: 'chord', duration: w, notes: [{ pitch: spell(72) }] }] },
+                            {
+                                events: [
+                                    { kind: 'chord', duration: h, notes: [{ pitch: spell(60) }] },
+                                    { kind: 'rest', duration: h },
+                                ],
+                            },
+                        ],
+                    },
+                    { voices: [{ events: [{ kind: 'rest', duration: w }] }] },
+                ],
+            },
+        ],
+    };
+    const bar = (measure: number): Selection => ({ kind: 'measures', firstPart: 0, lastPart: 0, first: measure, last: measure });
+
+    it('copy every voice of a measure, and put them all back', () => {
+        const copied = yankSelection(score, bar(0))!;
+        expect(copied.kind === 'clip' && copied.parts[0]).toHaveLength(2);
+        const pasted = put(score, at(0, 1, 0), copied, false)!.composition;
+        expect(pasted.parts[0]!.measures[1]).toEqual(score.parts[0]!.measures[0]);
+    });
+
+    it('write over the voices a clip has none of, taking them away', () => {
+        const pasted = put(score, at(0, 0, 0), yankSelection(score, bar(1))!, false)!.composition;
+        expect(pasted.parts[0]!.measures[0]).toEqual(score.parts[0]!.measures[1]);
+    });
+
+    it('leave out a voice with only rests in the selection', () => {
+        const lastHalf: Selection = { ...block(0, 0, [1, 2], [1, 1]) };
+        const copied = yankSelection(score, lastHalf)!;
+        expect(copied.kind === 'clip' && copied.parts[0]).toHaveLength(1);
     });
 });

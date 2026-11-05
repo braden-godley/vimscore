@@ -35,15 +35,21 @@ export function pieces(event: Chord | Rest, durations: Duration[], keepTie = tru
     });
 }
 
-/** Voice 0 of a part across measures `first`..`last`, with rests where the voice is missing */
-export function voiceStream(composition: Composition, part: number, first: number, last: number): Event[] {
+/** One voice of a part across measures `first`..`last`, with rests where the voice is missing */
+export function voiceStream(composition: Composition, part: number, first: number, last: number, voice = 0): Event[] {
     const resolved = resolveMeasures(composition.measures);
     const result: Event[] = [];
     for (let m = first; m <= last; m++) {
-        const events = composition.parts[part]?.measures[m]?.voices[0]?.events;
-        result.push(...(events ?? rests(durationsFilling(resolved[m]?.length ?? ZERO))));
+        const events = composition.parts[part]?.measures[m]?.voices[voice]?.events;
+        result.push(...(events?.length ? events : rests(durationsFilling(resolved[m]?.length ?? ZERO))));
     }
     return result;
+}
+
+/** How many voices a part has in its fullest measure from `first` to `last` */
+export function voiceCount(composition: Composition, part: number, first: number, last: number): number {
+    const measures = composition.parts[part]?.measures.slice(first, last + 1) ?? [];
+    return Math.max(1, ...measures.map(({ voices }) => voices.length));
 }
 
 /**

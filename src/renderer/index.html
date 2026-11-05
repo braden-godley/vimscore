@@ -13,6 +13,10 @@
       :root {
         --selected: #1a73e8;
         --insert: #188038;
+        /* Each voice's color in the insert modes; the first is the phantom's usual green */
+        --voice-2: #1a73e8;
+        --voice-3: #e37400;
+        --voice-4: #8430ce;
         --playhead: #d93025;
         --visual: #8430ce;
         --visual-shade: rgba(132, 48, 206, 0.08);
@@ -66,6 +70,31 @@
       .phantom svg * {
         fill: var(--insert);
         stroke: var(--insert);
+      }
+      .phantom[data-voice="2"] svg * {
+        fill: var(--voice-2);
+        stroke: var(--voice-2);
+      }
+      .phantom[data-voice="3"] svg * {
+        fill: var(--voice-3);
+        stroke: var(--voice-3);
+      }
+      .phantom[data-voice="4"] svg * {
+        fill: var(--voice-4);
+        stroke: var(--voice-4);
+      }
+      /* In the insert modes the notes of voices past the first take their voice's color too */
+      body[data-state^="insert"] .vf-voice-2 * {
+        fill: var(--voice-2);
+        stroke: var(--voice-2);
+      }
+      body[data-state^="insert"] .vf-voice-3 * {
+        fill: var(--voice-3);
+        stroke: var(--voice-3);
+      }
+      body[data-state^="insert"] .vf-voice-4 * {
+        fill: var(--voice-4);
+        stroke: var(--voice-4);
       }
       /* The chord or rest the phantom stands in for fades back */
       .vf-stavenote.replacing {

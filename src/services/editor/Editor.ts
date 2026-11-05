@@ -39,6 +39,7 @@ import {
     movePart,
     startCursor,
     voiceLeaves,
+    withNote,
 } from '../cursor/Cursor';
 import {
     Phantom,
@@ -58,6 +59,7 @@ import { setKeySignature, setTempo, setTimeSignature } from '../edit/MeasureChan
 import { addPart, deletePart, renamePart, setClef, setInstrument } from '../edit/Parts';
 import { toggleRepeat } from '../edit/Repeats';
 import { setText, textAt } from '../edit/Texts';
+import { MAX_VOICES, VoicePlace, withVoice, withoutRestVoices } from '../edit/Voices';
 import { removeMeasures } from '../edit/RemoveMeasures';
 import { setDynamic, stepDynamicAt, toggleHairpin } from '../edit/Dynamics';
 import { GENERAL_MIDI_INSTRUMENTS, Instrument } from '../instrument/Instrument';
@@ -87,6 +89,11 @@ export interface EditorState {
     anchor?: Cursor;
     /** The note an insert mode will place; set only in the insert modes */
     phantom?: Phantom;
+    /**
+     * Voices this stay in an insert mode filled with rests to write into. Any still holding
+     * nothing but rests are taken off again once the cursor leaves them.
+     */
+    madeVoices?: VoicePlace[];
     /** What's typed after `:`, and why it couldn't run; set only in command mode */
     commandLine?: CommandLineState;
     /** Set only in picker mode */
@@ -208,9 +215,20 @@ const transposeCursorNote =
     };
 
 
-/** The phantom starts as a copy of the selected note */
+/**
+ * The phantom starts as a copy of the selected note, in its voice. On a rest it writes into the
+ * first voice, at the same beat.
+ */
 function enterInsert(mode: InsertKind): Action {
-    return (state, composition) => ({ state: { ...state, mode, phantom: phantomAt(composition, state.cursor) } });
+    return (state, composition) => {
+        const { part, measure, voice, leaf } = state.cursor;
+        const onChord = voiceLeaves(composition, part, measure, voice)[leaf]?.event.kind === 'chord';
+        const cursor =
+            onChord || voice === 0
+                ? state.cursor
+                : cursorAtOffset(composition, part, measure, cursorOffset(composition, state.cursor));
+        return { state: { ...state, mode, cursor, phantom: phantomAt(composition, cursor) } };
+    };
 }
 
 /** Gives the cursor's chord or rest a new value, made from its old one, and plays the chord */
@@ -624,11 +642,11 @@ const PHANTOM_KEYS: Record<string, PhantomKey> = {
     h: (phantom, _, count) => stepDuration(phantom, -count),
     l: (phantom, _, count) => stepDuration(phantom, count),
     w: toggleDot,
-    // Like the normal mode keys without the g
+    // Like the normal mode keys without the g, but for marcato, since v starts a change of voice
     s: (phantom) => toggleArticulation(phantom, 'staccato'),
     '-': (phantom) => toggleArticulation(phantom, 'tenuto'),
     '>': (phantom) => toggleArticulation(phantom, 'accent'),
-    v: (phantom) => toggleArticulation(phantom, 'marcato'),
+    M: (phantom) => toggleArticulation(phantom, 'marcato'),
 };
 
 // Shifted number keys pick a value outright, counting up from 4 for a quarter: 1 is a 32nd and
@@ -657,9 +675,9 @@ function place(composition: Composition, state: EditorState, phantom: Phantom): 
     if (!result) return { state };
     if (!result.placed) return { state: { ...state, cursor: result.cursor }, composition: result.composition };
 
-    const { composition: edited, cursor } = moveOn(state, result.composition, result.cursor);
+    const { composition: edited, cursor, made } = moveOn(state, result.composition, result.cursor);
     return {
-        state: { ...state, cursor },
+        state: { ...state, cursor, madeVoices: made },
         composition: edited,
         effect: {
             kind: 'preview',
@@ -674,19 +692,92 @@ function place(composition: Composition, state: EditorState, phantom: Phantom): 
 function placeRestKey(composition: Composition, state: EditorState, phantom: Phantom): KeyResult {
     const result = placeRest(composition, state.cursor, phantom.duration);
     if (!result) return { state };
-    const { composition: edited, cursor } = moveOn(state, result.composition, result.cursor);
-    return { state: { ...state, cursor }, composition: edited === composition ? undefined : edited };
+    const { composition: edited, cursor, made } = moveOn(state, result.composition, result.cursor);
+    return { state: { ...state, cursor, madeVoices: made }, composition: edited === composition ? undefined : edited };
 }
 
-/** After entering something: melody mode moves on to the next chord or rest */
+/**
+ * After entering something: melody mode moves on to the next chord or rest. In a voice past the
+ * first, the end of a measure goes on into the same voice of the next, giving it rests to write
+ * over there if it has none. `made` is the stay's `madeVoices` with that one added.
+ */
 function moveOn(state: EditorState, composition: Composition, cursor: Cursor) {
-    if (state.mode !== 'insertMelody') return { composition, cursor };
+    const made = state.madeVoices;
+    if (state.mode !== 'insertMelody') return { composition, cursor, made };
     // The score grows as it fills, so the empty measure to move into has to exist first
     const grown = withTrailingEmptyMeasure(composition);
-    return { composition: grown, cursor: moveLeaf(grown, cursor, 1) };
+    const { part, measure, voice, leaf } = cursor;
+    const atEnd = leaf === voiceLeaves(grown, part, measure, voice).length - 1;
+    if (voice === 0 || !atEnd || measure + 1 >= grown.measures.length) {
+        return { composition: grown, cursor: moveLeaf(grown, cursor, 1), made };
+    }
+    const next = { part, measure: measure + 1, voice };
+    const given = withVoice(grown, next, ZERO);
+    const moved = withNote(given.composition, { ...next, leaf: 0, note: 0 }, 'top');
+    return { composition: given.composition, cursor: moved, made: withMade(made, part, measure + 1, given.added) };
+}
+
+const withMade = (made: VoicePlace[] | undefined, part: number, measure: number, added: number[]) =>
+    added.length === 0 ? made : [...(made ?? []), ...added.map((voice) => ({ part, measure, voice }))];
+
+/**
+ * `vk` and `vj` in the insert modes: the voice `delta` above (toward the first) or below, at the
+ * same beat. A voice the measure doesn't have yet is filled with rests to write over.
+ */
+function changeVoice(composition: Composition, state: EditorState, delta: number): KeyResult {
+    const { cursor } = state;
+    const voice = Math.max(0, Math.min(MAX_VOICES - 1, cursor.voice + delta));
+    if (voice === cursor.voice) return { state };
+    const offset = cursorOffset(composition, cursor);
+    const given = withVoice(composition, { part: cursor.part, measure: cursor.measure, voice }, offset);
+    const moved = cursorAtOffset(given.composition, cursor.part, cursor.measure, offset, voice);
+    const madeVoices = withMade(state.madeVoices, cursor.part, cursor.measure, given.added);
+    return {
+        state: { ...state, cursor: moved, madeVoices },
+        composition: given.composition === composition ? undefined : given.composition,
+    };
+}
+
+/**
+ * Takes away the voices this stay made that the cursor has left without writing anything in
+ * them, so trying a voice leaves no rests behind
+ */
+function tidyVoices(composition: Composition, before: EditorState, result: KeyResult): KeyResult {
+    const made = result.state.madeVoices;
+    const staying = result.state.mode === 'insert' || result.state.mode === 'insertMelody';
+    if (!made?.length || result.history) {
+        return staying ? result : { ...result, state: { ...result.state, madeVoices: undefined } };
+    }
+
+    const { part, measure } = before.cursor;
+    const after = result.state.cursor;
+    const sameMeasure = after.part === part && after.measure === measure;
+    if (staying && sameMeasure && after.voice === before.cursor.voice) return result;
+
+    const current = result.composition ?? composition;
+    const keep = staying && sameMeasure ? after.voice : 0;
+    const isMade = (voice: number) =>
+        made.some((place) => place.part === part && place.measure === measure && place.voice === voice);
+    const tidied = withoutRestVoices(current, part, measure, keep, isMade);
+    const voiceCount = tidied.parts[part]?.measures[measure]?.voices.length ?? 0;
+    const left = made.filter((place) => place.part !== part || place.measure !== measure || place.voice < voiceCount);
+    // Leaving a voice that went: back to the first voice at the same beat
+    const cursor =
+        sameMeasure && voiceLeaves(tidied, part, measure, after.voice).length === 0
+            ? cursorAtOffset(tidied, part, measure, cursorOffset(current, after))
+            : after;
+    return {
+        ...result,
+        state: { ...result.state, cursor, madeVoices: staying && left.length > 0 ? left : undefined },
+        composition: tidied === composition ? undefined : tidied,
+    };
 }
 
 function insertKey(composition: Composition, state: EditorState, key: string): KeyResult {
+    return tidyVoices(composition, state, insertModeKey(composition, state, key));
+}
+
+function insertModeKey(composition: Composition, state: EditorState, key: string): KeyResult {
     if (key === '<Esc>') return { state: { ...state, mode: 'normal', phantom: undefined, pending: '' } };
 
     const typed = state.pending + key;
@@ -702,6 +793,9 @@ function insertKey(composition: Composition, state: EditorState, key: string): K
     if (command === 'u') return { state: cleared, history: { direction: 'undo', count } };
     if (command === 'z') return { state: cleared, effect: { kind: 'toggleZoom' } };
     if (command === 'm') return { state: { ...cleared, mode: state.mode === 'insert' ? 'insertMelody' : 'insert' } };
+    // v waits for k or j, a voice up or down
+    if (command === 'v') return { state: { ...state, pending: typed } };
+    if (command === 'vk' || command === 'vj') return changeVoice(composition, cleared, command === 'vk' ? -count : count);
     if (command === '<C-h>' || command === '<C-l>') {
         return { state: { ...cleared, cursor: moveLeaf(composition, state.cursor, command === '<C-h>' ? -count : count) } };
     }

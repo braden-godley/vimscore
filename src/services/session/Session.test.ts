@@ -385,6 +385,24 @@ describe('undo in insert mode', () => {
     });
 });
 
+describe('trying a voice in insert mode', () => {
+    const start = startSession(exampleComposition);
+
+    it('leaves nothing to undo once its rests are taken away', () => {
+        const tried = type(['i', 'v', 'j', '<Esc>']);
+        expect(tried.composition).toEqual(start.composition);
+        expect(tried.insertSteps).toEqual([]);
+        // The next stay's u has nothing of the last one to take back
+        expect(type(['i', 'u'], tried).composition).toBe(tried.composition);
+    });
+
+    it('takes back a move into a new voice with u', () => {
+        const undone = type(['i', 'v', 'j', 'u']);
+        expect(undone.composition).toEqual(start.composition);
+        expect(undone.editor.cursor.voice).toBe(0);
+    });
+});
+
 describe('dynamic keys', () => {
     const dynamics = (session: Session, measure = 0) => session.composition.parts[0]!.measures[measure]!.dynamics;
 
