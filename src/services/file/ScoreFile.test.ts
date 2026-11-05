@@ -3,6 +3,8 @@ import { newComposition, withTrailingEmptyMeasure } from '../composition/Composi
 import { exampleComposition } from '../composition/example-composition';
 import { pitchName } from '../pitch/Pitch';
 import { setClef } from '../edit/Parts';
+import { setText } from '../edit/Texts';
+import { fraction } from '../fraction/Fraction';
 import { readScore, writeScore } from './ScoreFile';
 
 describe('writeScore and readScore', () => {
@@ -25,6 +27,12 @@ describe('writeScore and readScore', () => {
         const changed = setClef(setClef(exampleComposition, 1, 1, 'bass8vb'), 0, 2, 'percussion');
         expect(readScore(writeScore(changed))).toEqual(changed);
         expect(writeScore(changed)).toContain('"clef": "bass8vb"');
+    });
+
+    it('keep text above beats', () => {
+        const texted = setText(setText(exampleComposition, 1, 1, fraction(1, 4), 'Am7'), 1, 1, fraction(0), 'pizz. "soft"');
+        expect(readScore(writeScore(texted))).toEqual(texted);
+        expect(writeScore(exampleComposition)).not.toContain('"text"');
     });
 
     it('keep the swing, leaving straight unwritten', () => {

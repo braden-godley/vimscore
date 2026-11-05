@@ -14,7 +14,7 @@ import { Duration } from '../duration/Duration';
 import { Chord, Event } from '../event/Event';
 import { Fraction, fraction } from '../fraction/Fraction';
 import { Dynamic, isDynamic, nearestDynamic } from '../dynamic/Dynamic';
-import { DynamicMark, Hairpin, MeasureInfo, PartMeasure, Tempo, TimeSignature } from '../measure/Measure';
+import { DynamicMark, Hairpin, MeasureInfo, PartMeasure, Tempo, TextMark, TimeSignature } from '../measure/Measure';
 import { C_MAJOR, KeySignature } from '../key/KeySignature';
 import { ARTICULATIONS, Note, articulationsOf } from '../note/Note';
 import { CLEFS, Clef, isClef } from '../clef/Clef';
@@ -133,7 +133,7 @@ export function writeScore(composition: Composition): string {
             ...(volume !== undefined && { volume }),
             ...(muted && { muted }),
             ...(solo && { solo }),
-            measures: measures.map(({ voices, clef, dynamics, hairpins }) => ({
+            measures: measures.map(({ voices, clef, dynamics, hairpins, texts }) => ({
                 voices: voices.map(({ events }) => events.map(eventData)),
                 ...(clef && { clef }),
                 ...(dynamics?.length && {
@@ -147,6 +147,7 @@ export function writeScore(composition: Composition): string {
                         ...(dynamic && { to: dynamic }),
                     })),
                 }),
+                ...(texts?.length && { text: texts.map(({ offset, text }) => ({ at: fractionText(offset), text })) }),
             })),
         })),
     };
@@ -276,6 +277,14 @@ function readDynamic(value: unknown, path: Path): Dynamic {
 /** A volume in percent, from a version 2 file, as the dynamic nearest it */
 const percentDynamic = (value: unknown, path: Path) => nearestDynamic((integer(value, path, 0, 100) / 100) * 127);
 
+function readTextMark(value: unknown, path: Path): TextMark {
+    const data = object(value, path);
+    return {
+        offset: readFraction(data['at'], `${path}.at`, 'a time in the measure'),
+        text: string(data['text'], `${path}.text`),
+    };
+}
+
 function readDynamicMark(value: unknown, path: Path): DynamicMark {
     const data = object(value, path);
     return {
@@ -329,6 +338,10 @@ function readPartMeasure(value: unknown, path: Path, key: KeySignature): PartMea
     if (data['hairpin'] !== undefined) {
         const hairpins = array(data['hairpin'], `${path}.hairpin`);
         partMeasure.hairpins = hairpins.map((hairpin, i) => readHairpin(hairpin, `${path}.hairpin[${i}]`));
+    }
+    if (data['text'] !== undefined) {
+        const texts = array(data['text'], `${path}.text`);
+        partMeasure.texts = texts.map((text, i) => readTextMark(text, `${path}.text[${i}]`));
     }
     return partMeasure;
 }

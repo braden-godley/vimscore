@@ -57,6 +57,7 @@ import { LeafRef, Selection, VisualKind, selectedChordPitches, selectedLeaves, v
 import { setKeySignature, setTempo, setTimeSignature } from '../edit/MeasureChanges';
 import { addPart, deletePart, renamePart, setClef, setInstrument } from '../edit/Parts';
 import { toggleRepeat } from '../edit/Repeats';
+import { setText, textAt } from '../edit/Texts';
 import { removeMeasures } from '../edit/RemoveMeasures';
 import { setDynamic, stepDynamicAt, toggleHairpin } from '../edit/Dynamics';
 import { GENERAL_MIDI_INSTRUMENTS, Instrument } from '../instrument/Instrument';
@@ -383,6 +384,20 @@ const hairpinOverSelected =
         return { state: { ...state, mode: 'normal', anchor: undefined }, composition: hairpinOver(composition, selection, kind) };
     };
 
+/** `tt` starts `:text` for the cursor's beat, with the text already there to change */
+const startTextAtCursor: Action = (state, composition) => {
+    const { part, measure } = state.cursor;
+    const text = textAt(composition, part, measure, cursorOffset(composition, state.cursor));
+    return { state: { ...state, mode: 'command', commandLine: { text: text ? `text ${text}` : 'text ' } } };
+};
+
+/** `td` takes the text above the cursor's beat away */
+const removeTextAtCursor: Action = (state, composition) => {
+    const { part, measure } = state.cursor;
+    const edited = setText(composition, part, measure, cursorOffset(composition, state.cursor), '');
+    return edited === composition ? { state } : { state, composition: edited };
+};
+
 const NORMAL_ACTIONS: Record<string, Action> = {
     ...SHARED_ACTIONS,
     u: (state, _, count = 1) => ({ state, history: { direction: 'undo', count } }),
@@ -390,6 +405,8 @@ const NORMAL_ACTIONS: Record<string, Action> = {
     // Repeat barlines at the cursor's measure, on or off
     rs: (state, composition) => ({ state, composition: toggleRepeat(composition, state.cursor.measure, 'start') }),
     re: (state, composition) => ({ state, composition: toggleRepeat(composition, state.cursor.measure, 'end') }),
+    tt: startTextAtCursor,
+    td: removeTextAtCursor,
     ga: toggleCursorArpeggio,
     gl: toggleCursorGlissando,
     gt: toggleCursorTie,
@@ -798,6 +815,8 @@ function runEditCommand(
             return { state, composition: renamePart(composition, part, command.text) };
         case 'title':
             return { state, composition: { ...composition, title: command.text } };
+        case 'text':
+            return { state, composition: setText(composition, part, measure, cursorOffset(composition, state.cursor), command.text) };
         case 'clef':
             return { state, composition: setClef(composition, part, measure, command.clef) };
         case 'keySignature':

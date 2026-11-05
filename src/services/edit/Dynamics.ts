@@ -6,7 +6,7 @@ import { Fraction, compare } from '../fraction/Fraction';
 import { HairpinKind, PartMeasure } from '../measure/Measure';
 
 /** Replaces one part's measure with what `edit` makes of it */
-function editPartMeasure(
+export function editPartMeasure(
     composition: Composition,
     part: number,
     measure: number,

@@ -3,6 +3,8 @@ import { newComposition, withTrailingEmptyMeasure } from '../composition/Composi
 import { exampleComposition } from '../composition/example-composition';
 import { setKeySignature, setTempo, setTimeSignature } from './MeasureChanges';
 import { written } from './written';
+import { setText } from './Texts';
+import { fraction } from '../fraction/Fraction';
 
 const quarter = { base: 4, dots: 0 } as const;
 
@@ -19,6 +21,13 @@ describe('setTimeSignature', () => {
         expect(written(changed, 1, 1)).toBe('48/q r/q r/q');
         // What came after is untouched, one measure later
         expect(changed.parts[0]!.measures[2]).toBe(exampleComposition.parts[0]!.measures[1]);
+    });
+
+    it('keeps text at its beat, in the measure that beat falls in', () => {
+        // The fourth beat of 4/4 is the first of the second 3/4 measure
+        const texted = setText(exampleComposition, 0, 0, fraction(3, 4), 'G7');
+        const changed = setTimeSignature(texted, 0, { beats: 3, beatValue: 4 });
+        expect(changed.parts[0]!.measures[1]!.texts).toEqual([{ offset: fraction(0), text: 'G7' }]);
     });
 
     it('keeps ties and staccato where they were', () => {

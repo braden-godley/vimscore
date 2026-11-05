@@ -54,7 +54,7 @@ export function setTempo(composition: Composition, measure: number, tempo: Tempo
 }
 
 /**
- * Moves dynamic markings or hairpins to the measures their moment falls in after re-barring, so
+ * Moves dynamic markings, hairpins or text to the measures their moment falls in after re-barring, so
  * they stay with the music. A hairpin keeps its length, running on over the new barlines.
  */
 function rebarMarks<T extends { offset: Fraction }>(
@@ -140,10 +140,12 @@ export function setTimeSignature(composition: Composition, measure: number, time
             const stretch = part.measures.slice(measure, end);
             const dynamics = rebarMarks(stretch.map((m) => m.dynamics), oldLength, newLength, count);
             const hairpins = rebarMarks(stretch.map((m) => m.hairpins), oldLength, newLength, count);
+            const texts = rebarMarks(stretch.map((m) => m.texts), oldLength, newLength, count);
             const newMeasures: PartMeasure[] = Array.from({ length: count }, (_, i) => ({
                 voices: flows[p]!.map((cut) => ({ events: cut[i] ?? emptyMeasure() })),
                 ...(dynamics[i]!.length > 0 && { dynamics: dynamics[i] }),
                 ...(hairpins[i]!.length > 0 && { hairpins: hairpins[i] }),
+                ...(texts[i]!.length > 0 && { texts: texts[i] }),
             }));
             // Clef changes, like tempo and key changes, go to the measure their moment falls in
             stretch.forEach(({ clef }, i) => {

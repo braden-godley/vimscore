@@ -93,6 +93,9 @@ EDITING IN NORMAL MODE
     vd                Take the dynamic marking at the cursor's beat off
     <  >              A crescendo or diminuendo over the cursor's chord, and count - 1 after it
     rs  re            Put a repeat start or end barline at the cursor's measure, or take it away
+    tt                Write text above the cursor's beat, like a chord symbol: starts :text on
+                      the command line, with the text already there to change (see THE SCORE)
+    td                Take the text above the cursor's beat away
     gS                Pick the clef of the cursor's part from its measure on (see CLEFS)
     dd                Delete the cursor's note, keeping it to put back
     yy                Copy the cursor's note
@@ -290,6 +293,10 @@ CLEFS
 
 THE SCORE
     :title name     Name the whole score
+    :text words     Write words above the cursor's chord or rest, like Cmaj7 or pizz., in
+                    place of any at that beat. Each beat of each part has its own, drawn over
+                    its staff, and they're saved with the score. They stay with their beat
+                    when a time signature re-bars the music. :text alone takes them away
     :time 3/4       A time signature from the cursor's measure on, in every part
     :key D          A key from the cursor's measure on: :key Bb, :key F#m, :key 2#, :key 3b
     :tempo 120      A tempo from the cursor's measure on, counting the beat it had there.

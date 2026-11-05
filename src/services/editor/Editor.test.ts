@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Composition } from '../composition/Composition';
 import { exampleComposition } from '../composition/example-composition';
-import { Cursor } from '../cursor/Cursor';
+import { Cursor, cursorOffset } from '../cursor/Cursor';
 import { Chord } from '../event/Event';
 import { EditorState, KeyResult, editorSelection, handleKey, initialEditorState } from './Editor';
 import { parseCommand } from './CommandLine';
@@ -827,6 +827,48 @@ describe(':delmeasure', () => {
             expect(removed.state.anchor).toBeUndefined();
             expect(removed.composition?.parts[1]!.measures[0]).toBe(exampleComposition.parts[1]!.measures[2]);
         }
+    });
+});
+
+describe('tt and td', () => {
+    /** Types keys into `composition`, from where `moves` take the cursor in the example */
+    const typeInto = (composition: Composition, moves: string[], keys: string[]) => {
+        let result: KeyResult = { state: { ...initialEditorState(composition), cursor: type(moves).state.cursor } };
+        for (const key of keys) result = handleKey(composition, result.state, key);
+        return result;
+    };
+
+    it("starts :text, with the text at the cursor's beat to change", () => {
+        const typing = type(['l', 't', 't']).state;
+        expect(typing.mode).toBe('command');
+        expect(typing.commandLine).toEqual({ text: 'text ' });
+
+        const edited = type(['l', 't', 't', ...'Cmaj7', '<CR>']);
+        expect(edited.state.mode).toBe('normal');
+        const offset = cursorOffset(exampleComposition, edited.state.cursor);
+        expect(edited.composition?.parts[0]!.measures[0]!.texts).toEqual([{ offset, text: 'Cmaj7' }]);
+        // Only in the cursor's part
+        expect(edited.composition?.parts[1]).toBe(exampleComposition.parts[1]);
+
+        expect(typeInto(edited.composition!, ['l'], ['t', 't']).state.commandLine).toEqual({ text: 'text Cmaj7' });
+        expect(typeInto(edited.composition!, [], ['t', 't']).state.commandLine).toEqual({ text: 'text ' });
+    });
+
+    it('keeps one text at each beat, in time order', () => {
+        const first = type(['l', ...':text G7', '<CR>']).composition!;
+        const both = typeInto(first, [], [...':text C', '<CR>']).composition!;
+        expect(both.parts[0]!.measures[0]!.texts!.map(({ text }) => text)).toEqual(['C', 'G7']);
+        const replaced = typeInto(both, ['l'], [...':text Dm', '<CR>']).composition!;
+        expect(replaced.parts[0]!.measures[0]!.texts!.map(({ text }) => text)).toEqual(['C', 'Dm']);
+    });
+
+    it('takes the text away with td or :text alone', () => {
+        const edited = type(['l', ...':text Fine', '<CR>']).composition!;
+        for (const keys of [['t', 'd'], [':', ...'text', '<CR>']]) {
+            expect(typeInto(edited, ['l'], keys).composition?.parts[0]!.measures[0]).not.toHaveProperty('texts');
+        }
+        // Nothing at this beat to take away
+        expect(typeInto(edited, [], ['t', 'd']).composition).toBeUndefined();
     });
 });
 

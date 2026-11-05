@@ -63,6 +63,9 @@ const SLUR_MAX_HEIGHT = 12;
 const SLUR_THICKNESS = 1.8;
 /** How far above the top stave line tempo marks sit, in VexFlow's offset from the stave */
 const TEMPO_Y = -10;
+/** Text over a beat sits this far above the top stave line, under any tempo mark */
+const TEXT_GAP = 20;
+const TEXT_FONT_SIZE = 13;
 
 /** Maps a time within a measure to the x where it's drawn */
 export interface Anchor {
@@ -529,8 +532,26 @@ export function renderScore(target: ScoreTarget, composition: Composition, cache
     drawSlurs(ctx, composition, columns, offsets);
     drawDynamics(ctx, composition, layout);
     drawHairpins(ctx, composition, layout);
+    drawTexts(ctx, composition, layout);
     if (svg) ctx.closeGroup();
     return layout;
+}
+
+/** Each text over its stave, starting at its beat */
+function drawTexts(ctx: RenderContext, composition: Composition, layout: ScoreLayout) {
+    ctx.save();
+    ctx.setFont('Georgia, serif', TEXT_FONT_SIZE);
+    composition.parts.forEach((part, p) => {
+        const stave = layout.parts[p];
+        part.measures.forEach((partMeasure, m) => {
+            const anchors = layout.measures[m]?.anchors;
+            if (!stave || !anchors?.length) return;
+            for (const { offset, text } of partMeasure.texts ?? []) {
+                ctx.fillText(text, interpolate(anchors, toNumber(offset)), stave.top - TEXT_GAP);
+            }
+        });
+    });
+    ctx.restore();
 }
 
 /** Dynamics are set in bold italic, like `mf` in a printed score */

@@ -46,6 +46,13 @@ export interface DynamicMark {
     dynamic: Dynamic;
 }
 
+/** Words written above a part's beat, like a chord symbol or "pizz." Kept by time, like dynamics */
+export interface TextMark {
+    /** Whole notes from the start of the measure */
+    offset: Fraction;
+    text: string;
+}
+
 export type HairpinKind = 'crescendo' | 'diminuendo';
 
 /**
@@ -74,6 +81,8 @@ export interface PartMeasure {
     dynamics?: DynamicMark[];
     /** Hairpins starting in this measure, in time order, at most one at an offset */
     hairpins?: Hairpin[];
+    /** In time order, at most one at an offset */
+    texts?: TextMark[];
 }
 
 /** Used when the first measure doesn't set its own */
