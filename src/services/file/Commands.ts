@@ -60,6 +60,11 @@ function withExtension(path: string): string {
     return /\.[^\\/.]+$/.test(path) ? path : `${path}.${EXTENSION}`;
 }
 
+/** The score a name typed after `:e` or `:new` means: from the open score's folder, as a score */
+export function scorePath(document: Document, host: FileHost, typed: string): Promise<string> {
+    return host.resolve(withExtension(typed), folder(document.path));
+}
+
 async function write(document: Document, host: FileHost, typed: string | undefined, force: boolean) {
     let path: string | undefined;
     if (typed) {
@@ -118,7 +123,7 @@ async function edit(
     if (isModified(document) && !force) return { document, message: NOT_SAVED, error: true };
     // `:e` alone reads the current file again, or asks for one if there isn't one yet
     const path = typed
-        ? await host.resolve(withExtension(typed), folder(document.path))
+        ? await scorePath(document, host, typed)
         : (document.path ?? (await host.chooseOpenPath()));
     if (!path) return { document, message: 'Nothing opened' };
 

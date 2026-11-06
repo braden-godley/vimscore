@@ -20,7 +20,11 @@ contextBridge.exposeInMainWorld('files', {
   writeBinary: (path: string, data: Uint8Array) => ipcRenderer.invoke('files:writeBinary', path, data),
   chooseSoundfontPath: () => ipcRenderer.invoke('files:chooseSoundfont'),
   takeOpened: () => ipcRenderer.invoke('files:takeOpened'),
-  onOpened: (listener: () => void) => ipcRenderer.on('files:opened', () => listener()),
+});
+
+contextBridge.exposeInMainWorld('windows', {
+  open: (path?: string) => ipcRenderer.send('window:new', path),
+  showPath: (path?: string) => ipcRenderer.send('window:path', path),
 });
 
 contextBridge.exposeInMainWorld('settings', {

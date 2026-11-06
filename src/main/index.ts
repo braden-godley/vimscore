@@ -16,11 +16,19 @@ const SOUNDFONT_FILTERS = [{ name: 'Soundfonts', extensions: ['sf2', 'sf3', 'dls
 const ICON_PATH = join(__dirname, '../../resources/icon.png');
 
 /**
- * Scores Finder asked to open (a double-click, or Open With), waiting for the window to take
- * them. It can ask before the app is ready, and there's one score open at a time, so the
- * window takes the last; see files:takeOpened.
+ * Scores Finder asked to open (a double-click, or Open With) before the app was ready. Each
+ * gets its own window once it is.
  */
-const openedPaths: string[] = [];
+const openedEarly: string[] = [];
+
+/** The score each new window opens when it starts, by its web contents; see files:takeOpened */
+const startingPaths = new Map<number, string>();
+
+/** The score each window has open, by its web contents, as the window last said */
+const openPaths = new Map<number, string>();
+
+/** How far a new window sits down and right of the one it was opened from */
+const CASCADE = 24;
 
 /** App settings, kept between runs: so far the soundfont new scores start with */
 const settingsPath = () => join(app.getPath('userData'), 'settings.json');
@@ -95,14 +103,29 @@ function handleFiles(): void {
     ipcMain.handle('settings:set', (_event, settings: unknown) =>
         writeFile(settingsPath(), JSON.stringify(settings, null, 2), 'utf8'),
     );
-    ipcMain.handle('files:takeOpened', () => openedPaths.splice(0).pop());
+    ipcMain.handle('files:takeOpened', (event) => {
+        const path = startingPaths.get(event.sender.id);
+        startingPaths.delete(event.sender.id);
+        return path;
+    });
+    ipcMain.on('window:new', (event, path?: string) => openWindow(path, BrowserWindow.fromWebContents(event.sender)));
+    ipcMain.on('window:path', (event, path?: string) => {
+        if (path) openPaths.set(event.sender.id, path);
+        else openPaths.delete(event.sender.id);
+    });
     ipcMain.on('window:close', (event) => BrowserWindow.fromWebContents(event.sender)?.destroy());
 }
 
-function createWindow(): void {
+/**
+ * A new window, opening `path` when it starts if there is one, a little down and right of
+ * `from` so it doesn't hide it exactly
+ */
+function createWindow(path?: string, from?: BrowserWindow | null): void {
+    const position = from && !from.isDestroyed() ? from.getBounds() : undefined;
     const win = new BrowserWindow({
-        width: 1200,
-        height: 800,
+        width: position?.width ?? 1200,
+        height: position?.height ?? 800,
+        ...(position && { x: position.x + CASCADE, y: position.y + CASCADE }),
         // Windows and Linux take the icon per window; macOS takes it on the dock, below
         icon: ICON_PATH,
         webPreferences: {
@@ -115,6 +138,13 @@ function createWindow(): void {
         },
     });
 
+    const id = win.webContents.id;
+    if (path) startingPaths.set(id, path);
+    win.on('closed', () => {
+        startingPaths.delete(id);
+        openPaths.delete(id);
+    });
+
     // electron-vite sets this in dev so the renderer gets HMR
     if (process.env['ELECTRON_RENDERER_URL']) {
         win.loadURL(process.env['ELECTRON_RENDERER_URL']);
@@ -124,29 +154,32 @@ function createWindow(): void {
     }
 }
 
-/** Hands a score from Finder to the window, starting one if there isn't one */
-function openFromFinder(path: string): void {
-    openedPaths.push(path);
-    // The first window takes it when it starts
-    if (!app.isReady()) return;
-    const win = BrowserWindow.getAllWindows()[0];
-    if (!win) return createWindow();
+/**
+ * Opens a score in a new window, or a blank one without a path. A score some window has open
+ * already brings that window forward instead, so the two can't save over each other.
+ */
+function openWindow(path?: string, from?: BrowserWindow | null): void {
+    // A window still starting up counts, since it hasn't said what it has open yet
+    const showing = path && [...startingPaths, ...openPaths].find(([, open]) => open === path);
+    const win = showing && BrowserWindow.getAllWindows().find((window) => window.webContents.id === showing[0]);
+    if (!win) return createWindow(path, from ?? BrowserWindow.getFocusedWindow());
     if (win.isMinimized()) win.restore();
     win.focus();
-    win.webContents.send('files:opened');
 }
 
 // macOS: registered before the app is ready, since opening vimscore with a file sends it early
 app.on('open-file', (event, path) => {
     event.preventDefault();
-    openFromFinder(path);
+    if (app.isReady()) openWindow(path);
+    else openedEarly.push(path);
 });
 
 app.whenReady().then(() => {
     // Unpackaged, the dock would show Electron's icon
     app.dock?.setIcon(ICON_PATH);
     handleFiles();
-    createWindow();
+    if (openedEarly.length === 0) createWindow();
+    for (const path of new Set(openedEarly.splice(0))) openWindow(path);
 
     // macOS: re-create a window when the dock icon is clicked and none are open
     app.on('activate', () => {

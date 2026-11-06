@@ -16,6 +16,7 @@ const EXTENSIONS: Partial<Record<Command['name'], string[]>> = {
     write: SCORE,
     writeQuit: SCORE,
     edit: ['vimscore', 'mscz', 'mscx'],
+    newWindow: ['vimscore', 'mscz', 'mscx'],
     soundfont: ['sf2', 'sf3', 'dls'],
     addSoundfont: ['sf2', 'sf3', 'dls'],
 };

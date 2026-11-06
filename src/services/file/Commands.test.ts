@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { exampleComposition } from '../composition/example-composition';
 import { sessionKey } from '../session/Session';
 import { FileCommand, parseCommand } from '../editor/CommandLine';
-import { Document, FileHost, isModified, newDocument, runCommand } from './Commands';
+import { Document, FileHost, isModified, newDocument, runCommand, scorePath } from './Commands';
 import { writeScore } from './ScoreFile';
 
 describe('parseCommand', () => {
@@ -13,11 +13,23 @@ describe('parseCommand', () => {
         expect(parseCommand('q!')).toEqual({ name: 'quit', force: true });
         expect(parseCommand('x')).toEqual({ name: 'writeQuit', path: undefined });
         expect(parseCommand('enew')).toEqual({ name: 'new', force: false });
+        expect(parseCommand('new')).toEqual({ name: 'newWindow', path: undefined });
+        expect(parseCommand('new ~/song')).toEqual({ name: 'newWindow', path: '~/song' });
     });
 
     it('rejects anything else', () => {
         expect(parseCommand('frob')).toEqual({ error: 'Not a command: frob' });
         expect(parseCommand('q file')).toEqual({ error: ':q takes no file name' });
+    });
+});
+
+describe('scorePath', () => {
+    it("reads a name from the score's folder, as a score", async () => {
+        const host = fakeHost();
+        const saved: Document = { ...newDocument(), path: '/music/a.vimscore' };
+        expect(await scorePath(saved, host, 'b')).toBe('/music/b.vimscore');
+        expect(await scorePath(saved, host, '~/c.mscz')).toBe('/home/c.mscz');
+        expect(await scorePath(newDocument(), host, 'd')).toBe('/home/d.vimscore');
     });
 });
 

@@ -189,7 +189,7 @@ THE COMMAND LINE
                       first is filled in; <Tab> again goes to the next, <S-Tab> back, and past
                       the last comes back to what was typed. Type to keep the one shown; with
                       a folder, <Tab> then completes inside it. Offers folders, and the files
-                      the command takes: scores for :w and :e, soundfonts for :soundfont and
+                      the command takes: scores for :w, :e and :new, soundfonts for :soundfont and
                       :addsf, the format's files for :export. Names are from the score's
                       folder (or home), ~ is home
 
@@ -203,13 +203,20 @@ FILES
                       arrows to move, <CR> to open, <Esc> to close. It opens by itself
                       when vimscore starts, if there are any; <Esc> keeps the blank score
     :enew             A new, blank score
+    :new [file]       Another window, with the score in it, or blank. A blank one offers the
+                      recent scores as vimscore does when it starts; <Esc> keeps it blank
     :q                Close the window. :q! closes it with changes unsaved
     :wq  :x           Save and close
     Cmd-S             Save
     Cmd-Shift-S       Save as, asking where
     Cmd-O             Open, asking which file
+    Cmd-N             Another window, as :new
 
-    Double-clicking a .vimscore file in Finder opens it in vimscore, as :e would, starting
+    Each window has its own score, undo history, playback and mode. The recent scores and
+    the command history are shared between them. A score that's open in a window isn't
+    opened in a second one: :new and Finder bring its window forward instead.
+
+    Double-clicking a .vimscore file in Finder opens it in a new vimscore window, starting
     vimscore if it isn't running, and Finder shows them with vimscore's own file icon.
     MuseScore files can be opened the same way with Open With.
 

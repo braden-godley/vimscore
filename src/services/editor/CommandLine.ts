@@ -15,6 +15,8 @@ export type Command =
     /** `:enew`, a blank score */
     | { name: 'new'; force: boolean }
     | { name: 'quit'; force: boolean }
+    /** `:new [path]`, another window, with that score in it or a blank one */
+    | { name: 'newWindow'; path?: string }
     /** `:wq` and `:x` */
     | { name: 'writeQuit'; path?: string }
     /** `:export mp3|mp4|musanim|midi [path]`, beside the score file when there's no path; `!` to replace a file */
@@ -101,6 +103,7 @@ const NAMES: Record<string, Command['name']> = {
     e: 'edit',
     edit: 'edit',
     enew: 'new',
+    new: 'newWindow',
     q: 'quit',
     quit: 'quit',
     wq: 'writeQuit',
@@ -158,6 +161,7 @@ export function parseCommand(text: string): Command | { error: string } {
         case 'mixer':
             return args ? { error: `:${typedName} takes nothing after it` } : { name };
         case 'writeQuit':
+        case 'newWindow':
         case 'soundfont':
         case 'addSoundfont':
             return { name, path };

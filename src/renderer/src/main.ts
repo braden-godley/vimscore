@@ -10,7 +10,7 @@ import { HelpView, matchesQuery } from '../../services/help/Help';
 import { HELP_LINES } from '../../services/help/helpText';
 import { MAX_PART_VOLUME, isAudible, masterVolume, partVolume } from '../../services/edit/Mixer';
 import { setSoundfonts } from '../../services/edit/Parts';
-import { Document, isModified, newDocument, runCommand } from '../../services/file/Commands';
+import { Document, isModified, newDocument, runCommand, scorePath } from '../../services/file/Commands';
 import { Composition, newComposition } from '../../services/composition/Composition';
 import { addSoundfont, describeSoundfonts, findSoundfont, soundfontName } from '../../services/soundfont/Soundfont';
 import { GENERAL_MIDI_INSTRUMENTS, Instrument, partInstrument, sameSound } from '../../services/instrument/Instrument';
@@ -198,18 +198,34 @@ async function runDeleteSoundfontCommand(which: string) {
 /** What `:recent` offers: every recent score but the one open */
 const recentChoices = () => recentFiles.filter((path) => path !== current.path);
 
-/** Puts a score at the top of the recent ones, and saves the list */
+/**
+ * Puts a score at the top of the recent ones, and saves the list. It starts from the saved
+ * list, not this window's copy, so scores other windows opened stay on it
+ */
 async function rememberRecent(path: string) {
-    recentFiles = [path, ...recentFiles.filter((recent) => recent !== path)].slice(0, MAX_RECENT_FILES);
-    await updateSettings((settings) => ({ ...settings, recentFiles }));
+    await updateSettings((settings) => {
+        const saved = settings.recentFiles ?? recentFiles;
+        recentFiles = [path, ...saved.filter((recent) => recent !== path)].slice(0, MAX_RECENT_FILES);
+        return { ...settings, recentFiles };
+    });
 }
 
-/** Puts a command at the top of the history, once, and saves it */
+/** Puts a command at the top of the history, once, and saves it, keeping other windows' too */
 async function rememberCommand(text: string) {
     const command = text.trim();
     if (!command) return;
-    commandHistory = [command, ...commandHistory.filter((old) => old !== command)].slice(0, MAX_COMMAND_HISTORY);
-    await updateSettings((settings) => ({ ...settings, commandHistory }));
+    await updateSettings((settings) => {
+        const saved = settings.commandHistory ?? commandHistory;
+        commandHistory = [command, ...saved.filter((old) => old !== command)].slice(0, MAX_COMMAND_HISTORY);
+        return { ...settings, commandHistory };
+    });
+}
+
+/** Picks up the scores and commands other windows added since, for `:recent` and the history */
+async function refreshShared() {
+    const settings = await window.settings.get();
+    recentFiles = settings.recentFiles ?? recentFiles;
+    commandHistory = settings.commandHistory ?? commandHistory;
 }
 
 /** The file names `<Tab>` is cycling through, while the command line still shows one of them */
@@ -454,7 +470,14 @@ function showTitle() {
     // An imported score goes by the name it'll be saved under
     const name = (current.path ?? current.suggestedPath)?.split(/[\\/]/).pop() ?? 'Untitled';
     document.title = `${name}${isModified(current) ? ' •' : ''} — vimscore`;
+    if (current.path !== shownPath) {
+        shownPath = current.path;
+        window.windows.showPath(shownPath);
+    }
 }
+
+/** The score the app was last told this window has open */
+let shownPath: string | undefined;
 
 /** Draws the composition again after it changes: an edit, an undo, or opening a file */
 function showComposition() {
@@ -644,6 +667,7 @@ async function run(command: Command) {
     if (command.name === 'deleteSoundfont') return runDeleteSoundfontCommand(command.which);
     if (command.name === 'listSoundfonts') return showMessage(describeSoundfonts(current.session.composition.soundfonts));
     if (command.name === 'export') return runExportCommand(command);
+    if (command.name === 'newWindow') return openWindow(command.path);
     if (!isFileCommand(command)) return;
 
     const before = current;
@@ -658,13 +682,21 @@ async function run(command: Command) {
 }
 
 /**
- * Opens the score Finder asked for, like `:e`, so it's refused over unsaved changes. Playing
+ * Opens the score this window was started for, from Finder or `:new`, like `:e`. Playing
  * stops first, since playback only follows the score it started with.
  */
 async function openFromFinder(path: string | undefined) {
     if (!path) return;
     if (player.playing) player.stop();
     await run({ name: 'edit', path, force: false });
+}
+
+/** `:new [path]`: another window, blank or with a score that's there */
+async function openWindow(typed: string | undefined) {
+    if (!typed) return window.windows.open();
+    const path = await scorePath(current, window.files, typed);
+    if (!(await window.files.exists(path))) return showMessage(`Can't open "${fileName(path)}"`, true);
+    window.windows.open(path);
 }
 
 /** The usual Mac shortcuts, beside `:w` and `:e` */
@@ -679,6 +711,7 @@ const SHORTCUTS: Record<string, () => Promise<Command | undefined>> = {
         const path = await window.files.chooseOpenPath();
         return path ? { name: 'edit', path, force: false } : undefined;
     },
+    n: async () => ({ name: 'newWindow' }),
 };
 
 window.addEventListener('keydown', (event) => {
@@ -753,7 +786,7 @@ if (defaultSoundfonts.length) {
 }
 
 // Starting up offers the scores from before, like `:recent`; <Esc> keeps the new score. Not when
-// vimscore was started by opening a score in Finder
+// the window was opened for a score, from Finder or `:new`
 const openedAtStart = await window.files.takeOpened();
 if (!openedAtStart && recentChoices().length) {
     const picker: Picker = { purpose: 'recent', query: '', selected: 0 };
@@ -768,6 +801,4 @@ showEditing();
 await loadScoreSoundfonts();
 
 await openFromFinder(openedAtStart);
-// Taken again after listening, in case one came in between
-window.files.onOpened(async () => openFromFinder(await window.files.takeOpened()));
-await openFromFinder(await window.files.takeOpened());
+window.addEventListener('focus', () => void refreshShared());
