@@ -139,8 +139,11 @@ INSERT MODES
                       articulation, it's removed instead. A chord has one value, so all of its
                       notes change length together
     <S-Space>         Place a rest as long as the phantom
-    j  k              The phantom's pitch a step down or up the scale. On a percussion
-                      staff, the next drum down or up the kit as it's written
+    j  k              The phantom's pitch a step down or up the scale. An accidental on a
+                      note earlier in the measure, in any voice of the part, holds for that
+                      letter in that octave until the barline: after a B♭, j from C lands on
+                      B♭ again. On a percussion staff, the next drum down or up the kit as
+                      it's written
     J  K              The phantom's pitch a semitone down or up. On a percussion staff,
                       the next sound down or up the stave, in or out of the kit
     h  l              A shorter or longer value

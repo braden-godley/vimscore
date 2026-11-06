@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { exampleComposition } from '../composition/example-composition';
 import {
     Phantom,
+    accidentalsBefore,
     phantomAt,
     setDuration,
     shiftDrums,
@@ -54,6 +55,28 @@ describe('phantomAt', () => {
         expect(phantomAt(compose(-2, 'treble', [null]), at(0, 0, 0)).pitch).toEqual(pitch('Bb4'));
         expect(phantomAt(compose(-1, 'bass', [null]), at(0, 0, 0)).pitch).toEqual(pitch('F3'));
         expect(phantomAt(compose(0, 'percussion', [null]), at(0, 0, 0)).pitch).toEqual(SNARE);
+    });
+});
+
+describe('accidentalsBefore', () => {
+    it('holds the latest accidental on each letter and octave from earlier in the measure', () => {
+        const measure = compose(0, 'treble', [['Bb4'], ['C5'], ['B4', 'F#5'], null], [null]);
+        expect(accidentalsBefore(measure, at(0, 0, 0))).toEqual(new Map());
+        expect(accidentalsBefore(measure, at(0, 0, 2)).get('B4')).toBe(-1);
+        expect(accidentalsBefore(measure, at(0, 0, 3)).get('B4')).toBe(0);
+        expect(accidentalsBefore(measure, at(0, 0, 3)).get('F5')).toBe(1);
+        // A barline clears them
+        expect(accidentalsBefore(measure, at(0, 1, 0))).toEqual(new Map());
+    });
+
+    it("counts the part's other voices", () => {
+        const measure = compose(0, 'treble', [null, null]);
+        const flat: Event = { kind: 'chord', duration: quarterC.duration, notes: [{ pitch: pitch('Eb4') }] };
+        measure.parts[0]!.measures[0]!.voices.push({ events: [flat] });
+        expect(accidentalsBefore(measure, at(0, 0, 1)).get('E4')).toBe(-1);
+        expect(stepScale({ ...quarterC, pitch: pitch('F4') }, { fifths: 0 }, -1, accidentalsBefore(measure, at(0, 0, 1))).pitch).toEqual(
+            pitch('Eb4'),
+        );
     });
 });
 

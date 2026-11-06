@@ -551,6 +551,32 @@ describe('placing notes', () => {
         expect(where(type(['i', 'k', '<Space>']).state.cursor)).toEqual(at(0, 0));
     });
 
+    it('keeps j and k to accidentals placed earlier in the measure', () => {
+        const rest: Rest = { kind: 'rest', duration: { base: 4, dots: 0 } };
+        let composition: Composition = {
+            title: 'Test',
+            measures: [{ keySignature: { fifths: 0 } }, {}],
+            parts: [{ name: 'Test', program: 0, clef: 'treble', measures: [0, 1].map(() => ({ voices: [{ events: [rest, rest, rest, rest] }] })) }],
+            soundfonts: [],
+        };
+        let state = initialEditorState(composition);
+        // Starting on C5: a B♭ on beat one, then a C on beat two
+        for (const key of ['a', 'j', 'J', '<Space>', 'k', '<Space>', 'j']) {
+            const result = handleKey(composition, state, key);
+            state = result.state;
+            composition = result.composition ?? composition;
+        }
+        expect(state.phantom?.pitch).toEqual(pitch('Bb4'));
+        // The barline clears it, so stepping up from B♭ lands on B
+        for (const key of ['<Space>', '<Space>', 'k']) {
+            const result = handleKey(composition, state, key);
+            state = result.state;
+            composition = result.composition ?? composition;
+        }
+        expect(where(state.cursor)).toEqual(at(1, 0));
+        expect(state.phantom?.pitch).toEqual(pitch('B4'));
+    });
+
     it('moves into a new empty measure after the last one', () => {
         // The last melody event is an eighth rest
         const placed = type(['G', 'l', 'l', 'l', 'a', '<Space>']);

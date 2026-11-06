@@ -103,6 +103,18 @@ describe('scaleStep', () => {
         expect(scaleStep(pitch('B#3'), C_MAJOR, 1)).toEqual(pitch('D4'));
     });
 
+    it('keeps to accidentals earlier in the measure, in their own octave', () => {
+        const flatB = new Map([['B4', -1]]);
+        expect(scaleStep(pitch('C5'), C_MAJOR, -1, flatB)).toEqual(pitch('Bb4'));
+        expect(scaleStep(pitch('A4'), C_MAJOR, 1, flatB)).toEqual(pitch('Bb4'));
+        expect(scaleStep(pitch('C4'), C_MAJOR, -1, flatB)).toEqual(pitch('B3'));
+        // A natural cancels the key's flat
+        expect(scaleStep(pitch('C5'), F_MAJOR, -1, new Map([['B4', 0]]))).toEqual(pitch('B4'));
+        // Stepping on from the altered note leaves it
+        expect(scaleStep(pitch('Bb4'), C_MAJOR, 1, flatB)).toEqual(pitch('C5'));
+        expect(scaleStep(pitch('Bb4'), C_MAJOR, -1, flatB)).toEqual(pitch('A4'));
+    });
+
     it('stops at the ends of MIDI range', () => {
         expect(scaleStep(pitch('G9'), C_MAJOR, 1)).toEqual(pitch('G9'));
         expect(scaleStep(pitch('C-1'), C_MAJOR, -1)).toEqual(pitch('C-1'));

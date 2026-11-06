@@ -4,14 +4,27 @@
  */
 
 import { Composition } from '../composition/Composition';
-import { Cursor, cursorPitch, voiceLeaves } from '../cursor/Cursor';
+import { Cursor, cursorOffset, cursorPitch, voiceLeaves } from '../cursor/Cursor';
+import { Fraction, ZERO, add, compare } from '../fraction/Fraction';
 import { resolveMeasures } from '../measure/Measure';
 import { Duration } from '../duration/Duration';
 import { C_MAJOR, KeySignature } from '../key/KeySignature';
 import { Articulation, withArticulation, withoutArticulations } from '../note/Note';
 import { MIDDLE_LINE_PITCH, clefAt } from '../clef/Clef';
 import { SNARE, stepKit, stepSounds } from '../instrument/Drums';
-import { HIGHEST_MIDI, LETTERS, LOWEST_MIDI, Pitch, comparePitch, keyAlter, midi, scaleStep, transpose } from '../pitch/Pitch';
+import {
+    Accidentals,
+    HIGHEST_MIDI,
+    LETTERS,
+    LOWEST_MIDI,
+    Pitch,
+    accidentalKey,
+    comparePitch,
+    keyAlter,
+    midi,
+    scaleStep,
+    transpose,
+} from '../pitch/Pitch';
 
 /** Its articulations are what the note it places gets */
 export interface Phantom extends Partial<Record<Articulation, boolean>> {
@@ -85,10 +98,32 @@ export function shiftPitch(phantom: Phantom, semitones: number): Phantom {
     return { ...phantom, pitch: transpose(phantom.pitch, to - from) ?? phantom.pitch };
 }
 
-/** Steps through note values, keeping dots: positive goes longer (quarter to half) */
-/** Steps to the next note of the key's scale: positive goes up */
-export function stepScale(phantom: Phantom, key: KeySignature, steps: number): Phantom {
-    return { ...phantom, pitch: scaleStep(phantom.pitch, key, steps) };
+/**
+ * The accidentals in force at the cursor: those of notes starting earlier in its measure, in
+ * any of the part's voices, the latest one for each letter and octave winning
+ */
+export function accidentalsBefore(composition: Composition, cursor: Cursor): Accidentals {
+    const at = cursorOffset(composition, cursor);
+    const earlier: { start: Fraction; pitch: Pitch }[] = [];
+    const voices = composition.parts[cursor.part]?.measures[cursor.measure]?.voices ?? [];
+    voices.forEach((_, voice) => {
+        let start = ZERO;
+        for (const { event, length } of voiceLeaves(composition, cursor.part, cursor.measure, voice)) {
+            if (compare(start, at) >= 0) break;
+            if (event.kind === 'chord') for (const { pitch } of event.notes) earlier.push({ start, pitch });
+            start = add(start, length);
+        }
+    });
+    earlier.sort((a, b) => compare(a.start, b.start));
+    return new Map(earlier.map(({ pitch }) => [accidentalKey(pitch), pitch.alter]));
+}
+
+/**
+ * Steps to the next note of the key's scale, as altered by `accidentals` earlier in the
+ * measure: positive goes up
+ */
+export function stepScale(phantom: Phantom, key: KeySignature, steps: number, accidentals?: Accidentals): Phantom {
+    return { ...phantom, pitch: scaleStep(phantom.pitch, key, steps, accidentals) };
 }
 
 /** Steps to the next drum of the kit as it's written on a percussion staff: positive goes up */
@@ -109,6 +144,7 @@ export function setDuration(phantom: Phantom, base: Duration['base']): Phantom {
     return { ...withoutArticulations(phantom), duration: { base, dots: 0 } };
 }
 
+/** Steps through note values, keeping dots: positive goes longer (quarter to half) */
 export function stepDuration(phantom: Phantom, steps: number): Phantom {
     const index = BASES.indexOf(phantom.duration.base);
     return setDuration(phantom, BASES[Math.max(0, Math.min(BASES.length - 1, index + steps))]!);

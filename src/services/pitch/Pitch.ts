@@ -33,11 +33,27 @@ export function midi({ letter, alter, octave }: Pitch): number {
     return (octave + 1) * 12 + NATURALS[LETTERS.indexOf(letter)]! + alter;
 }
 
-/** The key's note `steps` letters away, carrying into the next or previous octave */
-function letterAt(pitch: Pitch, steps: number, key: KeySignature): Pitch {
+/**
+ * Accidentals written earlier in a measure, which hold for the rest of it: how each letter in
+ * each octave is altered, by its name without the accidental, like `B4` → -1 after a B♭4
+ */
+export type Accidentals = ReadonlyMap<string, number>;
+
+const NO_ACCIDENTALS: Accidentals = new Map();
+
+export const accidentalKey = ({ letter, octave }: Pitch) => `${letter}${octave}`;
+
+/** How a letter in an octave is played: as an accidental earlier in the measure says, or the key */
+function alterIn(letter: Letter, octave: number, key: KeySignature, accidentals: Accidentals): number {
+    return accidentals.get(accidentalKey({ letter, alter: 0, octave })) ?? keyAlter(letter, key);
+}
+
+/** The scale's note `steps` letters away, carrying into the next or previous octave */
+function letterAt(pitch: Pitch, steps: number, key: KeySignature, accidentals: Accidentals): Pitch {
     const index = LETTERS.indexOf(pitch.letter) + steps;
     const letter = LETTERS[mod(index, 7)]!;
-    return { letter, alter: keyAlter(letter, key), octave: pitch.octave + Math.floor(index / 7) };
+    const octave = pitch.octave + Math.floor(index / 7);
+    return { letter, alter: alterIn(letter, octave, key, accidentals), octave };
 }
 
 /** How a key signature alters a letter: 1 for F in G major, -1 for B in F major */
@@ -82,17 +98,18 @@ export function transpose(pitch: Pitch, semitones: number): Pitch | undefined {
 }
 
 /**
- * Steps through the key's scale by letter: positive goes up. From a note the key doesn't have,
- * the first step lands on the key's own version of its letter, if that's the way it's going.
- * Stops at the ends of MIDI's range.
+ * Steps through the key's scale by letter: positive goes up. Accidentals earlier in the measure
+ * still hold, so after a B♭ the step down from C lands on B♭ again. From a note the scale
+ * doesn't have, the first step lands on the scale's own version of its letter, if that's the
+ * way it's going. Stops at the ends of MIDI's range.
  */
-export function scaleStep(pitch: Pitch, key: KeySignature, steps: number): Pitch {
+export function scaleStep(pitch: Pitch, key: KeySignature, steps: number, accidentals: Accidentals = NO_ACCIDENTALS): Pitch {
     const direction = Math.sign(steps);
     let current = pitch;
     for (let remaining = Math.abs(steps); remaining > 0; remaining--) {
-        let next = { ...current, alter: keyAlter(current.letter, key) };
+        let next = { ...current, alter: alterIn(current.letter, current.octave, key, accidentals) };
         // The next letter can sound the same, as C does after B♯, so keep going until it moves
-        while ((midi(next) - midi(current)) * direction <= 0) next = letterAt(next, direction, key);
+        while ((midi(next) - midi(current)) * direction <= 0) next = letterAt(next, direction, key, accidentals);
         if (midi(next) < LOWEST_MIDI || midi(next) > HIGHEST_MIDI) break;
         current = next;
     }
