@@ -49,6 +49,8 @@ export type Command =
     | { name: 'tempo'; bpm: number; beat?: Duration }
     /** `:delmeasure [count]` removes measures from every part: the selected ones, or count from the cursor's */
     | { name: 'deleteMeasures'; count: number }
+    /** `:addmeasure [count]` puts empty measures in every part: before the selected ones, as many, or count before the cursor's */
+    | { name: 'addMeasures'; count: number }
     /** `:swing 0` plays eighths straight, up to `:swing 10` for the most swing, over the whole score */
     | { name: 'swing'; amount: number }
     /** `:mixer` opens the mixer, to set every part's volume */
@@ -80,6 +82,7 @@ const EDIT_COMMANDS = [
     'keySignature',
     'tempo',
     'deleteMeasures',
+    'addMeasures',
     'swing',
     'mixer',
     'recent',
@@ -130,6 +133,7 @@ const NAMES: Record<string, Command['name']> = {
     key: 'keySignature',
     tempo: 'tempo',
     delmeasure: 'deleteMeasures',
+    addmeasure: 'addMeasures',
     swing: 'swing',
     mixer: 'mixer',
     mix: 'mixer',
@@ -195,6 +199,11 @@ export function parseCommand(text: string): Command | { error: string } {
         case 'deleteMeasures':
             if (args === '') return { name, count: 1 };
             return /^[1-9]\d*$/.test(args) ? { name, count: Number(args) } : { error: 'Expected :delmeasure, or a count like :delmeasure 4' };
+        case 'addMeasures':
+            if (args === '') return { name, count: 1 };
+            return /^[1-9]\d{0,2}$/.test(args)
+                ? { name, count: Number(args) }
+                : { error: 'Expected :addmeasure, or a count up to 999 like :addmeasure 4' };
         case 'swing': {
             const amount = /^\d+$/.test(args) ? Number(args) : NaN;
             return amount <= MAX_SWING ? { name, amount } : { error: `Expected :swing 0 (straight) to ${MAX_SWING}` };

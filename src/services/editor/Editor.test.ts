@@ -856,6 +856,30 @@ describe(':delmeasure', () => {
     });
 });
 
+describe(':addmeasure', () => {
+    const command = (text: string) => [':', ...text.split(''), '<CR>'];
+
+    it('reads an optional count', () => {
+        expect(parseCommand('addmeasure')).toEqual({ name: 'addMeasures', count: 1 });
+        expect(parseCommand('addmeasure 3')).toEqual({ name: 'addMeasures', count: 3 });
+        expect(parseCommand('addmeasure 1000')).toEqual({ error: 'Expected :addmeasure, or a count up to 999 like :addmeasure 4' });
+    });
+
+    it("puts count measures before the cursor's in every part, landing on the first", () => {
+        const added = type(['}', '<C-j>', ...command('addmeasure 2')]);
+        expect(added.composition?.measures).toHaveLength(5);
+        expect(added.composition?.parts[1]!.measures[3]).toBe(exampleComposition.parts[1]!.measures[1]);
+        expect(where(added.state.cursor)).toEqual(at(1, 0, 1));
+    });
+
+    it('puts as many as a visual selection covers before it, back in normal mode', () => {
+        const added = type(['}', 'V', '}', ...command('addmeasure')]);
+        expect(added.state.mode).toBe('normal');
+        expect(added.composition?.measures).toHaveLength(5);
+        expect(added.composition?.parts[0]!.measures[3]).toBe(exampleComposition.parts[0]!.measures[1]);
+    });
+});
+
 describe('tt and td', () => {
     /** Types keys into `composition`, from where `moves` take the cursor in the example */
     const typeInto = (composition: Composition, moves: string[], keys: string[]) => {

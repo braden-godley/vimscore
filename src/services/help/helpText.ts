@@ -174,8 +174,9 @@ VISUAL MODES
     (                 Slur the selected chords together, in each voice, or take the slur off
     <  >              A crescendo or diminuendo over the selection
     :                 The command line, keeping the selection shown. :delmeasure removes the
-                      selected measures; other commands work as in normal mode. Either way,
-                      it's back to normal mode after
+                      selected measures, and :addmeasure puts as many empty ones before
+                      them; other commands work as in normal mode. Either way, it's back
+                      to normal mode after
     <Esc>             Back to normal mode
 
 THE COMMAND LINE
@@ -335,6 +336,12 @@ THE SCORE
                     slurs and glissandi into the removed measures come off, and hairpins
                     running into them end where they started. What's removed goes in the
                     register, for p and P to put over other measures
+    :addmeasure [n] Put n empty measures (1 without n) before the cursor's measure, in every
+                    part, and go to the first. From a visual mode, as many as the selection
+                    touches, before them. They take the time signature, key, tempo and clef
+                    of the measure before; the music after moves on with the changes it had.
+                    Ties, slurs and glissandi into the gap come off, and hairpins running
+                    into it end there
     :swing 5        Swing the eighths when playing, from 0 (straight) to 10 (a dotted eighth
                     and a sixteenth); about 7 is triplet swing. It's for the whole score and
                     saved with it, and exports play it too. Only beats with a note starting on

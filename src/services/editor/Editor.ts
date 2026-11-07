@@ -62,6 +62,7 @@ import { toggleRepeat } from '../edit/Repeats';
 import { setText, textAt } from '../edit/Texts';
 import { MAX_VOICES, VoicePlace, withVoice, withoutRestVoices } from '../edit/Voices';
 import { removeMeasures } from '../edit/RemoveMeasures';
+import { addMeasures } from '../edit/AddMeasures';
 import { setDynamic, stepDynamicAt, toggleHairpin } from '../edit/Dynamics';
 import { GENERAL_MIDI_INSTRUMENTS, Instrument } from '../instrument/Instrument';
 import { Command, EditCommand, isEditCommand, parseCommand } from './CommandLine';
@@ -882,6 +883,12 @@ export interface KeyInput {
 
 const DEFAULT_HELP_PAGE_LINES = 30;
 
+/** The measures a command acts on: every one the selection touches, or `count` from the cursor's */
+function measureRange(selection: Selection | undefined, measure: number, count: number): [number, number] {
+    if (!selection) return [measure, measure + count - 1];
+    return selection.kind === 'measures' ? [selection.first, selection.last] : [selection.start.measure, selection.end.measure];
+}
+
 /** Commands for parts, run straight away as edits; `selection` when typed in a visual mode */
 function runEditCommand(
     composition: Composition,
@@ -893,12 +900,16 @@ function runEditCommand(
     const { part, measure } = state.cursor;
     switch (command.name) {
         case 'deleteMeasures': {
-            const [first, last] = selection
-                ? selection.kind === 'measures'
-                    ? [selection.first, selection.last]
-                    : [selection.start.measure, selection.end.measure]
-                : [measure, measure + command.count - 1];
+            const [first, last] = measureRange(selection, measure, command.count);
             return deleteMeasures(composition, state, first, Math.min(last, composition.measures.length - 1));
+        }
+        case 'addMeasures': {
+            // From a visual mode, as many as are selected, before them
+            const [first, last] = measureRange(selection, measure, command.count);
+            const edited = addMeasures(composition, first, last - first + 1);
+            if (!edited) return { state };
+            // On the first new measure, ready to fill
+            return { state: { ...state, cursor: cursorAtOffset(edited, part, first, ZERO) }, composition: edited };
         }
         case 'instrument':
         case 'addPart':

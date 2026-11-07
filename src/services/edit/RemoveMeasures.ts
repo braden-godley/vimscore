@@ -24,6 +24,28 @@ function untiedAtEnd(events: Event[]): Event[] {
 }
 
 /**
+ * Measure `m` of a part with nothing carried on into measure `first`, where measures are being
+ * taken out or put in: the last chord before it ties, slurs and slides into nothing, and
+ * hairpins running into it end there
+ */
+export function endingBefore(partMeasure: PartMeasure, m: number, first: number, resolved: ResolvedMeasure[]): PartMeasure {
+    if (m === first - 1) {
+        const voices = partMeasure.voices.map((voice) => ({ events: untiedAtEnd(voice.events) }));
+        partMeasure = { ...partMeasure, voices };
+    }
+    if (m < first && partMeasure.hairpins) {
+        const start = resolved[m]!.start;
+        const gapStart = resolved[first]!.start;
+        const hairpins = partMeasure.hairpins.map((hairpin) => {
+            const room = sub(gapStart, add(start, hairpin.offset));
+            return compare(hairpin.length, room) > 0 ? { ...hairpin, length: room } : hairpin;
+        });
+        partMeasure = { ...partMeasure, hairpins };
+    }
+    return partMeasure;
+}
+
+/**
  * Removes measures `first` to `last` from every part, or undefined when there are none there.
  * The measure after them keeps the time signature, key, tempo, clefs and dynamics it had, so
  * changes made in the removed measures are carried on to it. Repeat barlines on them go, ties
@@ -37,7 +59,6 @@ export function removeMeasures(composition: Composition, first: number, last: nu
     // What's in effect just before the gap, or the defaults when it starts the score
     const before: ResolvedMeasure = resolved[first - 1] ?? resolveMeasures([{}])[0]!;
     const next = last + 1;
-    const gapStart = resolved[first]!.start;
     const kept = (_: unknown, m: number) => m < first || m > last;
 
     const carried = (info: MeasureInfo): MeasureInfo => {
@@ -59,18 +80,7 @@ export function removeMeasures(composition: Composition, first: number, last: nu
         const dynamicAfter = dynamicBefore(composition, p, next, ZERO);
 
         const edited = part.measures.map((partMeasure, m): PartMeasure => {
-            if (m === first - 1) {
-                const voices = partMeasure.voices.map((voice) => ({ events: untiedAtEnd(voice.events) }));
-                partMeasure = { ...partMeasure, voices };
-            }
-            if (m < first && partMeasure.hairpins) {
-                const start = resolved[m]!.start;
-                const hairpins = partMeasure.hairpins.map((hairpin) => {
-                    const room = sub(gapStart, add(start, hairpin.offset));
-                    return compare(hairpin.length, room) > 0 ? { ...hairpin, length: room } : hairpin;
-                });
-                partMeasure = { ...partMeasure, hairpins };
-            }
+            partMeasure = endingBefore(partMeasure, m, first, resolved);
             if (m === next) {
                 if (partMeasure.clef === undefined && clefAfter !== clefBefore) partMeasure = { ...partMeasure, clef: clefAfter };
                 const marks = partMeasure.dynamics ?? [];
