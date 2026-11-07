@@ -8,6 +8,7 @@ import { Composition, newComposition } from '../composition/Composition';
 import { Session, startSession } from '../session/Session';
 import { FileCommand } from '../editor/CommandLine';
 import { readMuseScore } from '../import/MuseScore';
+import { readMidi } from '../import/Midi';
 import { EXTENSION, readScore, writeScore } from './ScoreFile';
 
 /** What the app gives the commands to work with files */
@@ -86,27 +87,37 @@ async function write(document: Document, host: FileHost, typed: string | undefin
     };
 }
 
-const isMuseScore = (path: string) => /\.msc[zx]$/i.test(path);
+/** Other programs' files that are read by converting them, by their extensions */
+const IMPORTERS: { extension: RegExp; read: (data: Uint8Array) => Composition | { error: string } }[] = [
+    { extension: /\.msc[zx]$/i, read: readMuseScore },
+    { extension: /\.midi?$/i, read: readMidi },
+];
 
 /**
- * Opens a MuseScore file as a new score. It isn't saved anywhere yet, so `:w` asks where,
- * suggesting a `.vimscore` beside it rather than writing over the MuseScore file. It plays
- * through the soundfonts `blank` scores start with.
+ * Opens a MuseScore or MIDI file as a new score. It isn't saved anywhere yet, so `:w` asks
+ * where, suggesting a `.vimscore` beside it rather than writing over the file it came from. It
+ * plays through the soundfonts `blank` scores start with.
  */
-async function importMuseScore(document: Document, host: FileHost, path: string, blank: () => Composition) {
+async function importScore(
+    document: Document,
+    host: FileHost,
+    path: string,
+    { extension, read }: (typeof IMPORTERS)[number],
+    blank: () => Composition,
+) {
     let data: ArrayBuffer;
     try {
         data = await host.readBinary(path);
     } catch {
         return { document, message: `Can't open "${fileName(path)}"`, error: true };
     }
-    const result = readMuseScore(new Uint8Array(data));
+    const result = read(new Uint8Array(data));
     if ('error' in result) return { document, message: `"${fileName(path)}": ${result.error}`, error: true };
 
     // A score without a title of its own goes by its file's name
-    const title = result.title === 'Untitled' ? fileName(path).replace(/\.msc[zx]$/i, '') : result.title;
+    const title = result.title === 'Untitled' ? fileName(path).replace(extension, '') : result.title;
     const composition = { ...result, title, soundfonts: blank().soundfonts };
-    const suggestedPath = path.replace(/\.msc[zx]$/i, `.${EXTENSION}`);
+    const suggestedPath = path.replace(extension, `.${EXTENSION}`);
     return {
         document: { session: newDocument(composition).session, suggestedPath },
         message: `"${fileName(path)}" imported, ${measureCount(composition)}; :w to save it as a ${EXTENSION} file`,
@@ -127,7 +138,8 @@ async function edit(
         : (document.path ?? (await host.chooseOpenPath()));
     if (!path) return { document, message: 'Nothing opened' };
 
-    if (isMuseScore(path)) return importMuseScore(document, host, path, blank);
+    const importer = IMPORTERS.find(({ extension }) => extension.test(path));
+    if (importer) return importScore(document, host, path, importer, blank);
 
     let text: string;
     try {

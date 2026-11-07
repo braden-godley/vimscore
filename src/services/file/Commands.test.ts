@@ -152,6 +152,35 @@ describe('runCommand', () => {
     });
 });
 
+describe('opening MIDI files', () => {
+    // One quarter note, C5, in a type 0 file at 96 ticks a quarter
+    const MIDI = new Uint8Array([
+        ...[0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 0, 96],
+        ...[0x4d, 0x54, 0x72, 0x6b, 0, 0, 0, 12, 0, 0x90, 72, 80, 96, 0x80, 72, 0, 0, 0xff, 0x2f, 0],
+    ]);
+    const midiHost = (files: Record<string, Uint8Array>) => ({
+        ...fakeHost(),
+        exists: async (path: string) => path in files,
+        readBinary: async (path: string) => {
+            if (!(path in files)) throw new Error('missing');
+            return files[path]!.slice().buffer as ArrayBuffer;
+        },
+    });
+
+    it('imports them as a new, unsaved score named for the file', async () => {
+        const opened = await run('e /music/theme.mid', newDocument(), midiHost({ '/music/theme.mid': MIDI }));
+        expect(opened.message).toBe('"theme.mid" imported, 1 measure; :w to save it as a vimscore file');
+        expect(opened.document.path).toBeUndefined();
+        expect(opened.document.suggestedPath).toBe('/music/theme.vimscore');
+        expect(opened.document.session.composition.title).toBe('theme');
+    });
+
+    it("says what's wrong with one it can't read", async () => {
+        const host = midiHost({ '/music/broken.midi': new Uint8Array([1, 2, 3]) });
+        expect((await run('e /music/broken.midi', newDocument(), host)).message).toBe('"broken.midi": Not a MIDI file');
+    });
+});
+
 describe('opening MuseScore files', () => {
     const MSCX = `<museScore version="3.02"><Score>
         <Part><Staff id="1"/><trackName>Flute</trackName><Instrument><Channel><program value="73"/></Channel></Instrument></Part>

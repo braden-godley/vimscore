@@ -59,6 +59,44 @@ export function restsFilling(start: Fraction, length: Fraction): Duration[] {
     return durations;
 }
 
+/**
+ * Tied values for a note `length` whole notes long starting `start` into a measure (or tuplet)
+ * counted in beats `beat` long, placed the way notation expects. A value starts on a multiple
+ * of its own length, or on any beat, so a half can sit on the second beat of 3/4 but a quarter
+ * never straddles one. A value next to one half or twice as long becomes a single dotted value
+ * where that could start: a dotted quarter on the beat, or on any beat of 6/8. Throws if it
+ * can't be written down exactly.
+ */
+export function notesFilling(start: Fraction, length: Fraction, beat: Fraction): Duration[] {
+    const min = (a: Fraction, b: Fraction) => (compare(a, b) <= 0 ? a : b);
+    const canStart = (position: Fraction, duration: Duration) =>
+        isMultiple(position, min(durationValue({ ...duration, dots: 0 }), beat)) ||
+        (compare(durationValue(duration), beat) === 0 && isMultiple(position, beat));
+
+    const pieces: { position: Fraction; duration: Duration }[] = [];
+    const end = add(start, length);
+    let position = start;
+    while (compare(position, end) < 0) {
+        const remaining = sub(end, position);
+        const next = UNDOTTED.find((duration) => compare(durationValue(duration), remaining) <= 0 && canStart(position, duration));
+        if (!next) throw new RangeError(`Can't write ${length.num}/${length.den} with notes`);
+        const previous = pieces.at(-1);
+        const longer = previous && Math.min(previous.duration.base, next.base);
+        const dotted: Duration | undefined = longer ? { base: longer as Duration['base'], dots: 1 } : undefined;
+        if (
+            previous &&
+            dotted &&
+            previous.duration.dots === 0 &&
+            Math.max(previous.duration.base, next.base) === dotted.base * 2 &&
+            canStart(previous.position, dotted)
+        ) {
+            previous.duration = dotted;
+        } else pieces.push({ position, duration: next });
+        position = add(position, durationValue(next));
+    }
+    return pieces.map(({ duration }) => duration);
+}
+
 function isMultiple(a: Fraction, b: Fraction): boolean {
     // a / b = (a.num * b.den) / (a.den * b.num)
     return (a.num * b.den) % (a.den * b.num) === 0;

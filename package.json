@@ -88,6 +88,15 @@
         "name": "MuseScore score",
         "role": "Viewer",
         "rank": "Alternate"
+      },
+      {
+        "ext": [
+          "mid",
+          "midi"
+        ],
+        "name": "MIDI file",
+        "role": "Viewer",
+        "rank": "Alternate"
       }
     ]
   }

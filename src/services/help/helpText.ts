@@ -190,16 +190,17 @@ THE COMMAND LINE
                       first is filled in; <Tab> again goes to the next, <S-Tab> back, and past
                       the last comes back to what was typed. Type to keep the one shown; with
                       a folder, <Tab> then completes inside it. Offers folders, and the files
-                      the command takes: scores for :w, :e and :new, soundfonts for :soundfont and
-                      :addsf, the format's files for :export. Names are from the score's
-                      folder (or home), ~ is home
+                      the command takes: scores for :w, :e and :new (and MuseScore and MIDI
+                      files for :e and :new), soundfonts for :soundfont and :addsf, the
+                      format's files for :export. Names are from the score's folder (or
+                      home), ~ is home
 
 FILES
     :w [file]         Save, asking where if the score has never been saved. A name without an
                       extension gets .vimscore. :w! file writes over a file that's there
-    :e [file]         Open a score. MuseScore files (.mscz, .mscx) are imported; :w then asks
-                      where to save the .vimscore. :e alone reads the file again, and :e!
-                      throws away changes
+    :e [file]         Open a score. MuseScore files (.mscz, .mscx) and MIDI files (.mid,
+                      .midi) are imported; :w then asks where to save the .vimscore. :e
+                      alone reads the file again, and :e! throws away changes
     :recent [filter]  Pick a score opened or saved before. Type to filter, <C-n> <C-p> or the
                       arrows to move, <CR> to open, <Esc> to close. It opens by itself
                       when vimscore starts, if there are any; <Esc> keeps the blank score
@@ -219,7 +220,17 @@ FILES
 
     Double-clicking a .vimscore file in Finder opens it in a new vimscore window, starting
     vimscore if it isn't running, and Finder shows them with vimscore's own file icon.
-    MuseScore files can be opened the same way with Open With.
+    MuseScore and MIDI files can be opened the same way with Open With.
+
+    A MIDI file says when notes start and stop, not how they're written, so importing one
+    writes them out. Each beat is written in sixteenths, thirty-seconds or triplets,
+    whichever its notes are closest to, and a note let go a little early is held to the
+    line it was meant for. Notes that overlap go in separate voices, up to four. Each
+    channel becomes a part, with a part of its own for each instrument a channel changes
+    to; channel 10 is drums. Tempo, time signature and key changes come in at the start of
+    the measure they fall in, channel volumes come in as the mixer's, and how hard notes
+    are struck comes in as a dynamic wherever a part gets louder or softer. Pitch bends,
+    pedals, lyrics and the like are left out.
 
     Opening, closing and starting a new score are refused while there are unsaved changes;
     add ! to go ahead anyway.
