@@ -11,12 +11,12 @@
  * that changes instrument becomes a part for each one. Channel 10 is drums. Tempos, time
  * signatures and keys come across at the start of the measure they fall in; channel volumes
  * become the mixer's, and velocities become a dynamic at the start of any measure where the
- * part gets louder or softer. Everything else, like pitch bends, pedals and lyrics, is left out.
+ * part gets a dynamic louder or softer. Everything else, like pitch bends, pedals and lyrics, is left out.
  */
 
 import { Composition } from '../composition/Composition';
 import { Duration, durationsFilling, notesFilling, restsFilling } from '../duration/Duration';
-import { DEFAULT_DYNAMIC, Dynamic, nearestDynamic } from '../dynamic/Dynamic';
+import { DEFAULT_DYNAMIC, DYNAMIC_STEP, Dynamic, dynamicVelocity, nearestDynamic } from '../dynamic/Dynamic';
 import { Chord, Event, Rest } from '../event/Event';
 import { fraction } from '../fraction/Fraction';
 import { generalMidiName } from '../instrument/Instrument';
@@ -28,7 +28,7 @@ import { spell } from '../pitch/Pitch';
 
 // Reading the file
 
-interface MidiNote {
+export interface MidiNote {
     track: number;
     channel: number;
     /** The program the channel was playing when the note started */
@@ -41,23 +41,32 @@ interface MidiNote {
     end: number;
 }
 
-interface Timed<T> {
+export interface Timed<T> {
     tick: number;
     value: T;
 }
 
-interface MidiFile {
+/**
+ * Notes as they're played, timed in ticks: what a MIDI file holds, and what other formats that
+ * only say when notes sound, like Organya's, are read into to be written out the same way
+ */
+export interface MidiFile {
     format: number;
     ticksPerQuarter: number;
     notes: MidiNote[];
+    /** Microseconds a quarter note */
     tempos: Timed<number>[];
     timeSignatures: Timed<TimeSignature>[];
     keys: Timed<KeySignature>[];
     /** Each track's name, if it has one */
     names: (string | undefined)[];
+    /** Where the music ends, when it's known: nothing plays from there */
+    end?: number;
+    /** A stretch played over again, marked with repeat barlines where it starts and ends on one */
+    loop?: { start: number; end: number };
 }
 
-const DRUM_CHANNEL = 9;
+export const DRUM_CHANNEL = 9;
 const VOLUME_CONTROLLER = 7;
 /** Bytes of data after each kind of channel message, by its high four bits */
 const DATA_BYTES: Record<number, number> = { 0x80: 2, 0x90: 2, 0xa0: 2, 0xb0: 2, 0xc0: 1, 0xd0: 1, 0xe0: 2 };
@@ -311,6 +320,7 @@ function snapEnd(windows: Window[], time: number, length: number): number {
     const { start, end, grid } = windowAt(windows, time);
     const offset = time - start;
     const below = Math.floor(offset / grid) * grid;
+    if (offset === below) return start + below;
     const toNext = below + grid - offset;
     const reaches = toNext <= length * EARLY_RELEASE || (offset - below > grid * LATE_RELEASE && toNext <= grid * RELEASE_REACH);
     return Math.min(end, start + (reaches ? below + grid : below));
@@ -424,7 +434,9 @@ function writeVoice(spans: Span[], measure: Measure, windows: Window[], spell: (
             const length = units((to - from) * scale);
             // Inside a triplet the beat is its eighths
             const beat = units(region.triplet ? UNITS_PER_WHOLE / 8 : measure.beat);
-            const values = stretch.span ? notesFilling(units(offset), length, beat) : restsFilling(units(offset), length);
+            // Rests in compound time keep its dotted beats clear too
+            const beatwise = stretch.span || (measure.compound && !region.triplet);
+            const values = beatwise ? notesFilling(units(offset), length, beat) : restsFilling(units(offset), length);
             inner.push(...piece(stretch, to, values));
         }
         if (region.triplet) events.push({ kind: 'tuplet', actual: 3, normal: 2, events: inner });
@@ -447,8 +459,11 @@ function dynamicsOf(notes: MidiNote[], measures: Measure[], measureOf: (time: nu
     for (let m = 0; m < measures.length; m++) {
         const list = velocities.get(m)?.sort((a, b) => a - b);
         if (!list) continue;
-        const dynamic = nearestDynamic(list[Math.floor(list.length / 2)]!);
-        if (dynamic !== current) marks.set(m, [{ offset: fraction(0), dynamic }]);
+        // Only a change of a whole dynamic or more, so accents don't flip it back and forth
+        const middle = list[Math.floor(list.length / 2)]!;
+        const dynamic = nearestDynamic(middle);
+        if (dynamic === current || Math.abs(middle - dynamicVelocity(current)) < DYNAMIC_STEP) continue;
+        marks.set(m, [{ offset: fraction(0), dynamic }]);
         current = dynamic;
     }
     return marks;
@@ -462,10 +477,24 @@ export function readMidi(data: Uint8Array): Composition | { error: string } {
         return { error: error instanceof Damaged && error.message ? error.message : 'Not a MIDI file, or a damaged one' };
     }
     if (file.notes.length === 0) return { error: 'No notes in it' };
+    return writeOut(file);
+}
 
+/** Writes notes as they're played out as a score, as the top of this file describes */
+export function writeOut(file: MidiFile): Composition {
     const toUnits = (tick: number) => (tick * UNITS_PER_QUARTER) / file.ticksPerQuarter;
-    const lastEnd = Math.max(...file.notes.map((note) => toUnits(note.end)));
+    const lastEnd = file.end === undefined ? Math.max(...file.notes.map((note) => toUnits(note.end))) : toUnits(file.end);
     const measures = layMeasures(file, lastEnd, toUnits);
+    if (file.loop) {
+        // Only on barlines, where repeat barlines can go
+        const first = measures.findIndex(({ start }) => start === toUnits(file.loop!.start));
+        const after = measures.findIndex(({ start }) => start === toUnits(file.loop!.end));
+        const last = after === -1 && toUnits(file.loop.end) === measures.at(-1)!.start + measures.at(-1)!.length ? measures.length - 1 : after - 1;
+        if (first !== -1 && last >= first) {
+            measures[first]!.info.repeatStart = true;
+            measures[last]!.info.repeatEnd = true;
+        }
+    }
     const measureOf = (time: number) => lastStarting(measures, time);
     const plainWindows = windowsOf(measures);
     // Nothing snaps past the last barline

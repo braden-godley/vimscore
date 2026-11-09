@@ -131,6 +131,15 @@ describe('readMidi', () => {
         expect(written(imported, 0, 0)).toBe('60/q 62/8 r/8 r/h');
     });
 
+    it('keeps a long note that ends right on a line from reaching on to the next', () => {
+        // A note held three and a half beats, to the barline, then another
+        const file = smf(0, 4, track([2, 0x90, 65, 80], [14, 0x80, 65, 0], [0, 0x90, 57, 80], [1, 0x80, 57, 0]));
+        const imported = read(file);
+        expect(written(imported, 0, 0)).toBe('r/8 65~/8 65/h.');
+        expect(written(imported, 0, 1)).toBe('57/16 r/16 r/8 r/q r/h');
+        expect(imported.parts[0]!.measures[1]!.voices).toHaveLength(1);
+    });
+
     it('reads running status, and a note on with no velocity as a note off', () => {
         const file = smf(0, 96, track([0, 0x90, 60, 80], [96, 60, 0], [0, 64, 80], [96, 64, 0]));
         expect(written(read(file), 0, 0)).toBe('60/q 64/q r/h');

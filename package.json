@@ -97,6 +97,12 @@
         "name": "MIDI file",
         "role": "Viewer",
         "rank": "Alternate"
+      },
+      {
+        "ext": "org",
+        "name": "Organya song",
+        "role": "Viewer",
+        "rank": "Alternate"
       }
     ]
   }

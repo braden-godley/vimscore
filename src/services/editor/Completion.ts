@@ -15,8 +15,8 @@ const SCORE = ['vimscore'];
 const EXTENSIONS: Partial<Record<Command['name'], string[]>> = {
     write: SCORE,
     writeQuit: SCORE,
-    edit: ['vimscore', 'mscz', 'mscx', 'mid', 'midi'],
-    newWindow: ['vimscore', 'mscz', 'mscx', 'mid', 'midi'],
+    edit: ['vimscore', 'mscz', 'mscx', 'mid', 'midi', 'org'],
+    newWindow: ['vimscore', 'mscz', 'mscx', 'mid', 'midi', 'org'],
     soundfont: ['sf2', 'sf3', 'dls'],
     addSoundfont: ['sf2', 'sf3', 'dls'],
 };

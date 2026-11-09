@@ -9,6 +9,7 @@ import { Session, startSession } from '../session/Session';
 import { FileCommand } from '../editor/CommandLine';
 import { readMuseScore } from '../import/MuseScore';
 import { readMidi } from '../import/Midi';
+import { readOrganya } from '../import/Organya';
 import { EXTENSION, readScore, writeScore } from './ScoreFile';
 
 /** What the app gives the commands to work with files */
@@ -91,10 +92,11 @@ async function write(document: Document, host: FileHost, typed: string | undefin
 const IMPORTERS: { extension: RegExp; read: (data: Uint8Array) => Composition | { error: string } }[] = [
     { extension: /\.msc[zx]$/i, read: readMuseScore },
     { extension: /\.midi?$/i, read: readMidi },
+    { extension: /\.org$/i, read: readOrganya },
 ];
 
 /**
- * Opens a MuseScore or MIDI file as a new score. It isn't saved anywhere yet, so `:w` asks
+ * Opens a MuseScore, MIDI or Organya file as a new score. It isn't saved anywhere yet, so `:w` asks
  * where, suggesting a `.vimscore` beside it rather than writing over the file it came from. It
  * plays through the soundfonts `blank` scores start with.
  */

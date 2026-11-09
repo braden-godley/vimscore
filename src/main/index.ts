@@ -4,12 +4,13 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
 const SCORE_FILTERS = [{ name: 'vimscore', extensions: ['vimscore'] }];
-/** Opening also reads MuseScore and MIDI files, converting them */
+/** Opening also reads MuseScore, MIDI and Organya files, converting them */
 const OPEN_FILTERS = [
-    { name: 'Scores', extensions: ['vimscore', 'mscz', 'mscx', 'mid', 'midi'] },
+    { name: 'Scores', extensions: ['vimscore', 'mscz', 'mscx', 'mid', 'midi', 'org'] },
     { name: 'vimscore', extensions: ['vimscore'] },
     { name: 'MuseScore', extensions: ['mscz', 'mscx'] },
     { name: 'MIDI', extensions: ['mid', 'midi'] },
+    { name: 'Organya', extensions: ['org'] },
 ];
 const SOUNDFONT_FILTERS = [{ name: 'Soundfonts', extensions: ['sf2', 'sf3', 'dls'] }];
 

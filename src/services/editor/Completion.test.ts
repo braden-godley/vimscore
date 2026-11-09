@@ -13,9 +13,9 @@ const list = async (typed: string) => FOLDERS[typed] ?? [];
 
 describe('pathArgument', () => {
     it('finds the file name of the commands that take one', () => {
-        expect(pathArgument('e Scores/W')).toEqual({ before: 'e ', path: 'Scores/W', extensions: ['vimscore', 'mscz', 'mscx', 'mid', 'midi'] });
+        expect(pathArgument('e Scores/W')).toEqual({ before: 'e ', path: 'Scores/W', extensions: ['vimscore', 'mscz', 'mscx', 'mid', 'midi', 'org'] });
         expect(pathArgument('w! my score')).toMatchObject({ before: 'w! ', path: 'my score' });
-        expect(pathArgument('new Sc')).toMatchObject({ path: 'Sc', extensions: ['vimscore', 'mscz', 'mscx', 'mid', 'midi'] });
+        expect(pathArgument('new Sc')).toMatchObject({ path: 'Sc', extensions: ['vimscore', 'mscz', 'mscx', 'mid', 'midi', 'org'] });
         expect(pathArgument('sf ~/pi')).toMatchObject({ path: '~/pi', extensions: ['sf2', 'sf3', 'dls'] });
         expect(pathArgument('export mid ou')).toMatchObject({ before: 'export mid ', path: 'ou', extensions: ['mid'] });
     });

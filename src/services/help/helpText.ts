@@ -190,17 +190,17 @@ THE COMMAND LINE
                       first is filled in; <Tab> again goes to the next, <S-Tab> back, and past
                       the last comes back to what was typed. Type to keep the one shown; with
                       a folder, <Tab> then completes inside it. Offers folders, and the files
-                      the command takes: scores for :w, :e and :new (and MuseScore and MIDI
-                      files for :e and :new), soundfonts for :soundfont and :addsf, the
-                      format's files for :export. Names are from the score's folder (or
+                      the command takes: scores for :w, :e and :new (and MuseScore, MIDI
+                      and Organya files for :e and :new), soundfonts for :soundfont and
+                      :addsf, the format's files for :export. Names are from the score's folder (or
                       home), ~ is home
 
 FILES
     :w [file]         Save, asking where if the score has never been saved. A name without an
                       extension gets .vimscore. :w! file writes over a file that's there
-    :e [file]         Open a score. MuseScore files (.mscz, .mscx) and MIDI files (.mid,
-                      .midi) are imported; :w then asks where to save the .vimscore. :e
-                      alone reads the file again, and :e! throws away changes
+    :e [file]         Open a score. MuseScore (.mscz, .mscx), MIDI (.mid, .midi) and
+                      Organya (.org) files are imported; :w then asks where to save the
+                      .vimscore. :e alone reads the file again, and :e! throws away changes
     :recent [filter]  Pick a score opened or saved before. Type to filter, <C-n> <C-p> or the
                       arrows to move, <CR> to open, <Esc> to close. It opens by itself
                       when vimscore starts, if there are any; <Esc> keeps the blank score
@@ -220,7 +220,7 @@ FILES
 
     Double-clicking a .vimscore file in Finder opens it in a new vimscore window, starting
     vimscore if it isn't running, and Finder shows them with vimscore's own file icon.
-    MuseScore and MIDI files can be opened the same way with Open With.
+    MuseScore, MIDI and Organya files can be opened the same way with Open With.
 
     A MIDI file says when notes start and stop, not how they're written, so importing one
     writes them out. Each beat is written in sixteenths, thirty-seconds or triplets,
@@ -231,6 +231,15 @@ FILES
     the measure they fall in, channel volumes come in as the mixer's, and how hard notes
     are struck comes in as a dynamic wherever a part gets louder or softer. Pitch bends,
     pedals, lyrics and the like are left out.
+
+    Organya songs, like Cave Story's music, are written out the same way. Each melodic
+    track becomes a part named for its waveform, like Wave 11. Organya's waveforms aren't
+    General MIDI instruments, so they play a square lead, or a synth bass for a low track,
+    until :instrument picks another. The drum tracks become one drum part. A song loops,
+    so it ends where the loop does, with repeat barlines around the loop if it starts and
+    ends on barlines. A song with three or six steps to the beat is written in compound
+    time, like 12/8. Note volumes come in as dynamics; changes of volume while a note
+    sounds, and panning, are left out.
 
     Opening, closing and starting a new score are refused while there are unsaved changes;
     add ! to go ahead anyway.
